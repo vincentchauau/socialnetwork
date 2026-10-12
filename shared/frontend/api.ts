@@ -15,6 +15,7 @@ const REFRESH_PATH = "/api/center/auth/refresh";
 const NO_REFRESH_PATHS = new Set([
   "/api/center/auth/me",
   "/api/center/auth/login",
+  "/api/center/auth/login/biometric",
   "/api/center/auth/login/biometric-only",
   "/api/center/auth/register",
   "/api/center/auth/google",

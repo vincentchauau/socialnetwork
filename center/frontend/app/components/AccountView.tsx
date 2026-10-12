@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 
 import Alert from "./Alert";
+import Biometric2faToggle from "./Biometric2faToggle";
 import BiometricLoginToggle from "./BiometricLoginToggle";
 import DeleteAccount from "./DeleteAccount";
 import EnrollBiometrics from "./EnrollBiometrics";
 import LinkGoogle from "./LinkGoogle";
+import LoginMethods from "./LoginMethods";
 import PasswordForm from "./PasswordForm";
 import RemoveBiometrics from "./RemoveBiometrics";
 import { CARD, PRIMARY_BUTTON, SECTION } from "./ui";
@@ -62,21 +64,32 @@ export default function AccountView() {
       <h1 className="text-2xl font-bold mb-2">Xin chào, {me.username}</h1>
       <p className="mb-1">Vai trò: {me.role}</p>
       <p className="mb-1 text-sm text-gray-600">Email: {me.email ?? "chưa có"}</p>
-      <p className="mb-4 text-sm text-gray-600">
-        Giọng nói: {me.has_audio ? "đã đăng ký" : "chưa"} · Khuôn mặt: {me.has_face ? "đã đăng ký" : "chưa"}
-        {config.biometrics_enabled && " (dùng cho đăng nhập không mật khẩu tùy chọn)"}
-      </p>
+      <p className="mb-4 text-sm text-gray-600">Quản lý các cách đăng nhập của bạn ngay bên dưới.</p>
 
-      <PasswordForm hasPassword={me.has_password} onDone={reload} />
+      <LoginMethods me={me} config={config} onDone={reload} />
+
+      <div id="doi-mat-khau">
+        <PasswordForm hasPassword={me.has_password} onDone={reload} />
+      </div>
 
       {config.google_client_id && !me.google_linked && (
-        <LinkGoogle clientId={config.google_client_id} hasPassword={me.has_password} onDone={reload} />
+        <div id="lien-ket-google">
+          <LinkGoogle clientId={config.google_client_id} hasPassword={me.has_password} onDone={reload} />
+        </div>
       )}
 
       {config.biometrics_enabled && (
         <>
-          <EnrollBiometrics hasPassword={me.has_password} hasAudio={me.has_audio} hasFace={me.has_face} onDone={reload} />
-          {hasBoth && <BiometricLoginToggle enabled={me.biometric_login} hasPassword={me.has_password} onDone={reload} />}
+          <div id="giong-noi-khuon-mat">
+            <EnrollBiometrics hasPassword={me.has_password} hasAudio={me.has_audio} hasFace={me.has_face} onDone={reload} />
+          </div>
+          <BiometricLoginToggle enabled={me.biometric_login} hasPassword={me.has_password} ready={hasBoth} onDone={reload} />
+          <Biometric2faToggle
+            enabled={me.require_biometric_2fa}
+            hasPassword={me.has_password}
+            ready={me.has_audio || me.has_face}
+            onDone={reload}
+          />
           {(me.has_audio || me.has_face) && <RemoveBiometrics hasPassword={me.has_password} onDone={reload} />}
         </>
       )}

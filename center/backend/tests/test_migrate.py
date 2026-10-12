@@ -8,6 +8,7 @@ from sn_shared import hash_password as bcrypt_hash
 
 NEW_COLUMNS = {
     "email", "google_sub", "role", "token_version", "audio_embedding", "face_embedding", "biometric_login",
+    "biometric_2fa",
 }  # fmt: skip
 
 
@@ -104,3 +105,23 @@ def test_app_upgrades_old_database_and_legacy_user_can_log_in_and_is_rehashed(tm
     assert stored.startswith("scrypt$")  # transparently upgraded from bcrypt
     with TestClient(app) as client:  # and the new hash works
         assert client.post("/auth/login", json={"username": "olduser", "password": "legacy-pass-1"}).status_code == 200
+
+
+def test_biometric_2fa_column_is_added_off_by_default_to_existing_rows(tmp_path):
+    engine = make_engine(make_old_db(tmp_path / "old.db"))
+
+    assert "biometric_2fa" in ensure_columns(engine)
+
+    columns = {c["name"]: c for c in sa.inspect(engine).get_columns("users")}
+    assert not columns["biometric_2fa"]["nullable"]
+    with engine.connect() as conn:
+        assert conn.execute(sa.text("SELECT biometric_2fa FROM users")).scalar_one() == 0
+    assert "biometric_2fa" not in ensure_columns(engine)
+
+
+def test_database_missing_only_biometric_2fa_gets_just_that_column(tmp_path):
+    engine = make_engine(make_old_db(tmp_path / "old.db"))
+    ensure_columns(engine)
+    with engine.begin() as conn:
+        conn.execute(sa.text("ALTER TABLE users DROP COLUMN biometric_2fa"))
+    assert ensure_columns(engine) == ["biometric_2fa"]

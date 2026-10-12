@@ -70,7 +70,43 @@ describe("blob limits", () => {
 describe("API helpers", () => {
   it("password login returns the session", async () => {
     mockFetch(() => jsonResponse(session));
-    expect(await auth.loginWithPassword("a", "b")).toEqual(session);
+    expect(await auth.loginWithPassword("a", "b")).toEqual({ kind: "session", session });
+  });
+
+  it("password login reports a pending second factor instead of a session", async () => {
+    mockFetch(() => jsonResponse({ mfa_required: true, mfa_token: "tok" }));
+    expect(await auth.loginWithPassword("a", "b")).toEqual({ kind: "mfa", mfaToken: "tok" });
+  });
+
+  it("google login reports a pending second factor instead of a session", async () => {
+    mockFetch(() => jsonResponse({ mfa_required: true, mfa_token: "tok" }));
+    await expect(auth.loginWithGoogle("idt")).resolves.toEqual({ kind: "mfa", mfaToken: "tok" });
+  });
+
+  it("the second-factor call sends the mfa token and the recording to the biometric route", async () => {
+    const fetchMock = mockFetch(() => jsonResponse(session));
+    await auth.loginWithBiometrics("tok", new Blob(["a"]), new Blob(["v"]));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/center/auth/login/biometric");
+    const body = init.body as FormData;
+    expect(body.get("mfa_token")).toBe("tok");
+    expect(body.get("audio")).toBeInstanceOf(File);
+    expect(body.get("video")).toBeInstanceOf(File);
+  });
+
+  it("the second-factor switch and Google unlink use the right routes and verbs", async () => {
+    setCsrfToken("tok");
+    const fetchMock = mockFetch(() => jsonResponse({}));
+    await auth.setBiometric2fa(true, "pw");
+    await auth.unlinkGoogle("pw");
+    const [[url1, init1], [url2, init2]] = fetchMock.mock.calls;
+    expect(url1).toBe("/api/center/auth/me/biometric-2fa");
+    expect(init1.method).toBe("PUT");
+    expect((init1.body as FormData).get("enabled")).toBe("true");
+    expect((init1.body as FormData).get("password")).toBe("pw");
+    expect(url2).toBe("/api/center/auth/me/google");
+    expect(init2.method).toBe("DELETE");
+    expect(init2.body).toBe(JSON.stringify({ password: "pw" }));
   });
 
   it("sends biometric multipart bodies with csrf for account calls", async () => {
@@ -106,7 +142,7 @@ describe("API helpers", () => {
 
   it("google login returns the session", async () => {
     mockFetch(() => jsonResponse(session));
-    await expect(auth.loginWithGoogle("idt")).resolves.toEqual(session);
+    await expect(auth.loginWithGoogle("idt")).resolves.toEqual({ kind: "session", session });
   });
 
   it("delete and logout use the right verbs", async () => {

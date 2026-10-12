@@ -1,4 +1,4 @@
-"""Center-only token kinds (refresh) and CSRF tokens bound to the access token."""
+"""Center-only token kinds (refresh, mfa) and CSRF tokens bound to the access token."""
 
 import hashlib
 import hmac
@@ -9,6 +9,9 @@ import jwt
 from sn_shared.security import ALGORITHM, ISSUER, AuthError, get_jwt_secret
 
 
+MFA_TTL_SECONDS = 5 * 60
+
+
 def _make(typ: str, user_id: int, ver: int, ttl_seconds: int) -> str:
     now = int(time.time())
     claims = {"iss": ISSUER, "sub": str(user_id), "typ": typ, "ver": ver, "iat": now, "exp": now + ttl_seconds}
@@ -17,6 +20,10 @@ def _make(typ: str, user_id: int, ver: int, ttl_seconds: int) -> str:
 
 def create_refresh_token(user_id: int, ver: int, ttl_seconds: int) -> str:
     return _make("refresh", user_id, ver, ttl_seconds)
+
+
+def create_mfa_token(user_id: int, ver: int, ttl_seconds: int = MFA_TTL_SECONDS) -> str:
+    return _make("mfa", user_id, ver, ttl_seconds)
 
 
 def decode_typed(token: str, typ: str) -> tuple[int, int]:

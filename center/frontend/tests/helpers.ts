@@ -30,6 +30,7 @@ export const me: Me = {
   has_audio: false,
   has_face: false,
   biometric_login: false,
+  require_biometric_2fa: false,
   passwordless_ready: false,
 };
 

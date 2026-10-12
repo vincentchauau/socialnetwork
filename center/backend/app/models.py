@@ -30,6 +30,8 @@ class User(Base):
     audio_embedding: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     face_embedding: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     biometric_login: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Opt-in second factor after password/Google; OFF unless the user turns it on.
+    biometric_2fa: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     @property
     def has_password(self) -> bool:

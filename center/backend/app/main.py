@@ -26,6 +26,7 @@ REGISTER_WINDOW_SECONDS = 600.0
 REFRESH_MAX_PER_IP = 60
 REFRESH_WINDOW_SECONDS = 300.0
 REAUTH_MAX_FAILURES = 5
+BIOMETRIC_MAX_FAILURES = 5  # second factor, per (ip, user)
 BIOMETRIC_ONLY_MAX_ATTEMPTS = 3  # passwordless login, per (ip, user)
 BIOMETRIC_WINDOW_SECONDS = 900.0
 BIOMETRIC_ACCOUNT_FACTOR = 4
@@ -48,6 +49,8 @@ def _install_throttles(app: FastAPI) -> None:
     )
     state.reauth_throttle = AttemptThrottle(max_attempts=REAUTH_MAX_FAILURES)
     window = BIOMETRIC_WINDOW_SECONDS
+    state.bio_throttle = AttemptThrottle(BIOMETRIC_MAX_FAILURES, window)
+    state.bio_account_throttle = AttemptThrottle(BIOMETRIC_MAX_FAILURES * BIOMETRIC_ACCOUNT_FACTOR, window)
     state.alone_throttle = AttemptThrottle(BIOMETRIC_ONLY_MAX_ATTEMPTS, window)
     state.alone_account_throttle = AttemptThrottle(BIOMETRIC_ONLY_MAX_ATTEMPTS * BIOMETRIC_ACCOUNT_FACTOR, window)
     state.enroll_throttle = AttemptThrottle(ENROLL_MAX_PER_HOUR, 3600.0)

@@ -29,7 +29,7 @@ export default function RemoveBiometrics({ hasPassword, onDone }: Props) {
     <form onSubmit={submit} aria-label="Xóa giọng nói và khuôn mặt" className={SECTION}>
       <h2 className="font-bold mb-1">Xóa dữ liệu giọng nói và khuôn mặt</h2>
       <p className="text-sm text-gray-600 mb-3">
-        Xóa sẽ tắt đăng nhập không mật khẩu; đăng nhập bằng mật khẩu hoặc Google không đổi.
+        Xóa sẽ tắt cả đăng nhập không mật khẩu lẫn yêu cầu xác minh sau đăng nhập; đăng nhập bằng mật khẩu hoặc Google không đổi.
       </p>
       {hasPassword && (
         <>

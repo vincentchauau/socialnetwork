@@ -10,6 +10,7 @@ from app.config import ConfigError, Settings
 from app.crypto import TemplateCipher
 from app.main import create_app
 from app.models import User
+from app.tokens import create_mfa_token
 from tests.fakes import FakeBiometrics
 from tests.helpers import CREDS, csrf, register
 
@@ -42,18 +43,42 @@ def enrolled(bio_client):
     return bio_client
 
 
+def set_2fa(client, session, enabled=True, data=None):
+    return client.put(
+        "/auth/me/biometric-2fa", data={"enabled": str(enabled).lower(), **(data or PW)}, headers=csrf(session)
+    )
+
+
+@pytest.fixture
+def enrolled_2fa(bio_client):
+    """Alice with voice + face enrolled and the second factor switched ON, then signed out."""
+    session = register(bio_client)
+    assert enroll(bio_client, session).status_code == 200
+    assert set_2fa(bio_client, session).status_code == 200
+    bio_client.cookies.clear()
+    return bio_client
+
+
+def mfa_token(client):
+    body = client.post("/auth/login", json=CREDS).json()
+    assert body["mfa_required"] is True
+    return body["mfa_token"]
+
+
 # --- feature flag -----------------------------------------------------------------------------
 
 
 def test_disabled_by_default_every_route_is_503(client):
     session = register(client)
     attempts = [
+        client.post("/auth/login/biometric", data={"mfa_token": "x"}),
         client.post("/auth/login/biometric-only", data={"username": "alice"}),
         client.post("/auth/me/biometrics", data=PW, headers=csrf(session)),
         client.put("/auth/me/biometric-login", data={"enabled": "true", **PW}, headers=csrf(session)),
+        client.put("/auth/me/biometric-2fa", data={"enabled": "true", **PW}, headers=csrf(session)),
         client.request("DELETE", "/auth/me/biometrics", data=PW, headers=csrf(session)),
     ]
-    assert [r.status_code for r in attempts] == [503] * 4
+    assert [r.status_code for r in attempts] == [503] * 6
     assert attempts[0].json() == {"detail": "Biometrics are not available"}
     assert client.get("/auth/config").json()["biometrics_enabled"] is False
 
@@ -91,7 +116,8 @@ def test_enroll_stores_encrypted_templates_and_reports_state(bio_client):
     session = register(bio_client)
     response = enroll(bio_client, session)
     assert response.json() == {
-        "has_audio": True, "has_face": True, "biometric_login": False, "passwordless_ready": True,
+        "has_audio": True, "has_face": True, "biometric_login": False, "require_biometric_2fa": False,
+        "passwordless_ready": True,
     }  # fmt: skip
     me = bio_client.get("/auth/me").json()
     assert (me["has_audio"], me["has_face"]) == (True, True)
@@ -156,20 +182,54 @@ def test_biometric_login_opt_in_needs_both_samples(bio_client):
     assert bio_client.get("/auth/me").json()["biometric_login"] is True
 
 
-def test_delete_biometrics_clears_everything_and_disables_biometric_login(bio_client):
+def test_delete_biometrics_clears_everything_and_switches_off_both_toggles(bio_client):
     session = register(bio_client)
     enroll(bio_client, session)
     bio_client.put("/auth/me/biometric-login", data={"enabled": "true", **PW}, headers=csrf(session))
+    set_2fa(bio_client, session)
     assert bio_client.request("DELETE", "/auth/me/biometrics", headers=csrf(session)).status_code == 403
     response = bio_client.request("DELETE", "/auth/me/biometrics", data=PW, headers=csrf(session))
     assert response.json() == {
-        "has_audio": False, "has_face": False, "biometric_login": False, "passwordless_ready": False,
+        "has_audio": False, "has_face": False, "biometric_login": False, "require_biometric_2fa": False,
+        "passwordless_ready": False,
     }  # fmt: skip
+    me = bio_client.get("/auth/me").json()
+    assert (me["biometric_login"], me["require_biometric_2fa"]) == (False, False)
     bio_client.cookies.clear()
     assert bio_client.post("/auth/login", json=CREDS).status_code == 200
 
 
-# --- password / Google login ignore biometrics ----------------------------------------------
+def test_second_factor_opt_in_needs_an_enrolled_sample_and_the_password(bio_client):
+    session = register(bio_client)
+    assert set_2fa(bio_client, session).status_code == 422  # nothing enrolled
+    enroll(bio_client, session, audio=None, video=("v.webm", b"silent-video"))  # one factor is enough
+    assert bio_client.put("/auth/me/biometric-2fa", data={"enabled": "true"}, headers=csrf(session)).status_code == 403
+    assert bio_client.put("/auth/me/biometric-2fa", data={"enabled": "true", **PW}).status_code == 403  # csrf
+    ok = set_2fa(bio_client, session)
+    assert ok.status_code == 200 and ok.json()["require_biometric_2fa"] is True
+    assert ok.json()["biometric_login"] is False  # independent toggles
+    assert bio_client.get("/auth/me").json()["require_biometric_2fa"] is True
+
+
+def test_second_factor_can_always_be_switched_off(bio_client):
+    session = register(bio_client)
+    enroll(bio_client, session)
+    set_2fa(bio_client, session)
+    off = set_2fa(bio_client, session, enabled=False)
+    assert off.status_code == 200 and off.json()["require_biometric_2fa"] is False
+    assert set_2fa(bio_client, session, enabled=False).status_code == 200  # idempotent
+
+
+def test_google_only_account_toggles_second_factor_without_a_password(bio_client):
+    from tests.fakes import fake_google_verifier
+
+    bio_client.app.state.google_verifier = fake_google_verifier
+    session = bio_client.post("/auth/google", json={"id_token": "g1|gina@example.com"}).json()
+    assert enroll(bio_client, session, data={}).status_code == 200
+    assert set_2fa(bio_client, session, data={}).json()["require_biometric_2fa"] is True
+
+
+# --- default OFF: password / Google login ignore enrolled biometrics ------------------------
 
 
 def test_password_login_of_an_enrolled_account_signs_straight_in(enrolled):
@@ -208,14 +268,6 @@ def test_enrolled_account_can_log_in_with_password_when_biometrics_are_switched_
     assert client.get("/auth/me").json()["has_audio"] is True
 
 
-def test_login_biometric_second_factor_route_and_mfa_are_gone(bio_client):
-    assert bio_client.post("/auth/login/biometric", data={"mfa_token": "x"}).status_code in (404, 405)
-    spec = bio_client.get("/openapi.json").text.lower()
-    assert "/auth/login/biometric\"" not in spec and "mfa" not in spec
-    assert "/auth/login/biometric-only" in spec
-    assert not hasattr(bio_client.app.state, "bio_throttle")
-
-
 def test_enroll_response_says_passwordless_needs_both_samples(bio_client):
     session = register(bio_client)
     one = enroll(bio_client, session, audio=None, video=("v.webm", b"silent-video")).json()
@@ -224,6 +276,199 @@ def test_enroll_response_says_passwordless_needs_both_samples(bio_client):
     both = enroll(bio_client, session).json()
     assert both["passwordless_ready"] is True
     assert bio_client.get("/auth/me").json()["passwordless_ready"] is True
+
+
+# --- second factor (opt-in) ---------------------------------------------------------------------
+
+
+def test_password_login_returns_an_mfa_challenge_without_cookies(enrolled_2fa):
+    response = enrolled_2fa.post("/auth/login", json=CREDS)
+    body = response.json()
+    assert set(body) == {"mfa_required", "mfa_token"} and body["mfa_required"] is True
+    assert "set-cookie" not in response.headers
+    assert enrolled_2fa.get("/auth/me").status_code == 401
+
+
+def test_mfa_token_is_a_five_minute_typed_token_bound_to_user_and_version(enrolled_2fa):
+    import jwt
+
+    from sn_shared.security import ALGORITHM, ISSUER, get_jwt_secret
+
+    claims = jwt.decode(mfa_token(enrolled_2fa), get_jwt_secret(), algorithms=[ALGORITHM], issuer=ISSUER)
+    assert claims["typ"] == "mfa" and claims["ver"] == 0 and claims["exp"] - claims["iat"] == 300
+
+
+def test_google_login_with_second_factor_on_returns_a_challenge_without_cookies(bio_client):
+    from tests.fakes import fake_google_verifier
+
+    bio_client.app.state.google_verifier = fake_google_verifier
+    session = bio_client.post("/auth/google", json={"id_token": "g1|gina@example.com"}).json()
+    enroll(bio_client, session, data={})
+    set_2fa(bio_client, session, data={})
+    bio_client.cookies.clear()
+    response = bio_client.post("/auth/google", json={"id_token": "g1|gina@example.com"})
+    assert response.json()["mfa_required"] is True and "set-cookie" not in response.headers
+    assert bio_client.get("/auth/me").status_code == 401
+
+
+def test_switching_the_second_factor_off_again_restores_direct_login(bio_client):
+    session = register(bio_client)
+    enroll(bio_client, session)
+    set_2fa(bio_client, session)
+    set_2fa(bio_client, session, enabled=False)
+    bio_client.cookies.clear()
+    assert "mfa_required" not in bio_client.post("/auth/login", json=CREDS).json()
+
+
+def test_mfa_with_matching_samples_issues_a_session(enrolled_2fa):
+    response = enrolled_2fa.post(
+        "/auth/login/biometric", data={"mfa_token": mfa_token(enrolled_2fa)}, files=files(VOICE, FACE)
+    )
+    assert response.status_code == 200
+    assert response.json()["username"] == "alice" and response.json()["csrf_token"]
+    assert enrolled_2fa.get("/auth/me").status_code == 200
+    assert set(c.split("=")[0] for c in response.headers.get_list("set-cookie")) == {"sn_token", "sn_refresh"}
+    assert set(enrolled_2fa.app.state.biometrics.strict_calls) == {False}  # normal thresholds
+
+
+def test_mfa_needs_every_enrolled_factor_even_when_the_voice_matches_via_video(enrolled_2fa):
+    video = ("v.webm", b"alice-voice-sample")  # fake engine derives both embeddings from the same bytes
+    response = enrolled_2fa.post(
+        "/auth/login/biometric", data={"mfa_token": mfa_token(enrolled_2fa)}, files=files(None, video)
+    )
+    assert response.status_code == 401  # face differs: every factor must match
+
+
+@pytest.mark.parametrize(
+    "probe",
+    [
+        files(("a.webm", b"someone-else-voice"), FACE),  # wrong voice
+        files(VOICE, ("v.webm", b"someone-else-face")),  # wrong face
+        files(VOICE, None),  # missing face
+        files(None, FACE),  # missing voice
+        {},  # nothing at all
+        files(("a.webm", b"bad"), FACE),  # unusable sample
+    ],
+)
+def test_mfa_rejects_wrong_or_missing_samples(enrolled_2fa, probe):
+    response = enrolled_2fa.post(
+        "/auth/login/biometric", data={"mfa_token": mfa_token(enrolled_2fa)}, files=probe or None
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Biometric verification failed"
+    assert enrolled_2fa.get("/auth/me").status_code == 401
+
+
+def test_mfa_with_one_enrolled_factor_needs_only_that_factor(bio_client):
+    session = register(bio_client)
+    enroll(bio_client, session, audio=VOICE, video=None)
+    set_2fa(bio_client, session)
+    bio_client.cookies.clear()
+    ok = bio_client.post("/auth/login/biometric", data={"mfa_token": mfa_token(bio_client)}, files=files(VOICE))
+    assert ok.status_code == 200
+
+
+def test_mfa_token_must_be_valid_unexpired_and_typed(enrolled_2fa):
+    import time
+
+    from tests.helpers import forge
+
+    good = mfa_token(enrolled_2fa)
+    uid = enrolled_2fa.app.state.session_factory().scalar(select(User.id))
+    candidates = [
+        good[:-3] + "abc",
+        "garbage",
+        forge({"sub": str(uid), "typ": "mfa", "ver": 0, "exp": int(time.time()) - 1}),
+        forge({"sub": str(uid), "typ": "refresh", "ver": 0}),
+        forge({"sub": str(uid), "typ": "mfa", "ver": 0}, secret="z" * 40),
+        forge({"sub": str(uid), "typ": "mfa", "ver": 7}),  # revoked: ver no longer matches
+        create_mfa_token(9999, 0),  # user gone
+    ]
+    for token in candidates:
+        r = enrolled_2fa.post("/auth/login/biometric", data={"mfa_token": token}, files=files(VOICE, FACE))
+        assert r.status_code == 401, token
+        assert r.json()["detail"] == "Invalid or expired login session"
+
+
+def test_mfa_failures_are_throttled_per_user_and_ip(enrolled_2fa):
+    token = mfa_token(enrolled_2fa)
+    wrong = files(("a.webm", b"nope"), FACE)
+    codes = [
+        enrolled_2fa.post("/auth/login/biometric", data={"mfa_token": token}, files=wrong).status_code
+        for _ in range(7)
+    ]
+    assert codes[:5] == [401] * 5 and codes[5:] == [429, 429]
+    # Even the right sample is refused while locked.
+    right = enrolled_2fa.post("/auth/login/biometric", data={"mfa_token": token}, files=files(VOICE, FACE))
+    assert right.status_code == 429
+
+
+def test_mfa_account_wide_lock_across_addresses(enrolled_2fa):
+    token = mfa_token(enrolled_2fa)
+    codes = []
+    for index in range(24):
+        attacker = TestClient(enrolled_2fa.app, client=(f"198.51.100.{index}", 5000))
+        wrong = files(("a.webm", b"nope"), FACE)
+        codes.append(attacker.post("/auth/login/biometric", data={"mfa_token": token}, files=wrong).status_code)
+    assert codes[0] == 401 and codes[-1] == 429
+
+
+def test_mfa_success_resets_the_counter(enrolled_2fa):
+    token = mfa_token(enrolled_2fa)
+    wrong = files(("a.webm", b"nope"), FACE)
+    for _ in range(4):
+        enrolled_2fa.post("/auth/login/biometric", data={"mfa_token": token}, files=wrong)
+    ok = enrolled_2fa.post("/auth/login/biometric", data={"mfa_token": token}, files=files(VOICE, FACE))
+    assert ok.status_code == 200
+    for _ in range(4):
+        assert enrolled_2fa.post("/auth/login/biometric", data={"mfa_token": token}, files=wrong).status_code == 401
+
+
+def test_password_login_fails_closed_when_biometrics_are_switched_off_server_wide(client):
+    """Never silently skip a second factor the user asked for: 503, and no cookies."""
+    register(client)  # `client` runs with BIOMETRICS_ENABLED unset
+    with client.app.state.session_factory() as db:
+        user = db.scalar(select(User))
+        user.audio_embedding, user.biometric_2fa = b"x", True
+        db.commit()
+    client.cookies.clear()
+    response = client.post("/auth/login", json=CREDS)
+    assert response.status_code == 503 and response.json() == {"detail": "Biometrics are not available"}
+    assert "set-cookie" not in response.headers and client.get("/auth/me").status_code == 401
+
+
+def test_google_login_fails_closed_too(google_client):
+    from sqlalchemy import update
+
+    google_client.post("/auth/google", json={"id_token": "g1|gina@example.com"})
+    with google_client.app.state.session_factory() as db:
+        db.execute(update(User).values(audio_embedding=b"x", biometric_2fa=True))
+        db.commit()
+    google_client.cookies.clear()
+    assert google_client.post("/auth/google", json={"id_token": "g1|gina@example.com"}).status_code == 503
+
+
+def test_second_factor_flag_without_samples_does_not_block_login(client):
+    register(client)
+    with client.app.state.session_factory() as db:
+        user = db.scalar(select(User))
+        user.biometric_2fa = True  # inconsistent row: nothing enrolled, nothing to verify
+        db.commit()
+    client.cookies.clear()
+    assert client.post("/auth/login", json=CREDS).status_code == 200
+
+
+def test_openapi_documents_the_second_factor_routes(bio_client):
+    spec = bio_client.get("/openapi.json").text
+    assert '"/auth/login/biometric"' in spec and '"/auth/me/biometric-2fa"' in spec
+    assert "/auth/login/biometric-only" in spec and "MfaRequired" in spec
+
+
+def test_body_limit_covers_the_second_factor_path():
+    from app.bodylimit import BIOMETRIC_MAX_BYTES, DEFAULT_MAX_BYTES, limit_for
+
+    assert limit_for("/auth/login/biometric", True) == BIOMETRIC_MAX_BYTES
+    assert limit_for("/auth/login/biometric", False) == DEFAULT_MAX_BYTES
 
 
 # --- biometric-only login ----------------------------------------------------------------------

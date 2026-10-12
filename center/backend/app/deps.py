@@ -23,6 +23,10 @@ def settings_of(request: Request) -> Settings:
     return request.app.state.settings
 
 
+def biometrics_available(request: Request) -> bool:
+    return settings_of(request).biometrics_enabled and request.app.state.biometrics is not None
+
+
 def client_ip(request: Request) -> str:
     # Behind the gateway uvicorn runs with --proxy-headers, so this is the real client.
     return request.client.host if request.client else "unknown"

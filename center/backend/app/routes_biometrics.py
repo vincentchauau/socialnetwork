@@ -1,4 +1,4 @@
-"""Voice + face: opt-in passwordless login (never a second factor) and enrollment management."""
+"""Voice + face: opt-in second factor, opt-in passwordless login, and enrollment management."""
 
 from typing import Annotated
 
@@ -9,12 +9,16 @@ from sqlalchemy.orm import Session
 from app.audit import audit
 from app.biometrics import BiometricError, BiometricUnavailable
 from app.db import get_db
-from app.deps import AuthSession, check_origin, client_ip, csrf_session, require_reauth, settings_of, too_many
+from app.deps import AuthSession, biometrics_available, check_origin, client_ip, csrf_session, require_reauth, settings_of, too_many
 from app.models import User
 from app.schemas import BiometricStatus, SessionOut
 from app.sessions import issue_session
+from app.tokens import decode_typed
+from sn_shared.security import AuthError
 
 UNAVAILABLE = "Biometrics are not available"
+BIOMETRIC_FAILED = "Biometric verification failed"
+BAD_MFA = "Invalid or expired login session"
 BIO_ONLY_FAILED = "Biometric login failed"
 BUSY = "Server is busy, try again later"
 MAX_AUDIO_BYTES = 3_000_000
@@ -26,7 +30,7 @@ Text = Annotated[str | None, Form()]
 
 
 def require_biometrics(request: Request) -> None:
-    if not settings_of(request).biometrics_enabled or request.app.state.biometrics is None:
+    if not biometrics_available(request):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, UNAVAILABLE)
 
 
@@ -115,6 +119,35 @@ def _reset(throttles: list, keys: list[str]) -> None:
         throttle.reset(key)
 
 
+@router.post("/login/biometric", response_model=SessionOut)
+def login_biometric(
+    request: Request,
+    response: Response,
+    mfa_token: Annotated[str, Form()],
+    audio: Upload = None,
+    video: Upload = None,
+    db: Session = Depends(get_db),
+) -> SessionOut:
+    """Second factor for accounts that opted in: EVERY enrolled factor must match, one 401 for all failures."""
+    ip, state = client_ip(request), request.app.state
+    try:
+        user_id, ver = decode_typed(mfa_token, "mfa")
+    except AuthError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA) from None
+    user = db.get(User, user_id)
+    if user is None or user.token_version != ver:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA)
+    throttles = [state.bio_throttle, state.bio_account_throttle]
+    keys = [f"{ip}|{user.username}", user.username]
+    _count_attempts(throttles, keys, user.username, ip)
+    if not factors_match(request, user, audio, video):
+        audit.warning("mfa biometric failed user=%r ip=%s", user.username, ip)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BIOMETRIC_FAILED)
+    _reset(throttles, keys)
+    audit.info("login ok (biometric 2nd factor) user=%r ip=%s", user.username, ip)
+    return issue_session(response, user, settings_of(request))
+
+
 @router.post("/login/biometric-only", response_model=SessionOut)
 def login_biometric_only(
     request: Request,
@@ -148,6 +181,7 @@ def _status(user: User) -> BiometricStatus:
         has_audio=bool(user.audio_embedding),
         has_face=bool(user.face_embedding),
         biometric_login=user.biometric_login,
+        require_biometric_2fa=user.biometric_2fa,
         passwordless_ready=bool(user.audio_embedding and user.face_embedding),
     )
 
@@ -205,6 +239,26 @@ def set_biometric_login(
     return _status(user)
 
 
+@router.put("/me/biometric-2fa", response_model=BiometricStatus)
+def set_biometric_2fa(
+    request: Request,
+    enabled: Annotated[bool, Form()],
+    password: Text = None,
+    session: AuthSession = Depends(csrf_session),
+    db: Session = Depends(get_db),
+) -> BiometricStatus:
+    """Opt in/out of voice/face after password or Google sign-in. Needs one sample to turn on; off is always allowed."""
+    user = session.user
+    require_reauth(request, user, password)
+    if enabled and not user.has_biometrics:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Enroll a voice or face sample first")
+    user.biometric_2fa = enabled
+    db.commit()
+    audit.info("biometric 2fa %s user=%r ip=%s", "enabled" if enabled else "disabled",
+               user.username, client_ip(request))  # fmt: skip
+    return _status(user)
+
+
 @router.delete("/me/biometrics", response_model=BiometricStatus)
 def delete_biometrics(
     request: Request,
@@ -217,6 +271,7 @@ def delete_biometrics(
     user.audio_embedding = None
     user.face_embedding = None
     user.biometric_login = False
+    user.biometric_2fa = False  # no samples left to verify: never leave a factor that cannot be met
     db.commit()
     audit.info("biometrics deleted user=%r ip=%s", user.username, client_ip(request))
     return _status(user)

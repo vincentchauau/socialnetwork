@@ -19,6 +19,7 @@ _COLUMNS: tuple[tuple[str, TypeEngine, tuple[str, str] | None], ...] = (
     ("audio_embedding", LargeBinary(), None),
     ("face_embedding", LargeBinary(), None),
     ("biometric_login", Boolean(), ("0", "FALSE")),
+    ("biometric_2fa", Boolean(), ("0", "FALSE")),
 )
 _UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_sub"))
 

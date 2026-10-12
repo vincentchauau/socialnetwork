@@ -1,11 +1,11 @@
 """Issuing and clearing session cookies (access + refresh) and the CSRF token."""
 
-from fastapi import Response
+from fastapi import HTTPException, Response, status
 
 from app.config import Settings
 from app.models import User
-from app.schemas import SessionOut
-from app.tokens import create_refresh_token, csrf_token
+from app.schemas import MfaRequired, SessionOut
+from app.tokens import create_mfa_token, create_refresh_token, csrf_token
 from sn_shared import COOKIE_NAME, create_token
 
 REFRESH_COOKIE = "sn_refresh"
@@ -35,6 +35,15 @@ def clear_session_cookies(response: Response, settings: Settings) -> None:
     response.delete_cookie(REFRESH_COOKIE, **_cookie_options(settings, REFRESH_PATH))
 
 
-def start_login(response: Response, user: User, settings: Settings) -> SessionOut:
-    """After the primary factor (password or Google): always a session. Biometrics are never a second factor."""
+def start_login(response: Response, user: User, settings: Settings, biometrics_available: bool) -> SessionOut | MfaRequired:
+    """After the primary factor (password or Google).
+
+    Default: a session. Only an account that opted in (`biometric_2fa`) AND has samples gets an
+    MFA challenge (no cookies yet). If such an account signs in while biometrics are switched off
+    server-wide we FAIL CLOSED with 503: a factor the user asked for is never silently skipped.
+    """
+    if user.biometric_2fa and user.has_biometrics:
+        if not biometrics_available:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Biometrics are not available")
+        return MfaRequired(mfa_token=create_mfa_token(user.id, user.token_version))
     return issue_session(response, user, settings)

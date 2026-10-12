@@ -16,6 +16,8 @@ from app.sessions import clear_session_cookies, issue_session
 
 router = APIRouter(prefix="/auth/me", tags=["account"], dependencies=[Depends(check_origin)])
 
+NEEDS_PASSWORD = "Set a password first"
+GOOGLE_NOT_LINKED = "Google is not linked"
 GOOGLE_IN_USE = "That Google account is already linked to an account"
 
 
@@ -61,6 +63,27 @@ def link_google(
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, GOOGLE_IN_USE) from None
     audit.info("google linked user=%r ip=%s", user.username, client_ip(request))
+    return me_out(user, session.token)
+
+
+@router.delete("/google", response_model=MeOut)
+def unlink_google(
+    request: Request,
+    body: DeleteAccountBody | None = None,
+    session: AuthSession = Depends(csrf_session),
+    db: Session = Depends(get_db),
+) -> MeOut:
+    """Only an account that has a password may drop Google: it must keep one usable primary method."""
+    user = session.user
+    if not user.has_password:
+        raise HTTPException(status.HTTP_409_CONFLICT, NEEDS_PASSWORD)
+    require_reauth(request, user, body.password if body else None)
+    if user.google_sub is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, GOOGLE_NOT_LINKED)
+    user.google_sub = None
+    user.email = None
+    db.commit()
+    audit.info("google unlinked user=%r ip=%s", user.username, client_ip(request))
     return me_out(user, session.token)
 
 

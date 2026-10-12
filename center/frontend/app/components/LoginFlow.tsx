@@ -7,15 +7,17 @@ import Alert from "./Alert";
 import BiometricCapture from "./BiometricCapture";
 import BiometricWarning from "./BiometricWarning";
 import GoogleSignInButton from "./GoogleSignInButton";
-import { CARD, INPUT, LABEL, LINK_BUTTON, PRIMARY_BUTTON } from "./ui";
+import { CARD, INPUT, LABEL, LINK_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./ui";
 import {
   AuthConfig,
+  LoginResult,
   PASSWORD_MESSAGE,
   Session,
   enrollBiometrics,
   errorText,
   getAuthConfig,
   isPasswordValid,
+  loginWithBiometrics,
   loginWithBiometricsOnly,
   loginWithGoogle,
   loginWithPassword,
@@ -35,6 +37,7 @@ export default function LoginFlow() {
   const [audio, setAudio] = useState<Blob>();
   const [video, setVideo] = useState<Blob>();
   const [recordingKey, setRecordingKey] = useState(0); // đổi key để các ô ghi âm/quay trở về trạng thái trống
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false); // chặn gửi hai lần ngay cả khi state chưa kịp cập nhật
@@ -71,6 +74,19 @@ export default function LoginFlow() {
     setBusy(false);
   }
 
+  /** Mật khẩu/Google đúng nhưng tài khoản đã bật xác minh thêm: dùng ngay bản đã quay, nếu chưa có thì hỏi trong cùng thẻ. */
+  async function continueMfa(result: LoginResult): Promise<boolean> {
+    if (result.kind === "session") return true;
+    if (audio || video) {
+      await loginWithBiometrics(result.mfaToken, audio, video);
+      return true;
+    }
+    setPassword("");
+    clearRecordings();
+    setMfaToken(result.mfaToken);
+    return false;
+  }
+
   /** Tài khoản đã tạo xong; ghi âm/quay lúc đăng ký (nếu có) được lưu ngay bằng csrf token của phiên mới. */
   async function enrollAfterRegister(session: Session) {
     if (!config.biometrics_enabled || (!audio && !video)) return;
@@ -99,7 +115,16 @@ export default function LoginFlow() {
         await loginWithBiometricsOnly(username, audio, video);
         return true;
       }
-      await loginWithPassword(username, password); // bản ghi (nếu có) bị bỏ qua, không gửi đi
+      return continueMfa(await loginWithPassword(username, password)); // bản ghi chỉ dùng nếu tài khoản bật xác minh thêm
+    });
+  }
+
+  function submitMfa(event: FormEvent) {
+    event.preventDefault();
+    const token = mfaToken;
+    if (!token) return;
+    void run(async () => {
+      await loginWithBiometrics(token, audio, video);
       return true;
     });
   }
@@ -111,6 +136,33 @@ export default function LoginFlow() {
     usernameRef.current?.focus();
   }
 
+  function cancelMfa() {
+    setMfaToken(null);
+    setError(null);
+    clearRecordings();
+  }
+
+  if (mfaToken) {
+    return (
+      <main className={CARD}>
+        <h1 className="text-2xl font-bold mb-4">Xác minh danh tính</h1>
+        <form onSubmit={submitMfa} aria-label="Xác minh danh tính">
+          <p className="text-sm text-gray-600 mb-2">
+            Quay một đoạn ngắn (nhìn camera và nói vài câu) để hoàn tất đăng nhập.
+          </p>
+          <BiometricCapture key={recordingKey} disabled={busy} onVideo={setVideo} onAudio={setAudio} />
+          <button type="submit" disabled={busy || (!audio && !video)} className={PRIMARY_BUTTON}>
+            {busy ? "Đang xử lý..." : "Xác minh và đăng nhập"}
+          </button>
+          <button type="button" disabled={busy} onClick={cancelMfa} className={`${SECONDARY_BUTTON} mt-2`}>
+            Hủy
+          </button>
+          <Alert text={error} />
+        </form>
+      </main>
+    );
+  }
+
   const title = mode === "login" ? "Đăng nhập" : "Đăng ký";
   const biometricOnly = mode === "login" && Boolean(video) && password === "";
   return (
@@ -120,10 +172,7 @@ export default function LoginFlow() {
         <div className="mb-4" aria-busy={busy}>
           <GoogleSignInButton
             clientId={config.google_client_id}
-            onCredential={(token) => void run(async () => {
-                await loginWithGoogle(token);
-                return true;
-              })}
+            onCredential={(token) => void run(async () => continueMfa(await loginWithGoogle(token)))}
             onError={setError}
           />
         </div>
@@ -163,8 +212,9 @@ export default function LoginFlow() {
           <>
             {mode === "login" ? (
               <p className="text-sm text-gray-600 mb-2">
-                Tùy chọn: nhập mật khẩu để đăng nhập bình thường (bản quay sẽ bị bỏ qua). Hoặc để trống mật khẩu và quay
-                một đoạn ngắn (nhìn camera, nói vài câu) để đăng nhập bằng khuôn mặt + giọng nói, chỉ khi tài khoản đã bật
+                Tùy chọn: nhập mật khẩu để đăng nhập bình thường (chỉ khi tài khoản bật «yêu cầu giọng nói/khuôn mặt sau khi
+                đăng nhập» thì bản quay mới được dùng để xác minh). Hoặc để trống mật khẩu và quay một đoạn ngắn (nhìn
+                camera, nói vài câu) để đăng nhập không mật khẩu bằng khuôn mặt + giọng nói, chỉ khi tài khoản đã bật
                 tính năng này.
               </p>
             ) : (

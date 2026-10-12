@@ -26,6 +26,7 @@ vi.mock("../app/components/BiometricCapture", () => ({
 }));
 
 const CONFIG = { google_client_id: null, biometrics_enabled: true };
+const SECOND_FACTOR = "Yêu cầu giọng nói/khuôn mặt sau khi đăng nhập bằng mật khẩu hoặc Google";
 
 type Account = typeof me;
 
@@ -162,10 +163,10 @@ describe("AccountView", () => {
     await user.click(screen.getByRole("button", { name: "Lưu dữ liệu sinh trắc" }));
     expect(await screen.findByText(/Đã lưu\./)).toBeInTheDocument();
 
-    const toggle = screen.getByRole("form", { name: "Đăng nhập chỉ bằng giọng nói và khuôn mặt" });
-    expect(screen.getByRole("heading", { name: /đang tắt/ })).toBeInTheDocument();
+    const toggle = screen.getByRole("form", { name: "Đăng nhập không cần mật khẩu bằng giọng nói + khuôn mặt" });
+    expect(toggle).toHaveTextContent(/đang TẮT/);
     await user.type(toggle.querySelector('input[type="password"]') as HTMLInputElement, "pw-pass-1");
-    await user.click(screen.getByRole("button", { name: "Bật đăng nhập chỉ bằng sinh trắc học" }));
+    await user.click(screen.getByRole("button", { name: "Bật đăng nhập không mật khẩu" }));
     await waitFor(() => {
       const put = fetchMock.mock.calls.find(([, init]) => init.method === "PUT");
       expect((put?.[1].body as FormData).get("enabled")).toBe("true");
@@ -183,10 +184,10 @@ describe("AccountView", () => {
     setupAccount({ has_audio: true, has_face: true });
     render(<AccountView />);
     const enroll = await screen.findByRole("form", { name: "Thêm giọng nói hoặc khuôn mặt" });
-    expect(enroll).toHaveTextContent(/không phải bước xác minh thêm/);
+    expect(enroll).toHaveTextContent(/hai tùy chọn bên dưới đều tắt mặc định/);
+    expect(enroll).toHaveTextContent(/mật khẩu hoặc Google vẫn vào thẳng/);
     expect(enroll).toHaveTextContent(/cả giọng nói và khuôn mặt/);
-    expect(enroll).not.toHaveTextContent(/phải quay lại/);
-    expect(screen.getByRole("form", { name: "Đăng nhập chỉ bằng giọng nói và khuôn mặt" })).toHaveTextContent(
+    expect(screen.getByRole("form", { name: "Đăng nhập không cần mật khẩu bằng giọng nói + khuôn mặt" })).toHaveTextContent(
       /mật khẩu vẫn đăng nhập bình thường/,
     );
   });
@@ -203,7 +204,7 @@ describe("AccountView", () => {
     await user.type(document.querySelector("#enroll-password") as HTMLInputElement, "pw-pass-1");
     await user.click(screen.getByRole("button", { name: "fake video" }));
     await user.click(screen.getByRole("button", { name: "Lưu dữ liệu sinh trắc" }));
-    expect(await screen.findByText(/cần cả giọng nói và khuôn mặt/)).toBeInTheDocument();
+    expect(await screen.findByText(/hãy quay bổ sung phần còn thiếu/)).toBeInTheDocument();
   });
 
   it("links a Google account when configured and not yet linked", async () => {
@@ -215,5 +216,77 @@ describe("AccountView", () => {
     render(<AccountView />);
     expect(await screen.findByRole("region", { name: "Liên kết tài khoản Google" })).toBeInTheDocument();
     vi.restoreAllMocks();
+  });
+
+  it("lists the four sign-in methods with their state", async () => {
+    setupAccount({ has_password: true, google_linked: true, email: "b@example.com", has_audio: true, has_face: false });
+    render(<AccountView />);
+    const card = await screen.findByRole("region", { name: "Các cách đăng nhập" });
+    expect(card).toHaveTextContent("Mật khẩu: đã đặt");
+    expect(card).toHaveTextContent("Google: đã liên kết với b@example.com");
+    expect(card).toHaveTextContent("Giọng nói: đã lưu");
+    expect(card).toHaveTextContent("Khuôn mặt: chưa lưu");
+  });
+
+  it("offers to set a password and to add the missing samples", async () => {
+    setupAccount({ has_password: false, has_audio: false, has_face: false });
+    render(<AccountView />);
+    const card = await screen.findByRole("region", { name: "Các cách đăng nhập" });
+    expect(card).toHaveTextContent("Mật khẩu: chưa đặt");
+    expect(screen.getByRole("link", { name: "Đặt mật khẩu" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Thêm giọng nói" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Thêm khuôn mặt" })).toBeInTheDocument();
+  });
+
+  it("keeps the second-factor switch off and blocked until a sample is saved", async () => {
+    setupAccount({ has_audio: false, has_face: false });
+    render(<AccountView />);
+    const form = await screen.findByRole("form", { name: SECOND_FACTOR });
+    expect(form).toHaveTextContent(/đang TẮT/);
+    expect(form).toHaveTextContent(/Cần lưu ít nhất một mẫu/);
+    expect(screen.getByRole("button", { name: "Bật yêu cầu xác minh sinh trắc học" })).toBeDisabled();
+  });
+
+  it("turns the second factor on after re-entering the password", async () => {
+    const fetchMock = setupAccount({ has_audio: true, has_face: false });
+    const user = userEvent.setup();
+    render(<AccountView />);
+    const form = await screen.findByRole("form", { name: SECOND_FACTOR });
+    expect(form).toHaveTextContent(/webcam/);
+    await user.type(form.querySelector('input[type="password"]') as HTMLInputElement, "pw-pass-1");
+    await user.click(screen.getByRole("button", { name: "Bật yêu cầu xác minh sinh trắc học" }));
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/me/biometric-2fa") && init.method === "PUT");
+      expect((put?.[1].body as FormData).get("enabled")).toBe("true");
+      expect((put?.[1].body as FormData).get("password")).toBe("pw-pass-1");
+    });
+  });
+
+  it("shows the second factor as on and offers to turn it off", async () => {
+    setupAccount({ has_audio: true, require_biometric_2fa: true });
+    render(<AccountView />);
+    const form = await screen.findByRole("form", { name: SECOND_FACTOR });
+    expect(form).toHaveTextContent(/đang BẬT/);
+    expect(screen.getByRole("button", { name: "Tắt yêu cầu xác minh sinh trắc học" })).toBeEnabled();
+  });
+
+  it("will not unlink Google while the account has no password", async () => {
+    setupAccount({ google_linked: true, has_password: false, email: "g@example.com" });
+    render(<AccountView />);
+    expect(await screen.findByText("Hãy đặt mật khẩu trước khi hủy liên kết Google.")).toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Hủy liên kết Google" })).not.toBeInTheDocument();
+  });
+
+  it("unlinks Google after re-entering the password", async () => {
+    const fetchMock = setupAccount({ google_linked: true, has_password: true, email: "g@example.com" });
+    const user = userEvent.setup();
+    render(<AccountView />);
+    const form = await screen.findByRole("form", { name: "Hủy liên kết Google" });
+    await user.type(form.querySelector('input[type="password"]') as HTMLInputElement, "pw-pass-1");
+    await user.click(screen.getByRole("button", { name: "Hủy liên kết Google" }));
+    await waitFor(() => {
+      const del = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/auth/me/google") && init.method === "DELETE");
+      expect(JSON.parse(del?.[1].body as string)).toEqual({ password: "pw-pass-1" });
+    });
   });
 });

@@ -230,7 +230,7 @@ describe("LoginFlow biometrics", () => {
     expect(screen.queryByRole("note")).not.toBeInTheDocument();
   });
 
-  it("never sends recordings with a password login and never shows a verification step", async () => {
+  it("sends no recordings with a password login when the account has no second factor", async () => {
     const fetchMock = setup({ config: BIO });
     const user = userEvent.setup();
     render(<LoginFlow />);
@@ -296,5 +296,68 @@ describe("LoginFlow biometrics", () => {
     await fillAndSubmit(user, "");
     expect(callTo(fetchMock, "/biometric-only")).toBeUndefined();
     expect(screen.getByLabelText("Mật khẩu")).toBeRequired();
+  });
+
+  it("can be switched on per account: the second factor is asked after the password", async () => {
+    const fetchMock = setup({
+      config: BIO,
+      login: () => jsonResponse({ mfa_required: true, mfa_token: "tok" }),
+      extra: (url) => (url.endsWith("/auth/login/biometric") ? jsonResponse(session) : undefined),
+    });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await fillAndSubmit(user);
+    expect(await screen.findByRole("heading", { name: "Xác minh danh tính" })).toBeInTheDocument();
+    expect(goTo).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Xác minh và đăng nhập" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "fake video" }));
+    await user.click(screen.getByRole("button", { name: "Xác minh và đăng nhập" }));
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    const body = callTo(fetchMock, "/auth/login/biometric")?.[1].body as FormData;
+    expect(body.get("mfa_token")).toBe("tok");
+    expect(body.get("video")).toBeInstanceOf(File);
+  });
+
+  it("uses a clip already recorded in the form for the second factor", async () => {
+    const fetchMock = setup({
+      config: BIO,
+      login: () => jsonResponse({ mfa_required: true, mfa_token: "tok" }),
+      extra: (url) => (url.endsWith("/auth/login/biometric") ? jsonResponse(session) : undefined),
+    });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await user.click(await screen.findByRole("button", { name: "fake video" }));
+    await fillAndSubmit(user);
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    expect(screen.queryByRole("heading", { name: "Xác minh danh tính" })).not.toBeInTheDocument();
+    expect((callTo(fetchMock, "/auth/login/biometric")?.[1].body as FormData).get("mfa_token")).toBe("tok");
+  });
+
+  it("returns to the sign-in form when the second factor is cancelled", async () => {
+    setup({ config: BIO, login: () => jsonResponse({ mfa_required: true, mfa_token: "tok" }) });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await fillAndSubmit(user);
+    await user.click(await screen.findByRole("button", { name: "Hủy" }));
+    expect(await screen.findByRole("heading", { name: "Đăng nhập" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Mật khẩu")).toHaveValue("");
+    expect(goTo).not.toHaveBeenCalled();
+  });
+
+  it("shows the server message when the second factor does not match", async () => {
+    setup({
+      config: BIO,
+      login: () => jsonResponse({ mfa_required: true, mfa_token: "tok" }),
+      extra: (url) =>
+        url.endsWith("/auth/login/biometric") ? jsonResponse({ detail: "Biometric verification failed" }, 401) : undefined,
+    });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await fillAndSubmit(user);
+    await user.click(await screen.findByRole("button", { name: "fake video" }));
+    await user.click(screen.getByRole("button", { name: "Xác minh và đăng nhập" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Biometric verification failed");
+    expect(goTo).not.toHaveBeenCalled();
   });
 });
