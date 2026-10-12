@@ -1,6 +1,6 @@
 import time
 
-from app.tokens import create_mfa_token, create_refresh_token, csrf_token, csrf_valid
+from app.tokens import create_refresh_token, csrf_token, csrf_valid
 from sn_shared import COOKIE_NAME, create_token
 from tests.helpers import CREDS, STRONG, cookie_value, csrf, forge, refresh_with, register, set_cookies
 
@@ -44,11 +44,11 @@ def test_refresh_token_cannot_be_used_as_an_access_token(client):
     assert client.get("/auth/me").status_code == 401
 
 
-def test_mfa_token_cannot_be_used_as_refresh_or_access(client):
+def test_token_of_an_unknown_kind_cannot_be_used_as_refresh_or_access(client):
     session = register(client)
-    mfa = create_mfa_token(session["id"], 0)
-    assert refresh_with(client, mfa).status_code == 401
-    client.cookies.set(COOKIE_NAME, mfa, path="/")
+    odd = forge({"sub": str(session["id"]), "typ": "other", "ver": 0})
+    assert refresh_with(client, odd).status_code == 401
+    client.cookies.set(COOKIE_NAME, odd, path="/")
     assert client.get("/auth/me").status_code == 401
 
 

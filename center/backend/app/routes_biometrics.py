@@ -1,4 +1,4 @@
-"""Voice + face: second factor at login, opt-in biometric-only login, enrollment management."""
+"""Voice + face: opt-in passwordless login (never a second factor) and enrollment management."""
 
 from typing import Annotated
 
@@ -13,13 +13,9 @@ from app.deps import AuthSession, check_origin, client_ip, csrf_session, require
 from app.models import User
 from app.schemas import BiometricStatus, SessionOut
 from app.sessions import issue_session
-from app.tokens import decode_typed
-from sn_shared.security import AuthError
 
 UNAVAILABLE = "Biometrics are not available"
-BIOMETRIC_FAILED = "Biometric verification failed"
 BIO_ONLY_FAILED = "Biometric login failed"
-BAD_MFA = "Invalid or expired login session"
 BUSY = "Server is busy, try again later"
 MAX_AUDIO_BYTES = 3_000_000
 MAX_VIDEO_BYTES = 15_000_000
@@ -119,34 +115,6 @@ def _reset(throttles: list, keys: list[str]) -> None:
         throttle.reset(key)
 
 
-@router.post("/login/biometric", response_model=SessionOut)
-def login_biometric(
-    request: Request,
-    response: Response,
-    mfa_token: Annotated[str, Form()],
-    audio: Upload = None,
-    video: Upload = None,
-    db: Session = Depends(get_db),
-) -> SessionOut:
-    ip, state = client_ip(request), request.app.state
-    try:
-        user_id, ver = decode_typed(mfa_token, "mfa")
-    except AuthError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA) from None
-    user = db.get(User, user_id)
-    if user is None or user.token_version != ver:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA)
-    throttles = [state.bio_throttle, state.bio_account_throttle]
-    keys = [f"{ip}|{user.username}", user.username]
-    _count_attempts(throttles, keys, user.username, ip)
-    if not factors_match(request, user, audio, video):
-        audit.warning("mfa biometric failed user=%r ip=%s", user.username, ip)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BIOMETRIC_FAILED)
-    _reset(throttles, keys)
-    audit.info("login ok (biometric 2nd factor) user=%r ip=%s", user.username, ip)
-    return issue_session(response, user, settings_of(request))
-
-
 @router.post("/login/biometric-only", response_model=SessionOut)
 def login_biometric_only(
     request: Request,
@@ -177,7 +145,10 @@ def login_biometric_only(
 
 def _status(user: User) -> BiometricStatus:
     return BiometricStatus(
-        has_audio=bool(user.audio_embedding), has_face=bool(user.face_embedding), biometric_login=user.biometric_login
+        has_audio=bool(user.audio_embedding),
+        has_face=bool(user.face_embedding),
+        biometric_login=user.biometric_login,
+        passwordless_ready=bool(user.audio_embedding and user.face_embedding),
     )
 
 
@@ -190,7 +161,10 @@ def enroll(
     session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> BiometricStatus:
-    """Add or replace the voice and/or face template (only the samples you send are replaced)."""
+    """Add or replace the voice and/or face template (only the samples you send are replaced).
+
+    One factor can be enrolled now and the other later, but passwordless login needs both.
+    """
     user, throttle = session.user, request.app.state.enroll_throttle
     if throttle.is_blocked(str(user.id)):
         raise too_many()

@@ -68,32 +68,28 @@ describe("blob limits", () => {
 });
 
 describe("API helpers", () => {
-  it("login returns an mfa step or a session", async () => {
-    mockFetch(() => jsonResponse({ mfa_required: true, mfa_token: "t" }));
-    expect(await auth.loginWithPassword("a", "b")).toEqual({ kind: "mfa", mfaToken: "t" });
+  it("password login returns the session", async () => {
     mockFetch(() => jsonResponse(session));
-    expect(await auth.loginWithPassword("a", "b")).toEqual({ kind: "session", session });
+    expect(await auth.loginWithPassword("a", "b")).toEqual(session);
   });
 
   it("sends biometric multipart bodies with csrf for account calls", async () => {
     setCsrfToken("tok");
     const fetchMock = mockFetch(() => jsonResponse({}));
     const audio = new Blob(["a"]);
-    await auth.loginWithBiometrics("mfa", audio, undefined);
     await auth.loginWithBiometricsOnly("ann", audio, new Blob(["v"]));
     await auth.enrollBiometrics("pw", audio);
     await auth.setBiometricLogin(true, "pw");
     await auth.deleteBiometrics();
     const bodies = fetchMock.mock.calls.map(([, init]) => init.body as FormData);
-    expect(bodies[0].get("mfa_token")).toBe("mfa");
+    expect(bodies[0].get("username")).toBe("ann");
     expect(bodies[0].get("audio")).toBeInstanceOf(File);
-    expect(bodies[1].get("username")).toBe("ann");
-    expect(bodies[1].get("video")).toBeInstanceOf(File);
-    expect(bodies[2].get("password")).toBe("pw");
-    expect(bodies[3].get("enabled")).toBe("true");
-    expect(fetchMock.mock.calls[3][1].method).toBe("PUT");
-    expect(bodies[4].has("password")).toBe(false);
-    expect(fetchMock.mock.calls[4][1].method).toBe("DELETE");
+    expect(bodies[0].get("video")).toBeInstanceOf(File);
+    expect(bodies[1].get("password")).toBe("pw");
+    expect(bodies[2].get("enabled")).toBe("true");
+    expect(fetchMock.mock.calls[2][1].method).toBe("PUT");
+    expect(bodies[3].has("password")).toBe(false);
+    expect(fetchMock.mock.calls[3][1].method).toBe("DELETE");
   });
 
   it("covers the JSON endpoints", async () => {
@@ -108,14 +104,9 @@ describe("API helpers", () => {
     expect(bodies[2]).toBe(JSON.stringify({ new_password: "new", current_password: "old" }));
   });
 
-  it("google login reports a pending second factor instead of a session", async () => {
-    mockFetch(() => jsonResponse({ mfa_required: true, mfa_token: "tok" }));
-    await expect(auth.loginWithGoogle("idt")).resolves.toEqual({ kind: "mfa", mfaToken: "tok" });
-  });
-
-  it("google login returns the session when no second factor is needed", async () => {
+  it("google login returns the session", async () => {
     mockFetch(() => jsonResponse(session));
-    await expect(auth.loginWithGoogle("idt")).resolves.toEqual({ kind: "session", session });
+    await expect(auth.loginWithGoogle("idt")).resolves.toEqual(session);
   });
 
   it("delete and logout use the right verbs", async () => {

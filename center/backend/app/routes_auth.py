@@ -21,7 +21,7 @@ from app.google_auth import GoogleAuthError, GoogleIdentity
 from app.handles import unique_handle
 from app.models import User
 from app.passwords import NO_PASSWORD, hash_password, needs_rehash, password_problem, verify_password
-from app.schemas import AuthConfig, Credentials, GoogleBody, LoginBody, MeOut, MfaRequired, SessionOut
+from app.schemas import AuthConfig, Credentials, GoogleBody, LoginBody, MeOut, SessionOut
 from app.sessions import REFRESH_COOKIE, clear_session_cookies, issue_session, start_login
 from app.tokens import csrf_token, decode_typed
 from sn_shared.security import AuthError
@@ -48,6 +48,7 @@ def me_out(user: User, token: str) -> MeOut:
         has_audio=bool(user.audio_embedding),
         has_face=bool(user.face_embedding),
         biometric_login=user.biometric_login,
+        passwordless_ready=bool(user.audio_embedding and user.face_embedding),
         csrf_token=csrf_token(token),
     )
 
@@ -89,10 +90,10 @@ def _login_throttles(request: Request, ip: str, name: str) -> tuple[list, list[s
     )
 
 
-@router.post("/login", response_model=SessionOut | MfaRequired)
+@router.post("/login", response_model=SessionOut)
 def login(
     body: LoginBody, request: Request, response: Response, db: Session = Depends(get_db)
-) -> SessionOut | MfaRequired:
+) -> SessionOut:
     ip, name = client_ip(request), body.username
     throttles, keys = _login_throttles(request, ip, name)
     if any(t.is_blocked(k) for t, k in zip(throttles, keys)):
@@ -110,9 +111,8 @@ def login(
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(body.password[:128])  # bcrypt -> scrypt
         db.commit()
-    result = start_login(response, user, settings_of(request))
-    audit.info("login %s user=%r ip=%s", "mfa-pending" if isinstance(result, MfaRequired) else "ok", name, ip)
-    return result
+    audit.info("login ok user=%r ip=%s", name, ip)
+    return start_login(response, user, settings_of(request))
 
 
 def _reject_refresh(settings, reason: str, ip: str) -> JSONResponse:
@@ -209,10 +209,10 @@ def _create_google_user(db: Session, identity: GoogleIdentity) -> User:
     raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Could not create the account, try again")
 
 
-@router.post("/google", response_model=SessionOut | MfaRequired)
+@router.post("/google", response_model=SessionOut)
 def google_login(
     body: GoogleBody, request: Request, response: Response, db: Session = Depends(get_db)
-) -> SessionOut | MfaRequired:
+) -> SessionOut:
     ip = client_ip(request)
     identity = verify_google_or_throttle(request, body.id_token)
     user = db.scalar(select(User).where(User.google_sub == identity.sub))

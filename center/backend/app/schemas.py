@@ -57,11 +57,6 @@ class SessionOut(BaseModel):
     csrf_token: str
 
 
-class MfaRequired(BaseModel):
-    mfa_required: bool = True
-    mfa_token: str
-
-
 class MeOut(SessionOut):
     email: str | None
     has_password: bool
@@ -69,6 +64,7 @@ class MeOut(SessionOut):
     has_audio: bool
     has_face: bool
     biometric_login: bool
+    passwordless_ready: bool  # passwordless sign-in needs BOTH voice and face enrolled
 
 
 class AuthConfig(BaseModel):
@@ -80,4 +76,5 @@ class BiometricStatus(BaseModel):
     has_audio: bool
     has_face: bool
     biometric_login: bool
+    passwordless_ready: bool
 

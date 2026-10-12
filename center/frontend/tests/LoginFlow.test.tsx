@@ -218,59 +218,32 @@ describe("LoginFlow optional features", () => {
 });
 
 describe("LoginFlow biometrics", () => {
-  it("sends the recording straight to the second step after the password", async () => {
-    const fetchMock = setup({
-      config: BIO,
-      login: () => jsonResponse({ mfa_required: true, mfa_token: "mfa-1" }),
-      extra: (url) => (url.endsWith("/login/biometric") ? jsonResponse(session) : undefined),
-    });
+  it("explains that an empty password plus a recording signs in with face + voice, with the warning", async () => {
+    setup({ config: BIO });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    expect(await screen.findByText(/để trống mật khẩu/i)).toBeInTheDocument();
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "fake video" }));
+    expect(screen.getByRole("note")).toHaveTextContent(/chưa có kiểm tra người thật/);
+    await user.type(screen.getByLabelText("Mật khẩu"), "x");
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+  });
+
+  it("never sends recordings with a password login and never shows a verification step", async () => {
+    const fetchMock = setup({ config: BIO });
     const user = userEvent.setup();
     render(<LoginFlow />);
     await user.click(await screen.findByRole("button", { name: "fake video" }));
+    await user.click(screen.getByRole("button", { name: "fake audio" }));
     await fillAndSubmit(user);
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
-    const form = callTo(fetchMock, "/login/biometric")?.[1].body as FormData;
-    expect(form.get("mfa_token")).toBe("mfa-1");
-    expect(form.get("video")).toBeInstanceOf(Blob);
-  });
-
-  it("asks for a recording in the same card when none was made, and can cancel", async () => {
-    const fetchMock = setup({
-      config: BIO,
-      login: () => jsonResponse({ mfa_required: true, mfa_token: "mfa-1" }),
-      extra: (url) => (url.endsWith("/login/biometric") ? jsonResponse(session) : undefined),
-    });
-    const user = userEvent.setup();
-    render(<LoginFlow />);
-    await fillAndSubmit(user);
-    expect(await screen.findByRole("heading", { name: "Xác minh danh tính" })).toBeInTheDocument();
-    const verify = screen.getByRole("button", { name: "Xác minh và đăng nhập" });
-    expect(verify).toBeDisabled();
-
-    await user.click(screen.getByRole("button", { name: "Hủy" }));
-    expect(await screen.findByRole("heading", { name: "Đăng nhập" })).toBeInTheDocument();
-    expect(goTo).not.toHaveBeenCalled();
-
-    await fillAndSubmit(user);
-    await user.click(await screen.findByRole("button", { name: "fake audio" }));
-    await user.click(screen.getByRole("button", { name: "Xác minh và đăng nhập" }));
-    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
-    expect((callTo(fetchMock, "/login/biometric")?.[1].body as FormData).get("audio")).toBeInstanceOf(Blob);
-  });
-
-  it("shows server errors from the second step", async () => {
-    setup({
-      config: BIO,
-      login: () => jsonResponse({ mfa_required: true, mfa_token: "m" }),
-      extra: (url) => (url.endsWith("/login/biometric") ? jsonResponse({ detail: "Face did not match" }, 401) : undefined),
-    });
-    const user = userEvent.setup();
-    render(<LoginFlow />);
-    await fillAndSubmit(user);
-    await user.click(await screen.findByRole("button", { name: "fake video" }));
-    await user.click(screen.getByRole("button", { name: "Xác minh và đăng nhập" }));
-    expect(await screen.findByText("Face did not match")).toBeInTheDocument();
-    expect(goTo).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Xác minh danh tính" })).not.toBeInTheDocument();
+    expect(callTo(fetchMock, "/biometric")).toBeUndefined();
+    expect(callTo(fetchMock, "/biometric-only")).toBeUndefined();
+    const login = callTo(fetchMock, "/auth/login");
+    expect(typeof login?.[1].body).toBe("string");
+    expect(JSON.parse(login?.[1].body as string)).toEqual({ username: "ann", password: "password1" });
   });
 
   it("signs in with face + voice only when the password is empty", async () => {
@@ -290,15 +263,38 @@ describe("LoginFlow biometrics", () => {
     expect(callTo(fetchMock, "/auth/login")).toBeUndefined();
   });
 
+  it("shows the server error when passwordless sign-in fails", async () => {
+    setup({
+      config: BIO,
+      extra: (url) => (url.endsWith("/biometric-only") ? jsonResponse({ detail: "Biometric login failed" }, 401) : undefined),
+    });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await user.click(await screen.findByRole("button", { name: "fake video" }));
+    await fillAndSubmit(user, "");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Biometric login failed");
+    expect(goTo).not.toHaveBeenCalled();
+  });
+
+  it("with an audio-only recording and no password it asks for the password instead of calling biometric-only", async () => {
+    const fetchMock = setup({ config: BIO });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await user.click(await screen.findByRole("button", { name: "fake audio" }));
+    expect(screen.getByLabelText("Mật khẩu")).toBeRequired();
+    await fillAndSubmit(user, "");
+    expect(callTo(fetchMock, "/biometric-only")).toBeUndefined();
+  });
+
   it("clears recordings on mode switch so they are not reused", async () => {
-    const fetchMock = setup({ config: BIO, login: () => jsonResponse({ mfa_required: true, mfa_token: "m" }) });
+    const fetchMock = setup({ config: BIO });
     const user = userEvent.setup();
     render(<LoginFlow />);
     await user.click(await screen.findByRole("button", { name: "fake video" }));
     await user.click(screen.getByRole("button", { name: "Chưa có tài khoản? Đăng ký" }));
     await user.click(screen.getByRole("button", { name: "Đã có tài khoản? Đăng nhập" }));
-    await fillAndSubmit(user);
-    expect(await screen.findByRole("heading", { name: "Xác minh danh tính" })).toBeInTheDocument();
-    expect(callTo(fetchMock, "/login/biometric")).toBeUndefined();
+    await fillAndSubmit(user, "");
+    expect(callTo(fetchMock, "/biometric-only")).toBeUndefined();
+    expect(screen.getByLabelText("Mật khẩu")).toBeRequired();
   });
 });

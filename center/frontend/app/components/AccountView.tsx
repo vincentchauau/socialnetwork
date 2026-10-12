@@ -64,6 +64,7 @@ export default function AccountView() {
       <p className="mb-1 text-sm text-gray-600">Email: {me.email ?? "chưa có"}</p>
       <p className="mb-4 text-sm text-gray-600">
         Giọng nói: {me.has_audio ? "đã đăng ký" : "chưa"} · Khuôn mặt: {me.has_face ? "đã đăng ký" : "chưa"}
+        {config.biometrics_enabled && " (dùng cho đăng nhập không mật khẩu tùy chọn)"}
       </p>
 
       <PasswordForm hasPassword={me.has_password} onDone={reload} />

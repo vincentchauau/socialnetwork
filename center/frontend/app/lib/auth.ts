@@ -22,15 +22,21 @@ export interface Me {
   has_audio: boolean;
   has_face: boolean;
   biometric_login: boolean;
+  passwordless_ready: boolean;
   csrf_token: string;
+}
+
+export interface BiometricStatus {
+  has_audio: boolean;
+  has_face: boolean;
+  biometric_login: boolean;
+  passwordless_ready: boolean;
 }
 
 export interface AuthConfig {
   google_client_id: string | null;
   biometrics_enabled: boolean;
 }
-
-export type LoginResult = { kind: "session"; session: Session } | { kind: "mfa"; mfaToken: string };
 
 export const PASSWORD_MESSAGE = `Mật khẩu cần ít nhất ${MIN_PASSWORD} ký tự`;
 
@@ -75,28 +81,16 @@ const json = (body: unknown): RequestInit => ({ method: "POST", body: JSON.strin
 
 export const getAuthConfig = () => apiFetch<AuthConfig>(`${CENTER_API}/auth/config`);
 
-type SessionOrMfa = Session | { mfa_required: true; mfa_token: string };
-
-function toLoginResult(body: SessionOrMfa): LoginResult {
-  if ("mfa_required" in body && body.mfa_required) return { kind: "mfa", mfaToken: body.mfa_token };
-  return { kind: "session", session: body as Session };
-}
-
-export async function loginWithPassword(username: string, password: string): Promise<LoginResult> {
-  return toLoginResult(await apiFetch<SessionOrMfa>(`${CENTER_API}/auth/login`, json({ username, password })));
-}
+export const loginWithPassword = (username: string, password: string) =>
+  apiFetch<Session>(`${CENTER_API}/auth/login`, json({ username, password }));
 
 export const registerAccount = (username: string, password: string) =>
   apiFetch<Session>(`${CENTER_API}/auth/register`, json({ username, password }));
 
-/** A Google account that enrolled face/voice still needs the second factor, like a password login. */
-export async function loginWithGoogle(idToken: string): Promise<LoginResult> {
-  return toLoginResult(await apiFetch<SessionOrMfa>(`${CENTER_API}/auth/google`, json({ id_token: idToken })));
-}
+export const loginWithGoogle = (idToken: string) =>
+  apiFetch<Session>(`${CENTER_API}/auth/google`, json({ id_token: idToken }));
 
-export const loginWithBiometrics = (mfaToken: string, audio?: Blob, video?: Blob) =>
-  apiForm<Session>(`${CENTER_API}/auth/login/biometric`, biometricForm({ mfa_token: mfaToken }, audio, video));
-
+/** Passwordless sign-in (opt-in per account): needs a username and a recorded clip. */
 export const loginWithBiometricsOnly = (username: string, audio?: Blob, video?: Blob) =>
   apiForm<Session>(`${CENTER_API}/auth/login/biometric-only`, biometricForm({ username }, audio, video));
 
@@ -130,7 +124,7 @@ export const deleteAccount = (password?: string) =>
   apiFetch<void>(`${CENTER_API}/auth/me`, { method: "DELETE", body: JSON.stringify({ password }) });
 
 export const enrollBiometrics = (password: string | undefined, audio?: Blob, video?: Blob) =>
-  apiForm<unknown>(`${CENTER_API}/auth/me/biometrics`, biometricForm({ password }, audio, video));
+  apiForm<BiometricStatus>(`${CENTER_API}/auth/me/biometrics`, biometricForm({ password }, audio, video));
 
 export const setBiometricLogin = (enabled: boolean, password?: string) =>
   apiForm<unknown>(

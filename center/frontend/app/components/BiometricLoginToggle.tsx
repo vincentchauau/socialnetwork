@@ -34,8 +34,9 @@ export default function BiometricLoginToggle({ enabled, hasPassword, onDone }: P
         Đăng nhập chỉ bằng giọng nói + khuôn mặt: {enabled ? "đang BẬT" : "đang tắt"}
       </h2>
       <p className={NOTE}>
-        Khi bật, bạn chỉ cần tên đăng nhập, ghi giọng nói và quay khuôn mặt (không cần mật khẩu). Phải khớp cả hai, với
-        ngưỡng nghiêm hơn, và bị khóa tạm sau nhiều lần sai.
+        Tùy chọn, là một cách đăng nhập riêng: khi bật, bạn có thể đăng nhập chỉ bằng tên đăng nhập + khuôn mặt + giọng
+        nói (để trống mật khẩu). Phải khớp cả hai, với ngưỡng nghiêm hơn, và bị khóa tạm sau nhiều lần sai. Có hay không
+        bật, đăng nhập bằng mật khẩu vẫn đăng nhập bình thường.
       </p>
       <BiometricWarning />
       {hasPassword && (

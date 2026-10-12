@@ -179,6 +179,33 @@ describe("AccountView", () => {
     );
   });
 
+  it("describes biometrics as an optional passwordless method, not an extra step", async () => {
+    setupAccount({ has_audio: true, has_face: true });
+    render(<AccountView />);
+    const enroll = await screen.findByRole("form", { name: "Thêm giọng nói hoặc khuôn mặt" });
+    expect(enroll).toHaveTextContent(/không phải bước xác minh thêm/);
+    expect(enroll).toHaveTextContent(/cả giọng nói và khuôn mặt/);
+    expect(enroll).not.toHaveTextContent(/phải quay lại/);
+    expect(screen.getByRole("form", { name: "Đăng nhập chỉ bằng giọng nói và khuôn mặt" })).toHaveTextContent(
+      /mật khẩu vẫn đăng nhập bình thường/,
+    );
+  });
+
+  it("tells the user a single enrolled factor is not enough for passwordless sign-in", async () => {
+    setupAccount({}, CONFIG, (url, init) =>
+      url.endsWith("/me/biometrics") && init.method === "POST"
+        ? jsonResponse({ has_audio: false, has_face: true, biometric_login: false, passwordless_ready: false })
+        : undefined,
+    );
+    const user = userEvent.setup();
+    render(<AccountView />);
+    await screen.findByRole("form", { name: "Thêm giọng nói hoặc khuôn mặt" });
+    await user.type(document.querySelector("#enroll-password") as HTMLInputElement, "pw-pass-1");
+    await user.click(screen.getByRole("button", { name: "fake video" }));
+    await user.click(screen.getByRole("button", { name: "Lưu dữ liệu sinh trắc" }));
+    expect(await screen.findByText(/cần cả giọng nói và khuôn mặt/)).toBeInTheDocument();
+  });
+
   it("links a Google account when configured and not yet linked", async () => {
     setupAccount({}, { google_client_id: "cid", biometrics_enabled: false });
     vi.spyOn(document.head, "appendChild").mockImplementation((node) => {

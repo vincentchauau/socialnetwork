@@ -29,8 +29,10 @@ export default function EnrollBiometrics({ hasPassword, hasAudio, hasFace, onDon
       return fail("Hãy quay khuôn mặt + giọng nói (hoặc ghi giọng nói riêng) trước khi lưu");
     }
     const ok = await run(async () => {
-      await enrollBiometrics(hasPassword ? password : undefined, audio, video);
-      return "Đã lưu. Từ giờ đăng nhập sẽ yêu cầu khớp cả giọng nói/khuôn mặt vừa đăng ký.";
+      const status = await enrollBiometrics(hasPassword ? password : undefined, audio, video);
+      return status.passwordless_ready
+        ? "Đã lưu. Đã có đủ giọng nói và khuôn mặt: bạn có thể bật đăng nhập không mật khẩu ở bên dưới."
+        : "Đã lưu. Đăng nhập không mật khẩu cần cả giọng nói và khuôn mặt, hãy quay bổ sung phần còn thiếu.";
     });
     if (ok) {
       setAudio(undefined);
@@ -45,9 +47,10 @@ export default function EnrollBiometrics({ hasPassword, hasAudio, hasFace, onDon
     <form onSubmit={submit} aria-label="Thêm giọng nói hoặc khuôn mặt" className={SECTION}>
       <h2 className="font-bold mb-1">{hasAudio || hasFace ? "Đổi giọng nói / khuôn mặt" : "Thêm giọng nói / khuôn mặt"}</h2>
       <p className="text-sm text-gray-600 mb-3">
-        Quay một lần, nhìn camera và nói vài câu: ứng dụng lấy khuôn mặt từ hình và giọng nói từ tiếng. Đã lưu: giọng
-        nói {hasAudio ? "có" : "chưa"}, khuôn mặt {hasFace ? "có" : "chưa"}. Khi đã lưu, lúc đăng nhập bạn phải quay lại
-        và khớp (ngoài mật khẩu hoặc Google).
+        Tùy chọn, không phải bước xác minh thêm: đăng nhập bằng mật khẩu hoặc Google vẫn vào thẳng. Dữ liệu này chỉ dùng
+        để đăng nhập không mật khẩu, và chỉ dùng được khi đã lưu cả giọng nói và khuôn mặt (có thể lưu từng phần, quay
+        bổ sung sau). Quay một lần, nhìn camera và nói vài câu. Đã lưu: giọng nói {hasAudio ? "có" : "chưa"}, khuôn mặt{" "}
+        {hasFace ? "có" : "chưa"}.
       </p>
       <BiometricCapture key={captureKey} disabled={busy} onVideo={setVideo} onAudio={setAudio} />
       {hasPassword && (
