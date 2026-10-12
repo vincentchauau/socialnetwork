@@ -8,13 +8,16 @@ socialnetwork/
   shared/
     backend/    sn_shared: JWT + password helpers (a library, not a service)
     frontend/   api.ts (fetch client), theme.css (design tokens)
-    infra/      docker-compose.yml, nginx.conf, postgres/init.sql
-  center/       accounts: register / login / logout / me; shell UI (home, login)
-    backend/    FastAPI
-    frontend/   Next.js
+    infra/      generate_infra.py -> docker-compose.yml, nginx.conf, postgres/init.sql
+  center/       accounts + shell UI (home, sign-in, app list)
   chat/         rooms + realtime messages (WebSocket)
-    backend/    FastAPI
-    frontend/   Next.js, served under /chat
+  photos/       share photos, likes, comments (uploads on a volume)
+  watch/        upload and stream videos, progress, watchlist (uploads on a volume)
+  werewolf/     realtime social-deduction game (rooms in memory, results in DB)
+  market/       products, cart, orders, reviews (payments are a stub)
+  learning/     courses, lessons, quizzes, progress, certificates
+  jobs/         postings, applications, saved jobs, candidate profile
+                (each app = backend/ FastAPI + frontend/ Next.js, served at /<app>)
 ```
 
 ## Rules
@@ -29,9 +32,9 @@ socialnetwork/
 ```
 browser -> gateway :8080
   /              -> center-frontend
-  /chat          -> chat-frontend
+  /<app>         -> <app>-frontend   (chat, photos, watch, werewolf, market, learning, jobs)
   /api/center/*  -> center-backend   (prefix stripped)
-  /api/chat/*    -> chat-backend     (prefix stripped, WebSocket upgrade)
+  /api/<app>/*   -> <app>-backend    (prefix stripped; WebSocket upgrade for chat and werewolf)
 ```
 
 Everything is same-origin, so the auth cookie is `HttpOnly` and no CORS is needed.
@@ -66,14 +69,18 @@ cd center/frontend && npm install && npm run dev
 
 ## Add a new app
 
-1. Copy `chat/` to `<app>/`, rename, and replace the domain code.
-2. Add `<app>-backend` / `<app>-frontend` to `shared/infra/docker-compose.yml` and a database in `postgres/init.sql`.
-3. Add a `location` for it in `shared/infra/nginx.conf` (and `basePath: "/<app>"` in its `next.config.mjs`).
-4. Add an entry to `center/frontend/app/apps.ts`.
+1. Copy an existing app (`chat/` is the smallest) to `<app>/`, rename, and replace the domain code.
+2. Add it to `APPS` in `shared/infra/generate_infra.py` (set `volume`, `websocket`, `max_body`... as needed).
+3. Run `python shared/infra/generate_infra.py`. It rewrites `docker-compose.yml`, `nginx.conf`,
+   `postgres/init.sql` and `center/frontend/app/apps.ts` (the home-page app list).
+4. `init.sql` only runs on a **fresh** Postgres volume. For an existing one create the database by hand:
+   `docker compose ... exec postgres psql -U postgres -c "CREATE DATABASE <app>"`.
 5. Protect routes with `Depends(get_current_user)` from `sn_shared.deps`.
 
 ## Security notes
 
+- Uploads (photos 5 MB, videos 100 MB) are verified by content, stored under random names on a
+  volume, and capped by nginx per route. Payments in `market` are a stub: no card data is handled.
 - Login is throttled per (address, username) and per address; register per address. nginx also
   rate-limits `/api/center/auth/`. Backends run with `--proxy-headers` so they see the real client.
 - The chat socket requires a valid cookie **and** an allowed `Origin`, caps frame size (8 KB) and rate
@@ -90,4 +97,5 @@ cd center/frontend && npm install && npm run dev
   then add HSTS and a CSP (Next.js inline scripts need nonces).
 - `db.py` / `utcnow` are duplicated in `center` and `chat`; fold them into `sn_shared` when a third service needs them.
 - No frontend tests and no CI yet.
+- `werewolf` keeps rooms in memory (lost on restart) and omits the old "Ma" faction; `market` has no shipping address.
 - No email verification, password reset or refresh tokens.

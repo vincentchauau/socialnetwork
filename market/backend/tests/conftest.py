@@ -1,0 +1,87 @@
+import os
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+# create_app() runs at import time and needs these.
+os.environ.setdefault("JWT_SECRET", "t" * 40)
+os.environ.setdefault("DATABASE_URL", "sqlite://")
+
+from app.main import create_app  # noqa: E402
+from app.payments import PaymentError, PaymentResult  # noqa: E402
+from sn_shared import COOKIE_NAME, create_token  # noqa: E402
+
+SELLER = (1, "sally")
+SELLER2 = (2, "sam")
+BUYER = (3, "bob")
+BUYER2 = (4, "beth")
+
+
+class DecliningProvider:
+    def charge(self, order_id: int, amount_cents: int, currency: str) -> PaymentResult:
+        raise PaymentError("declined")
+
+
+@pytest.fixture(autouse=True)
+def env(monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "t" * 40)
+
+
+@pytest.fixture
+def client():
+    with TestClient(create_app("sqlite://")) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def declining_client():
+    with TestClient(create_app("sqlite://", payment_provider=DecliningProvider())) as test_client:
+        yield test_client
+
+
+def auth(who: tuple[int, str]) -> dict[str, str]:
+    return {"Cookie": f"{COOKIE_NAME}={create_token(*who)}"}
+
+
+def product_body(**overrides: Any) -> dict[str, Any]:
+    return {
+        "name": "Lamp",
+        "description": "A nice lamp",
+        "price_cents": 2500,
+        "stock": 5,
+        "image_url": "https://example.com/lamp.png",
+        "category": "Home",
+        **overrides,
+    }
+
+
+def make_product(client: TestClient, who=SELLER, **overrides: Any) -> dict[str, Any]:
+    response = client.post("/products", json=product_body(**overrides), headers=auth(who))
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def add_to_cart(client: TestClient, product_id: int, quantity: int = 1, who=BUYER):
+    return client.put(f"/cart/items/{product_id}", json={"quantity": quantity}, headers=auth(who))
+
+
+def checkout(client: TestClient, who=BUYER, **headers: str):
+    return client.post("/orders", headers={**auth(who), **headers})
+
+
+def place_order(client: TestClient, product_id: int, quantity: int = 1, who=BUYER) -> dict[str, Any]:
+    assert add_to_cart(client, product_id, quantity, who).status_code == 200
+    response = checkout(client, who)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def set_status(client: TestClient, order_id: int, status: str, who):
+    return client.patch(f"/orders/{order_id}/status", json={"status": status}, headers=auth(who))
+
+
+def deliver(client: TestClient, order_id: int, seller=SELLER, buyer=BUYER) -> None:
+    assert client.post(f"/orders/{order_id}/pay", headers=auth(buyer)).status_code == 200
+    assert set_status(client, order_id, "shipped", seller).status_code == 200
+    assert set_status(client, order_id, "delivered", seller).status_code == 200
