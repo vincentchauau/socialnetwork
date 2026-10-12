@@ -74,6 +74,12 @@ class DeleteAccountBody(BaseModel):
     password: str | None = Field(default=None, max_length=MAX_INPUT)
 
 
+class RenameBody(Credentials):
+    """New username (same policy as registration) plus the password for the step-up (not needed with a fresh proof)."""
+
+    password: str | None = Field(default=None, max_length=MAX_INPUT)
+
+
 class SessionOut(BaseModel):
     id: int
     username: str
@@ -118,6 +124,8 @@ class PasskeyList(BaseModel):
 
 class MeOut(SessionOut, MethodsStatus):
     email: str | None
+    username_changed_at: datetime | None = None
+    can_rename_after: datetime | None = None  # None: the username can be changed now
     passkeys: list[PasskeyOut] = []
 
 

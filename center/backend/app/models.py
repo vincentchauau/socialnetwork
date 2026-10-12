@@ -17,6 +17,7 @@ class User(Base):
     __table_args__ = (
         Index("uq_users_email", "email", unique=True),
         Index("uq_users_google_sub", "google_sub", unique=True),
+        {"sqlite_autoincrement": True},  # ids are never reused (dev SQLite); PostgreSQL sequences never reuse
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -44,6 +45,8 @@ class User(Base):
     totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
     totp_pending_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
     totp_last_step: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # replay protection
+    # When the username was last changed by the user (None: never); a rename is allowed once per 30 days.
+    username_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     recovery_codes: Mapped[list["RecoveryCode"]] = relationship(cascade="all, delete-orphan")
     # Deleting the account deletes its passkeys (ORM cascade here, ON DELETE CASCADE in the table).
     passkeys: Mapped[list["Passkey"]] = relationship(
@@ -131,3 +134,26 @@ class UserSession(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="sessions")
+
+
+class AccountEvent(Base):
+    """Outbox row: written in the SAME transaction as the user change, relayed to the Redis stream afterwards."""
+
+    __tablename__ = "account_events"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    type: Mapped[str] = mapped_column(String(32))  # 'user.deleted' | 'user.renamed'
+    user_id: Mapped[int] = mapped_column(Integer, index=True)  # no foreign key: the row outlives a deleted user
+    payload: Mapped[str] = mapped_column(Text, default="{}")  # JSON text
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class ReservedUsername(Base):
+    """A name its owner gave up: only that owner may take it back until `until`."""
+
+    __tablename__ = "reserved_usernames"
+
+    username: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    until: Mapped[datetime] = mapped_column(DateTime(timezone=True))

@@ -32,6 +32,7 @@ from app.identify import (
 )
 from app.deps import AuthSession, biometrics_available, check_origin, client_ip, csrf_session, require_reauth, settings_of, too_many
 from app import emailtokens as et
+from app import usernames
 from app.methods import GOOGLE_IN_USE, KEEP_ONE, methods_status, usable_methods
 from app.models import User
 from app.notify import notify, send_link_mail
@@ -74,12 +75,12 @@ combined_router = APIRouter(prefix="/auth", tags=["sign-in methods"], dependenci
 
 
 def _username_free(db: Session, username: str) -> None:
-    if db.scalar(select(User.id).where(User.username == username)) is not None:
+    if usernames.unavailable(db, username):
         raise HTTPException(status.HTTP_409_CONFLICT, TAKEN)
 
 
 def _handle_taken(db: Session, handle: str) -> bool:
-    return db.scalar(select(User.id).where(User.username == handle)) is not None
+    return usernames.unavailable(db, handle)
 
 
 def _random_handle(db: Session) -> str:
@@ -174,8 +175,8 @@ def _register(
         raise too_many()
     if not (password or google_token or voice_file is not None or video_file is not None or passkey):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NO_METHOD)
-    # Google, voice, webcam and passkey sign in without a name, so only a password needs one. There is NO rename
-    # endpoint (usernames are denormalised in other services), hence the generated handle is permanent.
+    # Google, voice, webcam and passkey sign in without a name, so only a password needs one. A generated
+    # handle can be renamed later (POST /auth/me/username).
     address = _signup_address(email)  # validated before anything is stored
     generate = username is None or not username.strip()
     if generate and password:

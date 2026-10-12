@@ -627,7 +627,7 @@ def test_me_has_the_new_shape(bio_client):
     assert set(body) == {
         "id", "username", "role", "email", "has_password", "google_linked", "voice_login", "webcam_login",
         "has_audio", "has_face", "require_biometric_2fa", "csrf_token", "passkey_count", "passkeys", "email_verified",
-        "totp_enabled", "recovery_codes_left",
+        "totp_enabled", "recovery_codes_left", "username_changed_at", "can_rename_after",
     }  # fmt: skip
     assert me.status_code == 201
 

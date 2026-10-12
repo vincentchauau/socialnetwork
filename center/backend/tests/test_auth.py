@@ -119,7 +119,7 @@ def test_login_with_correct_password_authenticates_me(client):
         "has_password": True, "google_linked": False, "voice_login": False, "webcam_login": False,
         "has_audio": False, "has_face": False, "require_biometric_2fa": False, "passkey_count": 0, "passkeys": [],
             "totp_enabled": False, "recovery_codes_left": 0,
-        "csrf_token": login.json()["csrf_token"],
+        "csrf_token": login.json()["csrf_token"], "username_changed_at": None, "can_rename_after": None,
     }  # fmt: skip
 
 

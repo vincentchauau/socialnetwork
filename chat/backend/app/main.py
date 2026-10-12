@@ -1,9 +1,12 @@
 import asyncio
+import inspect
 import json
 import os
 import re
 import time
-from typing import Annotated
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Path, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.concurrency import run_in_threadpool
@@ -55,12 +58,41 @@ def _valid_room(room: str) -> bool:
     return re.fullmatch(ROOM_PATTERN, room) is not None
 
 
+def _start_account_consumer(session_factory: sessionmaker) -> Any:
+    """Start center's account-event consumer; None in tests, without Redis or without the library."""
+    if os.environ.get("TESTING") or not os.environ.get("REDIS_URL"):
+        return None
+    try:
+        from sn_shared.events import start_account_consumer
+    except ImportError:
+        return None
+    return start_account_consumer("chat", session_factory)
+
+
+async def _stop_account_consumer(handle: Any) -> None:
+    stop = getattr(handle, "stop", None) or getattr(handle, "close", None)
+    if stop is None:
+        return
+    result = stop()
+    if inspect.isawaitable(result):
+        await result
+
+
 def create_app(database_url: str | None = None) -> FastAPI:
     get_jwt_secret()  # fail at startup, not on the first request
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     Base.metadata.create_all(engine)
 
-    app = FastAPI(title="socialnetwork chat")
+    @asynccontextmanager
+    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        handle = _start_account_consumer(application.state.session_factory)
+        try:
+            yield
+        finally:
+            if handle is not None:
+                await _stop_account_consumer(handle)
+
+    app = FastAPI(title="socialnetwork chat", lifespan=lifespan)
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
     hub = RoomHub()
 

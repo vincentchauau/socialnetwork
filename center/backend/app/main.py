@@ -1,5 +1,6 @@
 import os
 import threading
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -10,6 +11,7 @@ from app.bodylimit import BodyLimitMiddleware, limit_for
 from app.config import Settings
 from app.crypto import TemplateCipher
 from app.db import DEFAULT_DATABASE_URL, Base, make_engine
+from app.events import EventRelay, redis_client_factory
 from app.google_auth import make_google_verifier
 from app.kv import Kv, make_kv
 from app.mailer import SmtpMailer
@@ -66,6 +68,7 @@ FRESH_MAX_FAILURES = 5  # failed step-up proofs (passkey, Google, mailed code), 
 FRESH_WINDOW_SECONDS = 900.0
 FRESH_MAX_FAILURES = 5  # failed step-up proofs (passkey, Google, mailed code), per user
 FRESH_WINDOW_SECONDS = 900.0
+RENAME_MAX_PER_DAY = 10  # username change attempts per user (the 30-day rule is separate)
 REGISTER_MAIL_MAX_PER_ADDRESS = 3  # verification mails triggered by sign-ups, per target address
 
 
@@ -111,6 +114,7 @@ def _install_throttles(app: FastAPI, kv: Kv) -> None:
     state.reauth_mail_ip_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP, window, name="reauth_mail_ip_throttle", kv=kv)
     state.reauth_mail_ip_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP_ADDRESS, window, name="reauth_mail_ip_addr_throttle", kv=kv)
     state.reauth_mail_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_ADDRESS, window, name="reauth_mail_addr_throttle", kv=kv)
+    state.rename_throttle = AttemptThrottle(RENAME_MAX_PER_DAY, 86400.0, name="rename_throttle", kv=kv)
     state.biometric_slots = threading.BoundedSemaphore(MAX_CONCURRENT_BIOMETRICS)
 
 
@@ -141,7 +145,18 @@ def create_app(database_url: str | None = None) -> FastAPI:
         force_relogin(engine)  # tokens without a sid cannot be revoked: end them all, once
 
     docs = None if settings.production else "/docs"
+    relay_holder: list[EventRelay] = []
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        relay_holder[0].start()  # a no-op without REDIS_URL: outbox rows then stay until Redis is configured
+        try:
+            yield
+        finally:
+            relay_holder[0].stop()
+
     app = FastAPI(
+        lifespan=lifespan,
         title="socialnetwork center",
         docs_url=docs,
         redoc_url=None if settings.production else "/redoc",
@@ -149,6 +164,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
+    app.state.event_relay = EventRelay(app.state.session_factory, redis_client_factory(settings.redis_url))
+    relay_holder.append(app.state.event_relay)
     _install_throttles(app, make_kv(settings.redis_url))
     _install_biometrics(app, settings)
     app.state.totp_cipher = make_cipher(settings)  # fails at startup on a bad DATA_KEY

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import Alert from "./Alert";
 import Biometric2faToggle from "./Biometric2faToggle";
+import ChangeUsername from "./ChangeUsername";
 import DeleteAccount from "./DeleteAccount";
 import LinkGoogle from "./LinkGoogle";
 import LoginMethods from "./LoginMethods";
@@ -69,6 +70,13 @@ export default function AccountView() {
       <div id="doi-mat-khau">
         <PasswordForm hasPassword={me.has_password} onDone={reload} />
       </div>
+
+      <ChangeUsername
+        username={me.username}
+        hasPassword={me.has_password}
+        canRenameAfter={me.can_rename_after ?? null}
+        onDone={reload}
+      />
 
       {config.google_client_id && !me.google_linked && (
         <div id="lien-ket-google">

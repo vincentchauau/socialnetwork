@@ -32,6 +32,8 @@ export interface Me {
   totp_enabled: boolean;
   recovery_codes_left: number;
   csrf_token: string;
+  username_changed_at?: string | null;
+  can_rename_after?: string | null;
 }
 
 export interface MethodsStatus {
@@ -111,7 +113,14 @@ export const USERNAME_NEEDED = "Enter your username";
 const VOICE_TAKEN = "This voice is already registered";
 const VOICE_TAKEN_HELP = "Giọng nói này đã được đăng ký cho một tài khoản khác, hãy đăng nhập hoặc dùng giọng khác.";
 
+export const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/;
+export const USERNAME_MESSAGE = "Tên đăng nhập gồm 3-32 ký tự: chữ thường a-z, số, dấu chấm, gạch dưới, gạch ngang";
+export const USERNAME_COOLDOWN_MESSAGE = "Bạn chỉ có thể đổi tên đăng nhập 30 ngày một lần";
+export const USERNAME_TAKEN_MESSAGE = "Tên đăng nhập này đã có người dùng";
+export const isUsernameValid = (username: string): boolean => USERNAME_PATTERN.test(username);
+
 export function errorText(error: unknown): string {
+  if (error instanceof ApiError && /once every 30 days|can be changed again after/i.test(error.message)) return USERNAME_COOLDOWN_MESSAGE;
   if (error instanceof ApiError && error.status === 429) return "Thử quá nhiều lần, hãy thử lại sau";
   if (error instanceof ApiError && error.status === 409 && error.message === PASSKEY_LIMIT) return PASSKEY_LIMIT_MESSAGE;
   if (error instanceof Error && error.message === VOICE_TAKEN) return `${VOICE_TAKEN}. ${VOICE_TAKEN_HELP}`;
@@ -276,6 +285,18 @@ export const changePassword = (newPassword: string, currentPassword?: string) =>
     `${CENTER_API}/auth/me/password`,
     json({ new_password: newPassword, current_password: currentPassword }),
   );
+
+export async function changeUsername(username: string, password?: string): Promise<Session> {
+  try {
+    return await apiFetch<Session>(`${CENTER_API}/auth/me/username`, json({ username, password }));
+  } catch (error) {
+    // Only here: registration keeps showing the server's own wording for the same 409.
+    if (error instanceof ApiError && error.status === 409 && error.message === "Username already taken") {
+      throw new Error(USERNAME_TAKEN_MESSAGE);
+    }
+    throw error;
+  }
+}
 
 export const linkGoogle = (idToken: string, password?: string) =>
   apiFetch<unknown>(`${CENTER_API}/auth/me/google`, json({ id_token: idToken, password }));

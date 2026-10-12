@@ -9,7 +9,7 @@ from sn_shared import hash_password as bcrypt_hash
 NEW_COLUMNS = {
     "email", "google_sub", "role", "token_version", "audio_embedding", "face_embedding", "biometric_login",
     "biometric_2fa", "voice_login", "webcam_login", "email_verified", "email_from_google",
-    "totp_enabled", "totp_secret", "totp_pending_secret", "totp_last_step",
+    "totp_enabled", "totp_secret", "totp_pending_secret", "totp_last_step", "username_changed_at",
 }  # fmt: skip
 
 
@@ -174,3 +174,15 @@ def test_app_startup_migrates_legacy_biometric_login(tmp_path):
     engine.dispose()
     app = create_app(f"sqlite:///{tmp_path / 'old.db'}")
     assert _flags(app.state.session_factory().get_bind()) == {"olduser": (0, 0), "legacy": (0, 1)}
+
+
+def test_old_database_gets_the_event_and_reservation_tables_and_can_rename(tmp_path):
+    url = make_old_db(tmp_path / "old.db", password="legacy-pass-1")
+    with TestClient(create_app(url)) as client:
+        assert {"account_events", "reserved_usernames"} <= set(sa.inspect(make_engine(url)).get_table_names())
+        session = client.post("/auth/login", json={"username": "olduser", "password": "legacy-pass-1"}).json()
+        response = client.post(
+            "/auth/me/username", json={"username": "newuser", "password": "legacy-pass-1"},
+            headers={"X-CSRF-Token": session["csrf_token"]},
+        )
+        assert response.status_code == 200 and response.json()["username"] == "newuser"

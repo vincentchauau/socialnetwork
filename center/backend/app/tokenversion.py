@@ -33,9 +33,12 @@ def bump_token_version(db: Session, user: User, keep_sid: str | None = None) -> 
     db.refresh(user, ["token_version"])
 
 
-def publish_token_version(user: User, settings: Settings) -> bool:
-    """Tell the other apps the account's minimum token version (best effort: see sn_shared.revocation)."""
-    ok = revocation.publish_min_version(user.id, user.token_version, access_ttl_seconds(settings))
+def publish_token_version(user: User | int, settings: Settings, version: int | None = None) -> bool:
+    """Tell the other apps the account's minimum token version (best effort: see sn_shared.revocation).
+
+    Takes a User, or a user id plus `version` (the user row may already be deleted)."""
+    user_id, version = (user.id, user.token_version) if isinstance(user, User) else (user, version)
+    ok = revocation.publish_min_version(user_id, version, access_ttl_seconds(settings))
     if not ok and revocation.configured():
         audit.warning("minimum token version not published (1 account): other apps may accept its tokens until expiry")
     return ok

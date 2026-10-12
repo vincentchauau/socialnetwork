@@ -52,6 +52,11 @@ EVENTS: dict[str, tuple[str, str]] = {
         "Một mã khôi phục đã được sử dụng",
         "Một mã khôi phục vừa được dùng để đăng nhập vào tài khoản {username}.",
     ),
+    "username_changed": (
+        "Tên người dùng của bạn đã thay đổi",
+        "Tên người dùng của tài khoản đã được đổi từ {old_username} sang {new_username}. "
+        "Tên cũ được giữ riêng cho bạn trong 30 ngày.",
+    ),
     "account_deleted": ("Tài khoản của bạn đã bị xóa", "Tài khoản {username} vừa được xóa cùng toàn bộ dữ liệu."),
 }
 
@@ -104,7 +109,7 @@ def _code_mail(code: str) -> Rendered:
 
 def _notice(kind: str, **ctx: str) -> Rendered:
     subject, template = EVENTS[kind]
-    values = {"username": "", "new_email": "", **ctx}
+    values = {"username": "", "new_email": "", "old_username": "", "new_username": "", **ctx}
     what = template.format(**values)
     text = f"{what}\n\n{SECURITY_TIP}"
     escaped = {k: escape(str(v)) for k, v in values.items()}

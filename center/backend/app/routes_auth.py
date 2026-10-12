@@ -24,7 +24,8 @@ from app.methods import methods_status, passkey_items
 from app.models import User
 from app.passwords import NO_PASSWORD, hash_password, needs_rehash, password_problem, verify_password
 from app.schemas import AuthConfig, Credentials, GoogleBody, LoginBody, MeOut, MfaRequired, SessionOut
-from app import usersessions
+from app import usernames, usersessions
+from app.usersessions import as_utc
 from app.sessions import REFRESH_COOKIE, begin_session, clear_session_cookies, issue_session, start_login
 from app.tokens import csrf_token, decode_claims
 from app.tokenversion import bump_token_version, publish_token_version
@@ -48,6 +49,8 @@ def me_out(user: User, token: str) -> MeOut:
         role=user.role,
         email=user.email,
         csrf_token=csrf_token(token),
+        username_changed_at=as_utc(user.username_changed_at) if user.username_changed_at else None,
+        can_rename_after=usernames.can_rename_after(user),
         passkeys=passkey_items(user),
         **methods_status(user).model_dump(),
     )
@@ -73,6 +76,8 @@ def register(
     problem = password_problem(body.password, body.username)
     if problem:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
+    if usernames.unavailable(db, body.username):  # reserved for someone who just gave it up
+        raise HTTPException(status.HTTP_409_CONFLICT, "Username already taken")
     user = User(username=body.username, password_hash=hash_password(body.password))
     db.add(user)
     try:
@@ -201,7 +206,7 @@ def verify_google_or_throttle(request: Request, id_token: str) -> GoogleIdentity
 def _create_google_user(db: Session, identity: GoogleIdentity) -> User:
     for _ in range(MAX_HANDLE_ATTEMPTS):
         handle = unique_handle(
-            identity.email, lambda h: db.scalar(select(User.id).where(User.username == h)) is not None
+            identity.email, lambda h: usernames.unavailable(db, h)
         )
         email_taken = db.scalar(select(User.id).where(User.email == identity.email)) is not None
         user = User(
