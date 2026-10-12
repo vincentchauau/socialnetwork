@@ -12,6 +12,13 @@ vi.mock("../app/lib/navigate", async (original) => ({
   goTo,
 }));
 
+const webauthn = vi.hoisted(() => ({ supported: true, start: vi.fn(), create: vi.fn() }));
+vi.mock("@simplewebauthn/browser", () => ({
+  browserSupportsWebAuthn: () => webauthn.supported,
+  startAuthentication: webauthn.start,
+  startRegistration: webauthn.create,
+}));
+
 // Thiết bị thật cần micro/camera; các bản giả này "ghi" tức thì.
 vi.mock("../app/components/AudioRecord", () => ({
   default: ({ onRecorded }: { onRecorded: (b: Blob) => void }) => (
@@ -75,6 +82,9 @@ const openRegister = (user: User) => user.click(screen.getByRole("button", { nam
 const tab = (name: string) => screen.getByRole("tab", { name });
 
 beforeEach(() => {
+  webauthn.supported = true;
+  webauthn.start.mockReset();
+  webauthn.create.mockReset();
   window.sessionStorage.clear();
   goTo.mockReset();
   window.history.pushState({}, "", "/login");
@@ -85,8 +95,8 @@ describe("LoginFlow selector", () => {
     setup({ config: ALL });
     const user = userEvent.setup();
     render(<LoginFlow />);
-    await screen.findByRole("tab", { name: "Webcam (khuôn mặt)" });
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Mật khẩu", "Google", "Giọng nói", "Webcam (khuôn mặt)"]);
+    await screen.findByRole("tab", { name: "Passkey" });
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Mật khẩu", "Google", "Giọng nói", "Webcam (khuôn mặt)", "Passkey"]);
     expect(tab("Mật khẩu")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByLabelText("Mật khẩu", { selector: "input" })).toBeInTheDocument();
 
@@ -95,11 +105,11 @@ describe("LoginFlow selector", () => {
     expect(tab("Google")).toHaveAttribute("aria-selected", "true");
     expect(tab("Google")).toHaveFocus();
     await user.keyboard("{End}");
-    expect(tab("Webcam (khuôn mặt)")).toHaveAttribute("aria-selected", "true");
+    expect(tab("Passkey")).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{ArrowRight}");
     expect(tab("Mật khẩu")).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{ArrowLeft}");
-    expect(tab("Webcam (khuôn mặt)")).toHaveAttribute("aria-selected", "true");
+    expect(tab("Passkey")).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{Home}");
     expect(tab("Mật khẩu")).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{a}");
@@ -110,7 +120,7 @@ describe("LoginFlow selector", () => {
     setup();
     render(<LoginFlow />);
     await screen.findByLabelText("Tên đăng nhập");
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Mật khẩu"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Mật khẩu", "Passkey"]);
   });
 
   it("shows Google only when a client id is set, voice/webcam only when biometrics are on", async () => {
@@ -464,7 +474,7 @@ describe("LoginFlow register (multi-select)", () => {
 
   it("hides unconfigured methods", async () => {
     await register();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2); // Mật khẩu + Passkey
   });
 
   it("requires the username only when Mật khẩu is checked", async () => {
@@ -479,7 +489,7 @@ describe("LoginFlow register (multi-select)", () => {
     expect(field()).not.toBeRequired(); // voice + webcam
     expect(field()).toHaveAttribute("aria-required", "false");
     expect(screen.getByLabelText("Tên đăng nhập (không bắt buộc)")).toBeInTheDocument();
-    expect(screen.getByText(/Không bắt buộc nếu chỉ dùng Google, Giọng nói hoặc Webcam/)).toBeInTheDocument();
+    expect(screen.getByText(/Không bắt buộc nếu chỉ dùng Google, Giọng nói, Webcam hoặc Passkey/)).toBeInTheDocument();
     await user.click(box("Webcam (khuôn mặt)"));
     expect(field()).not.toBeRequired(); // voice
     await user.click(box("Giọng nói"));

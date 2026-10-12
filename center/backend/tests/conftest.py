@@ -17,7 +17,7 @@ def env(monkeypatch):
     monkeypatch.setenv("JWT_SECRET", "t" * 40)
     for name in (
         "APP_ENV", "COOKIE_SECURE", "ACCESS_TOKEN_MINUTES", "REFRESH_DAYS", "ALLOWED_ORIGINS",
-        "GOOGLE_CLIENT_ID", "BIOMETRICS_ENABLED", "DATA_KEY",
+        "GOOGLE_CLIENT_ID", "BIOMETRICS_ENABLED", "DATA_KEY", "WEBAUTHN_RP_ID", "WEBAUTHN_RP_NAME",
     ):  # fmt: skip
         monkeypatch.delenv(name, raising=False)
 

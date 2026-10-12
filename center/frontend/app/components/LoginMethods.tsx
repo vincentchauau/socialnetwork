@@ -4,6 +4,7 @@ import { FormEvent, ReactNode, useState } from "react";
 
 import Alert from "./Alert";
 import BiometricMethod from "./BiometricMethod";
+import PasskeyMethod from "./PasskeyMethod";
 import { INPUT, LABEL, SECONDARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
 import { AuthConfig, Me, unlinkGoogle } from "../lib/auth";
@@ -64,6 +65,7 @@ function UnlinkGoogle({ hasPassword, onDone }: { hasPassword: boolean; onDone: P
 /** Bốn cách đăng nhập của tài khoản; thêm/thay/hủy giọng nói và webcam ngay tại đây (luôn phải còn ít nhất một cách). */
 export default function LoginMethods({ me, config, onDone }: Props) {
   const enrol = config.biometrics_enabled;
+  const passkeys = me.passkeys ?? [];
   return (
     <section aria-label="Các cách đăng nhập" className={SECTION}>
       <h2 className="font-bold mb-2">Các cách đăng nhập</h2>
@@ -87,6 +89,10 @@ export default function LoginMethods({ me, config, onDone }: Props) {
             <BiometricMethod kind="webcam" enabled={me.webcam_login} hasPassword={me.has_password} onDone={onDone} />
           </Row>
         )}
+        <Row name="Passkey" state={passkeys.length ? `${passkeys.length} passkey đã đăng ký` : "chưa có"}>
+          {passkeys.length > 0 && <p className="text-xs text-gray-600">{NO_USERNAME}</p>}
+          <PasskeyMethod passkeys={passkeys} hasPassword={me.has_password} onDone={onDone} />
+        </Row>
       </ul>
     </section>
   );

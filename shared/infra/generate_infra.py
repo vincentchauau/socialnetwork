@@ -133,6 +133,8 @@ services:
       GOOGLE_CLIENT_ID: ${{GOOGLE_CLIENT_ID:-}}
       BIOMETRICS_ENABLED: ${{BIOMETRICS_ENABLED:-0}}
       DATA_KEY: ${{DATA_KEY:-}}
+      WEBAUTHN_RP_ID: ${{WEBAUTHN_RP_ID:-}}
+      WEBAUTHN_RP_NAME: ${{WEBAUTHN_RP_NAME:-Mạng xã hội}}
     depends_on:
       postgres:
         condition: service_healthy

@@ -21,6 +21,9 @@ const NO_REFRESH_PATHS = new Set([
   "/api/center/auth/register/combined",
   "/api/center/auth/register",
   "/api/center/auth/google",
+  "/api/center/auth/passkey/options",
+  "/api/center/auth/passkey/login",
+  "/api/center/auth/register/passkey/options",
   "/api/center/auth/logout",
   REFRESH_PATH,
 ]);

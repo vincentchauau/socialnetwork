@@ -14,16 +14,20 @@ import UsernameField from "./UsernameField";
 import VideoRecord from "./VideoRecord";
 import { PRIMARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
+import { usePasskeySupport } from "../hooks/usePasskeySupport";
 import {
   AuthConfig,
   USERNAME_NEEDED,
   LoginResult,
   loginWithGoogle,
+  loginWithPasskey,
   loginWithPassword,
   loginWithVoice,
   loginWithWebcam,
+  passkeyLoginOptions,
 } from "../lib/auth";
 import { goTo, postLoginTarget } from "../lib/navigate";
+import { PASSKEY_UNSUPPORTED, getPasskeyCredential } from "../lib/passkey";
 
 interface Props {
   config: AuthConfig;
@@ -34,8 +38,11 @@ export function availableMethods(config: AuthConfig): Method[] {
   const methods: Method[] = ["password"];
   if (config.google_client_id) methods.push("google");
   if (config.biometrics_enabled) methods.push("voice", "webcam");
+  methods.push("passkey");
   return methods;
 }
+
+const PASSKEY_HINT = "Dùng vân tay, Face ID, Windows Hello hoặc khóa bảo mật của thiết bị. Không cần nhập tên đăng nhập.";
 
 const AUTO_HINT = {
   voice: "Hệ thống tự nhận ra giọng nói của bạn.",
@@ -54,6 +61,7 @@ export default function SignInForm({ config, onMfa }: Props) {
   const [needUsername, setNeedUsername] = useState(false); // chỉ hiện khi máy chủ yêu cầu (hệ thống rất lớn)
   const [recordingKey, setRecordingKey] = useState(0); // đổi key để ô ghi âm/quay trở về trạng thái trống
   const { busy, error, run, fail } = useAction();
+  const passkeySupported = usePasskeySupport();
 
   const clearRecordings = () => {
     setAudio(undefined);
@@ -104,6 +112,14 @@ export default function SignInForm({ config, onMfa }: Props) {
       if (!video) return fail("Hãy quay khuôn mặt trước khi đăng nhập");
       return void signIn(() => withUsernameFallback(async () => void (await loginWithWebcam(video, needUsername ? username : undefined))));
     }
+    if (method === "passkey") {
+      if (!passkeySupported) return fail(PASSKEY_UNSUPPORTED);
+      return void signIn(async () => {
+        const { options, challenge_token } = await passkeyLoginOptions();
+        const credential = await getPasskeyCredential(options);
+        return { kind: "session", session: await loginWithPasskey(credential, challenge_token) };
+      });
+    }
     void signIn(() => loginWithPassword(username, password));
   }
 
@@ -127,12 +143,18 @@ export default function SignInForm({ config, onMfa }: Props) {
             {(method === "voice" || method === "webcam") && !needUsername && (
               <p className="text-sm text-gray-600 mb-2">{AUTO_HINT[method]}</p>
             )}
+            {method === "passkey" && (
+              <>
+                <p className="text-sm text-gray-600 mb-2">{PASSKEY_HINT}</p>
+                {!passkeySupported && <p role="note" className="text-sm text-red-600 mb-2">{PASSKEY_UNSUPPORTED}</p>}
+              </>
+            )}
             {method === "password" && <PasswordField value={password} onChange={setPassword} isRegister={false} />}
             {(method === "voice" || method === "webcam") && <BiometricWarning kinds={[method]} />}
             {method === "voice" && <AudioRecord key={recordingKey} disabled={busy} onRecorded={setAudio} />}
             {method === "webcam" && <VideoRecord key={recordingKey} disabled={busy} onRecorded={setVideo} />}
-            <button type="submit" disabled={busy} className={`${PRIMARY_BUTTON} mt-2`}>
-              {busy ? "Đang xử lý..." : "Đăng nhập"}
+            <button type="submit" disabled={busy || (method === "passkey" && !passkeySupported)} className={`${PRIMARY_BUTTON} mt-2`}>
+              {busy ? "Đang xử lý..." : method === "passkey" ? "Đăng nhập bằng Passkey" : "Đăng nhập"}
             </button>
           </form>
         )}

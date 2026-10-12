@@ -35,6 +35,7 @@ from app.methods import GOOGLE_IN_USE, KEEP_ONE, methods_status, usable_methods
 from app.models import User
 from app.passwords import NO_PASSWORD, hash_password, password_problem
 from app.routes_auth import verify_google_or_throttle
+from app.routes_passkeys import verified_signup_passkey
 from app.routes_biometrics import (
     UNAVAILABLE,
     Text,
@@ -55,6 +56,7 @@ NEEDS_AUDIO = "Send an audio recording"
 NO_METHOD = "Choose at least one sign-in method"
 TAKEN = "Username already taken"
 CHOOSE_USERNAME = "Choose a username"
+PASSKEY_BOTH = "Send both passkey_credential and passkey_challenge_token"
 GENERATED_PREFIX = "user-"
 GENERATED_HEX_CHARS = 6
 
@@ -118,15 +120,16 @@ def _templates(
 def _register(
     request: Request, response: Response, db: Session, username: str | None, *,
     password: str | None = None, google_token: str | None = None, voice_file=None, video_file=None,
+    passkey: tuple[str, str] | None = None,
 ) -> SessionOut:  # fmt: skip
     """All-or-nothing: every method is validated before the account row exists."""
     throttle, ip = request.app.state.register_throttle, client_ip(request)
     if throttle.is_blocked(ip):
         raise too_many()
     throttle.record(ip)
-    if not (password or google_token or voice_file is not None or video_file is not None):
+    if not (password or google_token or voice_file is not None or video_file is not None or passkey):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NO_METHOD)
-    # Google, voice and webcam sign in without a name, so only a password needs one. There is NO rename
+    # Google, voice, webcam and passkey sign in without a name, so only a password needs one. There is NO rename
     # endpoint (usernames are denormalised in other services), hence the generated handle is permanent.
     generate = username is None or not username.strip()
     if generate and password:
@@ -156,13 +159,16 @@ def _register(
     if generate and not name:
         name = _random_handle(db)
     user = User(username=name, **columns)
+    if passkey:  # verified last (it burns its challenge), still before anything is stored
+        user.passkeys.append(verified_signup_passkey(request, db, *passkey))
     db.add(user)
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, TAKEN) from None
-    audit.info("register user=%r ip=%s methods=%s", name, ip, sorted(k for k in columns if k != "password_hash"))
+    audit.info("register user=%r ip=%s methods=%s", name, ip,
+               sorted([k for k in columns if k != "password_hash"] + (["passkey"] if passkey else [])))
     return issue_session(response, user, settings_of(request))
 
 
@@ -190,11 +196,14 @@ def register_webcam(
 def register_combined(
     request: Request, response: Response, username: Annotated[str | None, Form()] = None,
     password: Text = None, google_id_token: Text = None, voice_audio: Upload = None, webcam_video: Upload = None,
-    db: Session = Depends(get_db),
+    passkey_credential: Text = None, passkey_challenge_token: Text = None, db: Session = Depends(get_db),
 ) -> SessionOut:  # fmt: skip
+    if bool(passkey_credential) != bool(passkey_challenge_token):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, PASSKEY_BOTH)
+    passkey = (passkey_credential, passkey_challenge_token) if passkey_credential and passkey_challenge_token else None
     return _register(
         request, response, db, username, password=password, google_token=google_id_token,
-        voice_file=voice_audio, video_file=webcam_video,
+        voice_file=voice_audio, video_file=webcam_video, passkey=passkey,
     )  # fmt: skip
 
 

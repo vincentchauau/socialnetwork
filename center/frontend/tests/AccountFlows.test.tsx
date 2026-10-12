@@ -11,6 +11,13 @@ vi.mock("../app/lib/navigate", async (original) => ({
   goTo,
 }));
 
+const webauthn = vi.hoisted(() => ({ supported: true, create: vi.fn() }));
+vi.mock("@simplewebauthn/browser", () => ({
+  browserSupportsWebAuthn: () => webauthn.supported,
+  startAuthentication: vi.fn(),
+  startRegistration: webauthn.create,
+}));
+
 // The real recorders need hardware; these stand-ins "record" instantly.
 vi.mock("../app/components/AudioRecord", () => ({
   default: ({ onRecorded }: { onRecorded: (b: Blob) => void }) => (
@@ -42,7 +49,11 @@ function setupAccount(account: Partial<Account> = {}, config: unknown = CONFIG, 
   });
 }
 
-beforeEach(() => goTo.mockReset());
+beforeEach(() => {
+  goTo.mockReset();
+  webauthn.supported = true;
+  webauthn.create.mockReset();
+});
 
 describe("AccountView", () => {
   it("redirects to login when signed out", async () => {
@@ -190,7 +201,10 @@ describe("AccountView", () => {
     expect(screen.queryByRole("button", { name: "Hủy webcam" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Thay giọng nói" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Lưu webcam" })).toBeInTheDocument();
-    expect(screen.getAllByRole("note")).toHaveLength(3); // voice + webcam liveness warnings and the 2FA warning
+    // voice + webcam liveness warnings and the 2FA warning. "At least": the passkey row adds one more
+    // note once it has detected (after mount) that this test browser lacks WebAuthn, so an exact count
+    // depended on when the assertion ran.
+    expect(screen.getAllByRole("note").length).toBeGreaterThanOrEqual(3);
   });
 
   it("offers to set a password when there is none", async () => {

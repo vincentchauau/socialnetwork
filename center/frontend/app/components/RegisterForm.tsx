@@ -13,14 +13,24 @@ import UsernameField from "./UsernameField";
 import VideoRecord from "./VideoRecord";
 import { PRIMARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
-import { AuthConfig, PASSWORD_MESSAGE, isPasswordValid, registerCombined, rememberNewUsername } from "../lib/auth";
+import { usePasskeySupport } from "../hooks/usePasskeySupport";
+import {
+  AuthConfig,
+  CombinedRegistration,
+  PASSWORD_MESSAGE,
+  isPasswordValid,
+  passkeyRegisterOptions,
+  registerCombined,
+  rememberNewUsername,
+} from "../lib/auth";
 import { goTo, postLoginTarget } from "../lib/navigate";
+import { PASSKEY_UNSUPPORTED, createPasskeyCredential } from "../lib/passkey";
 
 type Chosen = Record<Method, boolean>;
 
-const DEFAULT_CHOSEN: Chosen = { password: true, google: false, voice: false, webcam: false };
+const DEFAULT_CHOSEN: Chosen = { password: true, google: false, voice: false, webcam: false, passkey: false };
 
-const OPTIONAL_HINT = "Không bắt buộc nếu chỉ dùng Google, Giọng nói hoặc Webcam: hệ thống sẽ tự tạo tên (ví dụ user-7f3a2c).";
+const OPTIONAL_HINT = "Không bắt buộc nếu chỉ dùng Google, Giọng nói, Webcam hoặc Passkey: hệ thống sẽ tự tạo tên (ví dụ user-7f3a2c).";
 
 const warningKinds = (chosen: Chosen): WarningKind[] => [
   ...(chosen.voice ? (["voice"] as const) : []),
@@ -40,6 +50,13 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
   const [video, setVideo] = useState<Blob>();
   const [recordingKey, setRecordingKey] = useState(0);
   const { busy, error, run, fail } = useAction();
+  const passkeySupported = usePasskeySupport();
+
+  /** Máy chủ cấp thử thách, thiết bị tạo khóa; kết quả đi kèm yêu cầu đăng ký. */
+  async function createPasskey(): Promise<Pick<CombinedRegistration, "passkeyCredential" | "passkeyChallengeToken">> {
+    const { options, challenge_token } = await passkeyRegisterOptions(username);
+    return { passkeyCredential: await createPasskeyCredential(options), passkeyChallengeToken: challenge_token };
+  }
 
   function toggle(method: Method, checked: boolean) {
     setChosen({ ...chosen, [method]: checked });
@@ -59,9 +76,12 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
     if (chosen.voice && !audio) return fail("Hãy ghi giọng nói trước khi đăng ký");
     if (chosen.webcam && !video) return fail("Hãy quay khuôn mặt trước khi đăng ký");
     if (isUsernameRequired(chosen) && !username.trim()) return fail("Hãy nhập tên đăng nhập");
+    if (chosen.passkey && !passkeySupported) return fail(PASSKEY_UNSUPPORTED);
     let created: string | undefined;
     const ok = await run(async () => {
+      const passkey = chosen.passkey ? await createPasskey() : {};
       const session = await registerCombined({
+        ...passkey,
         username,
         password: chosen.password ? password : undefined,
         googleIdToken: chosen.google ? googleToken : undefined,
@@ -85,12 +105,17 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
       <UsernameField value={username} onChange={setUsername} required={isUsernameRequired(chosen)} optionalHint={OPTIONAL_HINT} />
       <fieldset className="mb-3 border rounded p-2" disabled={busy}>
         <legend className="text-sm font-medium px-1">Chọn các cách đăng ký trước, bổ sung cách còn thiếu sau</legend>
-        {availableMethods(config).map((method) => (
-          <label key={method} className="flex items-center gap-2 py-1">
-            <input type="checkbox" checked={chosen[method]} onChange={(e) => toggle(method, e.target.checked)} />
-            {METHOD_LABEL[method]}
-          </label>
-        ))}
+        {availableMethods(config).map((method) => {
+          const unavailable = method === "passkey" && !passkeySupported;
+          return (
+            <label key={method} className="flex items-center gap-2 py-1">
+              <input type="checkbox" checked={chosen[method]} disabled={unavailable}
+                     onChange={(e) => toggle(method, e.target.checked)} />
+              {METHOD_LABEL[method]}
+              {unavailable && <span className="text-xs text-gray-600">({PASSKEY_UNSUPPORTED})</span>}
+            </label>
+          );
+        })}
       </fieldset>
       {chosen.password && <PasswordField value={password} onChange={setPassword} isRegister />}
       {chosen.google && config.google_client_id && (
@@ -109,6 +134,11 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
             </>
           )}
         </div>
+      )}
+      {chosen.passkey && (
+        <p className="text-sm text-gray-600 mb-2">
+          Khi bấm Đăng ký, thiết bị sẽ hỏi vân tay, Face ID, Windows Hello hoặc khóa bảo mật để tạo Passkey.
+        </p>
       )}
       {(chosen.voice || chosen.webcam) && <BiometricWarning kinds={warningKinds(chosen)} />}
       {chosen.voice && (

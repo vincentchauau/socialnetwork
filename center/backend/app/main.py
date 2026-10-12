@@ -13,10 +13,12 @@ from app.db import DEFAULT_DATABASE_URL, Base, make_engine
 from app.google_auth import make_google_verifier
 from app.middleware import SecurityHeadersMiddleware
 from app.migrate import ensure_columns
+from app.passkeys import ChallengeStore
 from app.routes_account import router as account_router
 from app.routes_auth import router as auth_router
 from app.routes_biometrics import router as biometrics_router
 from app.routes_methods import combined_router, methods_router
+from app.routes_passkeys import router as passkeys_router
 from app.throttle import AttemptThrottle
 
 LOGIN_MAX_FAILURES_PER_IP_USER = 5  # per (client address, username)
@@ -33,6 +35,10 @@ BIOMETRIC_WINDOW_SECONDS = 900.0
 BIOMETRIC_ACCOUNT_FACTOR = 4
 IDENTIFY_MAX_PER_IP = 5  # username-less webcam sign-in attempts per address per window
 IDENTIFY_GLOBAL_MAX = 100  # ... across all addresses (protects CPU: each attempt is O(candidates))
+PASSKEY_OPTIONS_MAX_PER_IP = 30  # option requests (sign-in, sign-up, link) per address per window
+PASSKEY_OPTIONS_WINDOW_SECONDS = 600.0
+PASSKEY_LOGIN_MAX_FAILURES_PER_IP = 10  # failed passkey sign-ins per address per window
+PASSKEY_LOGIN_WINDOW_SECONDS = 900.0
 ENROLL_MAX_PER_HOUR = 10
 MAX_CONCURRENT_BIOMETRICS = 2
 
@@ -61,6 +67,9 @@ def _install_throttles(app: FastAPI) -> None:
     # voice identification has its own counters: voice and face attempts never lock each other out
     state.voice_identify_ip_throttle = AttemptThrottle(IDENTIFY_MAX_PER_IP, window)
     state.voice_identify_global_throttle = AttemptThrottle(IDENTIFY_GLOBAL_MAX, window)
+    state.passkey_options_throttle = AttemptThrottle(PASSKEY_OPTIONS_MAX_PER_IP, PASSKEY_OPTIONS_WINDOW_SECONDS)
+    state.passkey_login_throttle = AttemptThrottle(PASSKEY_LOGIN_MAX_FAILURES_PER_IP, PASSKEY_LOGIN_WINDOW_SECONDS)
+    state.passkey_challenges = ChallengeStore()  # consumed challenge ids; per process, like the throttles
     state.enroll_throttle = AttemptThrottle(ENROLL_MAX_PER_HOUR, 3600.0)
     state.biometric_slots = threading.BoundedSemaphore(MAX_CONCURRENT_BIOMETRICS)
 
@@ -108,6 +117,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(biometrics_router)
     app.include_router(methods_router)
     app.include_router(combined_router)
+    app.include_router(passkeys_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

@@ -7,3 +7,4 @@ python-multipart>=0.0.9
 cryptography>=42
 google-auth>=2.30
 requests>=2.32
+webauthn>=3.0.1,<4

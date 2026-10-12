@@ -20,7 +20,7 @@ from app.deps import (
 )
 from app.google_auth import GoogleAuthError, GoogleIdentity
 from app.handles import unique_handle
-from app.methods import methods_status
+from app.methods import methods_status, passkey_items
 from app.models import User
 from app.passwords import NO_PASSWORD, hash_password, needs_rehash, password_problem, verify_password
 from app.schemas import AuthConfig, Credentials, GoogleBody, LoginBody, MeOut, MfaRequired, SessionOut
@@ -46,6 +46,7 @@ def me_out(user: User, token: str) -> MeOut:
         role=user.role,
         email=user.email,
         csrf_token=csrf_token(token),
+        passkeys=passkey_items(user),
         **methods_status(user).model_dump(),
     )
 

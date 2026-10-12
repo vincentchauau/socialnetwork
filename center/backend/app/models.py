@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, LargeBinary, String, false
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, LargeBinary, String, false
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 from app.passwords import NO_PASSWORD
@@ -35,6 +35,10 @@ class User(Base):
     webcam_login: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Opt-in second factor after password/Google; OFF unless the user turns it on.
     biometric_2fa: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Deleting the account deletes its passkeys (ORM cascade here, ON DELETE CASCADE in the table).
+    passkeys: Mapped[list["Passkey"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", order_by="Passkey.id"
+    )
 
     @property
     def has_password(self) -> bool:
@@ -47,3 +51,23 @@ class User(Base):
     @property
     def has_biometrics(self) -> bool:
         return bool(self.audio_embedding or self.face_embedding)
+
+
+class Passkey(Base):
+    """One WebAuthn credential. An account may hold several (one per device); all share `user_handle`."""
+
+    __tablename__ = "passkeys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    credential_id: Mapped[bytes] = mapped_column(LargeBinary, unique=True, index=True)
+    public_key: Mapped[bytes] = mapped_column(LargeBinary)
+    sign_count: Mapped[int] = mapped_column(Integer, default=0)
+    user_handle: Mapped[bytes] = mapped_column(LargeBinary)  # 32 random bytes, same for every passkey of a user
+    transports: Mapped[str | None] = mapped_column(String(100), nullable=True)  # comma separated
+    name: Mapped[str] = mapped_column(String(64), default="Passkey")
+    backed_up: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="passkeys")

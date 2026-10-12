@@ -32,6 +32,8 @@ export const me: Me = {
   has_audio: false,
   has_face: false,
   require_biometric_2fa: false,
+  passkey_count: 0,
+  passkeys: [],
 };
 
 export function headerOf(init: RequestInit | undefined, name: string): string | undefined {

@@ -117,7 +117,7 @@ def test_login_with_correct_password_authenticates_me(client):
     assert me.json() == {
         "id": login.json()["id"], "username": "alice", "role": "user", "email": None,
         "has_password": True, "google_linked": False, "voice_login": False, "webcam_login": False,
-        "has_audio": False, "has_face": False, "require_biometric_2fa": False,
+        "has_audio": False, "has_face": False, "require_biometric_2fa": False, "passkey_count": 0, "passkeys": [],
         "csrf_token": login.json()["csrf_token"],
     }  # fmt: skip
 

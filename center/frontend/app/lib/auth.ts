@@ -24,6 +24,8 @@ export interface Me {
   has_audio: boolean;
   has_face: boolean;
   require_biometric_2fa: boolean;
+  passkey_count: number;
+  passkeys: PasskeyItem[];
   csrf_token: string;
 }
 
@@ -35,6 +37,27 @@ export interface MethodsStatus {
   has_audio: boolean;
   has_face: boolean;
   require_biometric_2fa: boolean;
+  passkey_count: number;
+  passkeys: PasskeyItem[];
+}
+
+export interface PasskeyItem {
+  id: number;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+  backed_up: boolean;
+  transports: string[];
+}
+
+/** WebAuthn options (opaque JSON from the server) plus the signed token that binds the ceremony. */
+export interface PasskeyChallenge<T> {
+  options: T;
+  challenge_token: string;
+}
+
+export interface PasskeyList {
+  passkeys: PasskeyItem[];
 }
 
 export interface AuthConfig {
@@ -147,6 +170,8 @@ export interface CombinedRegistration {
   googleIdToken?: string;
   voiceAudio?: Blob;
   webcamVideo?: Blob;
+  passkeyCredential?: unknown;
+  passkeyChallengeToken?: string;
 }
 
 /** Register with any mix of methods in one all-or-nothing request; only the given methods are sent. */
@@ -159,6 +184,10 @@ export async function registerCombined(input: CombinedRegistration): Promise<Ses
   if (input.googleIdToken) form.append("google_id_token", input.googleIdToken);
   if (input.voiceAudio) form.append("voice_audio", input.voiceAudio, "voice.webm");
   if (input.webcamVideo) form.append("webcam_video", input.webcamVideo, "webcam.webm");
+  if (input.passkeyCredential !== undefined && input.passkeyChallengeToken) {
+    form.append("passkey_credential", JSON.stringify(input.passkeyCredential));
+    form.append("passkey_challenge_token", input.passkeyChallengeToken);
+  }
   return apiForm<Session>(`${CENTER_API}/auth/register/combined`, form);
 }
 
@@ -212,3 +241,31 @@ export const setBiometric2fa = (enabled: boolean, password?: string) =>
     biometricForm({ enabled: String(enabled), password }),
     { method: "PUT" },
   );
+
+/* ---- Passkey (WebAuthn): the browser/device does the biometrics, the server only sees public keys ---- */
+
+export const passkeyLoginOptions = <T = unknown>() =>
+  apiFetch<PasskeyChallenge<T>>(`${CENTER_API}/auth/passkey/options`, { method: "POST" });
+
+export const loginWithPasskey = (credential: unknown, challengeToken: string) =>
+  apiFetch<Session>(`${CENTER_API}/auth/passkey/login`, json({ credential, challenge_token: challengeToken }));
+
+export const passkeyRegisterOptions = <T = unknown>(username?: string) => {
+  const name = username?.trim();
+  return apiFetch<PasskeyChallenge<T>>(`${CENTER_API}/auth/register/passkey/options`, json(name ? { username: name } : {}));
+};
+
+export const myPasskeyOptions = <T = unknown>(password?: string) =>
+  apiFetch<PasskeyChallenge<T>>(`${CENTER_API}/auth/me/passkeys/options`, json({ password }));
+
+export const addPasskey = (credential: unknown, challengeToken: string, name?: string) =>
+  apiFetch<PasskeyList>(
+    `${CENTER_API}/auth/me/passkeys`,
+    json({ credential, challenge_token: challengeToken, name: name?.trim() || undefined }),
+  );
+
+export const renamePasskey = (id: number, name: string) =>
+  apiFetch<unknown>(`${CENTER_API}/auth/me/passkeys/${id}`, { method: "PATCH", body: JSON.stringify({ name }) });
+
+export const deletePasskey = (id: number, password?: string) =>
+  apiFetch<PasskeyList>(`${CENTER_API}/auth/me/passkeys/${id}`, { method: "DELETE", body: JSON.stringify({ password }) });

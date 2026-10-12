@@ -87,6 +87,7 @@ One `users` row per account; four methods, **each usable on its own**, all linke
 | Google | `google_sub`, `email` | ID token verified server side; needs `GOOGLE_CLIENT_ID` |
 | Voice | `audio_embedding` (Fernet), `voice_login` | one short audio clip; strict threshold; no username needed |
 | Webcam | `face_embedding` (Fernet), `webcam_login` | one camera-only clip (no microphone); FACE ONLY; no username needed |
+| **Passkey** | table `passkeys` (one row per device: `credential_id`, `public_key`, `sign_count`, `user_handle`, ...) | WebAuthn: fingerprint / Face ID / Windows Hello / security key, handled by the device; no username; **recommended over webcam/voice** |
 
 - **Register** with any one or several methods at once (`POST /auth/register/combined`, all-or-nothing),
   then link the rest in `/account`. Linking/removing needs the password again when the account has one,
@@ -109,6 +110,13 @@ One `users` row per account; four methods, **each usable on its own**, all linke
   placeholder of the wrong length once made username-less sign-in a 500 when no account existed).
 - Voice and webcam are only available when `BIOMETRICS_ENABLED=1` (image built with `WITH_BIOMETRICS=1`,
   `DATA_KEY` set). They have **no liveness check**: anyone with a recording of the owner can pass.
+- **Passkeys** (`py_webauthn` on the server, `@simplewebauthn/browser` in the UI): the server stores only the public
+  key; the device verifies the user (biometrics or PIN) and signs a challenge, so there is nothing to spoof with a
+  photo or a recording and no username to type (discoverable credentials). A user can have several (one per
+  device). Rules: user verification required, challenges are signed, expire in 5 min and are single use
+  (per process, like the throttles), a non-increasing sign counter is rejected as a possible clone, the same
+  device cannot register twice for one account. `WEBAUTHN_RP_ID` (default: host of `PUBLIC_ORIGIN`) is part of
+  every passkey: **changing it later invalidates all registered passkeys**. Production requires it explicitly.
 - Optional advanced setting `biometric_2fa` (off by default): after password/Google, also require a sample.
 - Sessions: `sn_token` (60 min) + `sn_refresh` (14 d), CSRF header on writes, `token_version` revocation.
 

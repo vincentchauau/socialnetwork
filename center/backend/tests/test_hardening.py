@@ -37,7 +37,7 @@ def test_production_requires_a_long_jwt_secret(monkeypatch):
 
 
 def test_production_disables_docs(monkeypatch):
-    client = TestClient(build(monkeypatch, APP_ENV="production", COOKIE_SECURE="1"))
+    client = TestClient(build(monkeypatch, APP_ENV="production", COOKIE_SECURE="1", WEBAUTHN_RP_ID="example.com"))
     for path in ("/docs", "/redoc", "/openapi.json"):
         assert client.get(path).status_code == 404
     assert client.get("/health").status_code == 200

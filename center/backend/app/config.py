@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from sn_shared.security import MIN_SECRET_LENGTH
 
@@ -56,10 +57,16 @@ class Settings:
     voice_identify_margin: float = 0.05  # 1-N voice sign-in: best similarity must beat the runner-up by this
     ffmpeg_timeout: int = 20
     max_frames: int = 30
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "Mạng xã hội"
 
     @property
     def production(self) -> bool:
         return self.env == "production"
+
+    @property
+    def webauthn_origins(self) -> tuple[str, ...]:
+        return self.allowed_origins
 
     @staticmethod
     def from_env() -> "Settings":
@@ -70,6 +77,9 @@ class Settings:
         if env not in ("development", "production"):
             raise ConfigError("APP_ENV must be 'development' or 'production'")
         origins = tuple(o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip())
+        rp_id = os.environ.get("WEBAUTHN_RP_ID", "").strip().lower()
+        if not rp_id and env != "production":  # production must name its RP ID explicitly
+            rp_id = urlparse((origins or DEFAULT_ORIGINS)[0]).hostname or "localhost"
         settings = Settings(
             jwt_secret=secret,
             env=env,
@@ -86,6 +96,8 @@ class Settings:
             face_threshold_alone=_float("FACE_THRESHOLD_ALONE", 0.45),
             face_identify_margin=_float("FACE_IDENTIFY_MARGIN", 0.08),
             voice_identify_margin=_float("VOICE_IDENTIFY_MARGIN", 0.05),
+            webauthn_rp_id=rp_id,
+            webauthn_rp_name=os.environ.get("WEBAUTHN_RP_NAME", "").strip() or "Mạng xã hội",
         )
         settings.validate()
         return settings
@@ -93,5 +105,7 @@ class Settings:
     def validate(self) -> None:
         if self.production and not self.cookie_secure:
             raise ConfigError("Production requires COOKIE_SECURE=1")
+        if self.production and not self.webauthn_rp_id:
+            raise ConfigError("Production requires WEBAUTHN_RP_ID (the domain passkeys are bound to)")
         if self.biometrics_enabled and not self.data_key:
             raise ConfigError("BIOMETRICS_ENABLED=1 requires DATA_KEY (a Fernet key)")

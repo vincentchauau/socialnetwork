@@ -1,3 +1,6 @@
+from datetime import datetime
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.handles import HANDLE_RE
@@ -75,10 +78,51 @@ class MethodsStatus(BaseModel):
     has_audio: bool
     has_face: bool
     require_biometric_2fa: bool
+    passkey_count: int = 0
+
+
+class PasskeyOut(BaseModel):
+    id: int
+    name: str
+    created_at: datetime
+    last_used_at: datetime | None
+    backed_up: bool
+    transports: list[str]
+
+
+class PasskeyList(BaseModel):
+    passkeys: list[PasskeyOut]
 
 
 class MeOut(SessionOut, MethodsStatus):
     email: str | None
+    passkeys: list[PasskeyOut] = []
+
+
+class PasskeyOptionsBody(BaseModel):
+    password: str | None = Field(default=None, max_length=MAX_INPUT)
+
+
+class PasskeySignupOptionsBody(BaseModel):
+    username: str | None = Field(default=None, max_length=64)
+
+
+class PasskeyOptionsOut(BaseModel):
+    options: dict[str, Any]
+    challenge_token: str
+
+
+class PasskeyLoginBody(BaseModel):
+    credential: dict[str, Any]
+    challenge_token: str = Field(min_length=1, max_length=4096)
+
+
+class PasskeyAddBody(PasskeyLoginBody):
+    name: str | None = Field(default=None, max_length=64)
+
+
+class PasskeyRenameBody(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
 
 
 class AuthConfig(BaseModel):
