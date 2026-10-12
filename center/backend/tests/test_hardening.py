@@ -117,8 +117,10 @@ def test_audit_log_records_events_but_never_secrets(client, caplog):
     caplog.set_level(logging.INFO, logger="auth.audit")
     session = register(client)
     client.post("/auth/login", json={**CREDS, "password": "wrong-password"})
-    client.post("/auth/login", json=CREDS)
-    client.post("/auth/me/password", json={"current_password": CREDS["password"], "new_password": STRONG}, headers=csrf(session))
+    # Use the CSRF token of the newest login: the cookie was just replaced, and the old token only
+    # still matches when both sessions happen to be issued within the same second.
+    latest = client.post("/auth/login", json=CREDS).json()
+    client.post("/auth/me/password", json={"current_password": CREDS["password"], "new_password": STRONG}, headers=csrf(latest))
     token = client.cookies.get("sn_token")
     client.post("/auth/logout", headers=csrf(client.get("/auth/me").json()))
 

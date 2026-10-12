@@ -121,6 +121,8 @@ services:
     build:
       context: ../..
       dockerfile: center/backend/Dockerfile
+      args:
+        WITH_BIOMETRICS: ${{WITH_BIOMETRICS:-0}}
     environment:
       <<: *backend-env
       DATABASE_URL: postgresql+psycopg://postgres:${{POSTGRES_PASSWORD}}@postgres:5432/center

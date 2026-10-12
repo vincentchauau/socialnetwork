@@ -4,9 +4,14 @@ ffmpeg) are imported lazily so center runs and is testable without them.
 Embeddings are opaque `bytes` (float32 vectors) so the core never needs numpy.
 """
 
-from typing import Protocol
+import functools
+import logging
+from typing import Callable, Protocol, TypeVar
 
 from app.config import Settings
+
+audit = logging.getLogger("auth.audit")
+T = TypeVar("T")
 
 
 class BiometricError(ValueError):
@@ -14,7 +19,26 @@ class BiometricError(ValueError):
 
 
 class BiometricUnavailable(RuntimeError):
-    """A required library or tool is missing (ffmpeg, face_recognition, resemblyzer)."""
+    """A required library or tool is missing or broken (ffmpeg, face_recognition, resemblyzer...)."""
+
+
+def engine_guard(embed: Callable[..., T]) -> Callable[..., T]:
+    """A crashing native library is a server-side outage (503), never a 500 and never the user's fault.
+
+    Only the exception type is logged: the message could contain paths or sample data.
+    """
+
+    @functools.wraps(embed)
+    def wrapper(*args, **kwargs) -> T:
+        try:
+            return embed(*args, **kwargs)
+        except (BiometricError, BiometricUnavailable):
+            raise
+        except Exception as exc:
+            audit.error("biometric engine failure: %s", type(exc).__name__)
+            raise BiometricUnavailable("Biometric engine failed") from exc
+
+    return wrapper
 
 
 class Biometrics(Protocol):
@@ -30,11 +54,13 @@ class RealBiometrics:
     def __init__(self, settings: Settings) -> None:
         self._s = settings
 
+    @engine_guard
     def audio_embedding(self, raw: bytes) -> bytes:
         from app.biometrics.audio import embed_audio
 
         return embed_audio(raw, self._s.ffmpeg_timeout)
 
+    @engine_guard
     def face_embedding(self, raw: bytes) -> bytes:
         from app.biometrics.video import embed_face
 

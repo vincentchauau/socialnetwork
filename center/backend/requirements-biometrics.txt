@@ -8,8 +8,12 @@
 -r requirements.txt
 # resemblyzer and dlib usually do not work with numpy 2, hence numpy 1.x (and Python <= 3.12).
 numpy<2
+# resemblyzer, webrtcvad and face_recognition_models still import pkg_resources, which setuptools 81+
+# no longer ships (and python:3.12-slim does not preinstall it).
+setuptools<81
 resemblyzer>=0.1.4
-opencv-python>=4.9
+# headless build: the server image has no GUI libraries (libGL); the `cv2` module is the same
+opencv-python-headless>=4.9
 dlib-bin>=19.24
 # dependencies of face_recognition (installed separately because of --no-deps)
 face_recognition_models
