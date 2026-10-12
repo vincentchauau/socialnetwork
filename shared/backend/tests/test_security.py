@@ -84,3 +84,29 @@ def test_payload_exposes_expiry():
 
     payload = decode_token(create_token(1, "bob", ttl_seconds=100))
     assert time.time() < payload.expires_at <= time.time() + 100
+
+
+def test_token_carries_role_and_version():
+    payload = decode_token(create_token(7, "alice", role="admin", ver=3))
+    assert (payload.role, payload.ver) == ("admin", 3)
+
+
+def test_legacy_token_without_role_defaults_to_user():
+    payload = decode_token(create_token(7, "alice"))
+    assert payload.role == "user"
+    assert payload.ver is None
+
+
+def test_refresh_and_mfa_tokens_are_not_access_tokens():
+    import jwt as pyjwt
+
+    from sn_shared.security import ALGORITHM, ISSUER, get_jwt_secret
+
+    for typ in ("refresh", "mfa"):
+        token = pyjwt.encode(
+            {"iss": ISSUER, "sub": "1", "username": "a", "typ": typ, "exp": 4102444800},
+            get_jwt_secret(),
+            algorithm=ALGORITHM,
+        )
+        with pytest.raises(AuthError):
+            decode_token(token)

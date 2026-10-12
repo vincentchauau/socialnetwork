@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.throttle import AttemptThrottle
-from tests.test_auth import CREDS
+from tests.helpers import CREDS
 
 
 def test_blocks_after_max_attempts():
@@ -75,3 +75,26 @@ def test_register_is_throttled_per_address(client):
     ]
     assert codes[0] == 201
     assert codes[-1] == 429
+
+
+def test_account_is_locked_across_addresses_at_four_times_the_limit(client):
+    client.post("/auth/register", json=CREDS)
+    bad = {**CREDS, "password": "wrong-password"}
+    codes = []
+    for index in range(22):
+        attacker = TestClient(client.app, client=(f"198.51.100.{index}", 4000))
+        codes.append(attacker.post("/auth/login", json=bad).status_code)
+    assert codes[:20] == [401] * 20
+    assert codes[20:] == [429, 429]
+    # The real owner is locked out too (documented trade-off of an account-wide cap)...
+    assert client.post("/auth/login", json=CREDS).status_code == 429
+
+
+def test_successful_login_clears_the_per_address_counter(client):
+    client.post("/auth/register", json=CREDS)
+    bad = {**CREDS, "password": "wrong-password"}
+    for _ in range(4):
+        client.post("/auth/login", json=bad)
+    assert client.post("/auth/login", json=CREDS).status_code == 200
+    for _ in range(4):
+        assert client.post("/auth/login", json=bad).status_code == 401

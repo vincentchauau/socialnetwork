@@ -1,0 +1,17 @@
+# Optional: voice + face biometrics (heavy). Also needs ffmpeg on PATH and Python 3.11 or 3.12.
+#
+# Install (in a Python 3.11 venv):
+#   pip install -r requirements-biometrics.txt
+#   pip install --no-deps face_recognition     # must be --no-deps, otherwise pip tries to build "dlib" from source
+#
+# dlib-bin is a prebuilt dlib (no compiler needed on Windows).
+-r requirements.txt
+# resemblyzer and dlib usually do not work with numpy 2, hence numpy 1.x (and Python <= 3.12).
+numpy<2
+resemblyzer>=0.1.4
+opencv-python>=4.9
+dlib-bin>=19.24
+# dependencies of face_recognition (installed separately because of --no-deps)
+face_recognition_models
+Click
+Pillow

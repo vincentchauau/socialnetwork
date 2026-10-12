@@ -1,9 +1,13 @@
 """Regenerates docker-compose.yml, nginx.conf and postgres/init.sql from the app list.
 
-Run from anywhere:  python shared/infra/generate_infra.py
-Add an app by appending to APPS (and creating <slug>/backend and <slug>/frontend).
+Run from anywhere:  python shared/infra/generate_infra.py [--apps all|none|chat,photos,...]
+`--apps none` generates a stack with only postgres + center + the gateway (auth work); the other
+apps are left out of compose, nginx and the home-page app list, so nginx still starts. Run with
+`--apps all` (the default) to bring them back, then `docker compose up -d --remove-orphans`.
+Add an app by appending to ALL_APPS (and creating <slug>/backend and <slug>/frontend).
 """
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,15 +29,18 @@ class App:
     tmp_mb: int = 0  # size cap for the backend's tmpfs /tmp (multipart spool)
 
 
-APPS: tuple[App, ...] = (
-    App("chat", "Chat", "Talk in rooms in real time", websocket=True, needs_origin=True),
-    App("photos", "Photos", "Share and like photos", volume=True, upload_path="/photos", max_body="6m", tmp_mb=128),
-    App("watch", "Watch", "Upload and watch videos", volume=True, upload_path="/videos", max_body="110m", stream=True, tmp_mb=512),
-    App("werewolf", "Werewolf", "Play the social-deduction game", websocket=True, needs_origin=True),
-    App("market", "Market", "Buy and sell products"),
-    App("learning", "Learning", "Take and teach skill courses"),
-    App("jobs", "Jobs", "Find work or hire people"),
+ALL_APPS: tuple[App, ...] = (
+    App("chat", "Chat", "Trò chuyện theo phòng, thời gian thực", websocket=True, needs_origin=True),
+    App("photos", "Photos", "Chia sẻ và thích ảnh", volume=True, upload_path="/photos", max_body="6m", tmp_mb=128),
+    App("watch", "Watch", "Đăng và xem video", volume=True, upload_path="/videos", max_body="110m", stream=True, tmp_mb=512),
+    App("werewolf", "Werewolf", "Chơi trò Ma sói", websocket=True, needs_origin=True),
+    App("market", "Market", "Mua và bán sản phẩm"),
+    App("learning", "Learning", "Học và dạy các khóa kỹ năng"),
+    App("jobs", "Jobs", "Tìm việc hoặc tuyển người"),
 )
+
+# The apps that are generated into compose/nginx/apps.ts; narrowed by --apps in main().
+APPS: tuple[App, ...] = ALL_APPS
 
 PROXY_HEADERS = """        proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
@@ -97,6 +104,7 @@ x-backend-env: &backend-env
 services:
   postgres:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: ${{POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}
     volumes:
@@ -116,6 +124,13 @@ services:
     environment:
       <<: *backend-env
       DATABASE_URL: postgresql+psycopg://postgres:${{POSTGRES_PASSWORD}}@postgres:5432/center
+      APP_ENV: ${{APP_ENV:-development}}
+      ALLOWED_ORIGINS: ${{PUBLIC_ORIGIN:-http://localhost:8080}}
+      ACCESS_TOKEN_MINUTES: ${{ACCESS_TOKEN_MINUTES:-60}}
+      REFRESH_DAYS: ${{REFRESH_DAYS:-14}}
+      GOOGLE_CLIENT_ID: ${{GOOGLE_CLIENT_ID:-}}
+      BIOMETRICS_ENABLED: ${{BIOMETRICS_ENABLED:-0}}
+      DATA_KEY: ${{DATA_KEY:-}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -200,7 +215,11 @@ map $http_upgrade $connection_upgrade {{
 }}
 
 # Brute-force guard for credential endpoints (the backends also throttle).
-limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/m;
+map $request_method $auth_key {{
+    POST    $binary_remote_addr;
+    default "";
+}}
+limit_req_zone $auth_key zone=auth:10m rate=30r/m;
 # Upload routes: few requests and few parallel connections per address. Only POSTs are
 # counted (an empty key is not limited), so browsing the same path stays unthrottled.
 map $request_method $upload_key {{
@@ -235,8 +254,23 @@ server {{
     }}
 
     # --- center: the prefix is stripped before reaching the service ---
+    # Biometric sign-in / enrolment carry webcam recordings (up to 15 MB), so they get a larger
+    # body limit than the rest of the API. Same POST-only rate limit as credential endpoints.
+    location ~ ^/api/center/auth/(login/biometric|login/biometric-only|me/biometrics)$ {{
+        client_max_body_size 16m;
+        client_body_timeout 60s;
+        limit_req zone=auth burst=20 nodelay;
+        limit_req_status 429;
+        limit_conn upload_conn 3;
+        rewrite ^/api/center/(.*)$ /$1 break;
+        proxy_pass http://center-backend:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+
     location /api/center/auth/ {{
-        limit_req zone=auth burst=10 nodelay;
+        limit_req zone=auth burst=20 nodelay;
         limit_req_status 429;
         proxy_pass http://center-backend:8000/auth/;
 {PROXY_HEADERS.rstrip(chr(10))}
@@ -286,12 +320,31 @@ export const APPS: readonly AppLink[] = [
 """
 
 
+def select_apps(spec: str) -> tuple[App, ...]:
+    """'all', 'none' or a comma-separated list of slugs (unknown slugs are an error)."""
+    spec = spec.strip().lower()
+    if spec == "all":
+        return ALL_APPS
+    if spec == "none":
+        return ()
+    wanted = [slug.strip() for slug in spec.split(",") if slug.strip()]
+    known = {app.slug for app in ALL_APPS}
+    unknown = [slug for slug in wanted if slug not in known]
+    if unknown:
+        raise SystemExit(f"unknown app(s): {', '.join(unknown)}; known: {', '.join(sorted(known))}")
+    return tuple(app for app in ALL_APPS if app.slug in wanted)
+
+
 def main() -> None:
+    global APPS
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--apps", default="all", help="all (default), none, or e.g. chat,photos")
+    APPS = select_apps(parser.parse_args().apps)
     (HERE / "docker-compose.yml").write_text(compose(), encoding="utf-8", newline="\n")
     (HERE / "nginx.conf").write_text(nginx(), encoding="utf-8", newline="\n")
     (HERE / "postgres" / "init.sql").write_text(init_sql(), encoding="utf-8", newline="\n")
     (REPO / "center" / "frontend" / "app" / "apps.ts").write_text(apps_ts(), encoding="utf-8", newline="\n")
-    print("generated compose, nginx, init.sql, apps.ts for:", ", ".join(app.slug for app in APPS))
+    print("generated compose, nginx, init.sql, apps.ts for: center +", ", ".join(app.slug for app in APPS) or "(no apps)")
 
 
 if __name__ == "__main__":

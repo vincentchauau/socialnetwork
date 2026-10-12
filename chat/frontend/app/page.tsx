@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-import { ApiError, CHAT_API, User, apiFetch, loadSession } from "@sn/api";
+import { ApiError, CHAT_API, User, apiFetch, loadSession, refreshSession } from "@sn/api";
 import { ChatMessage, mergeMessages, parseServerEvent } from "./messages";
 
 type Auth =
@@ -45,6 +45,7 @@ export default function ChatPage() {
     let socket: WebSocket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
+    let refreshed = false; // one session refresh per failed connection, never a loop
 
     setMessages([]);
     setNotice(null);
@@ -67,6 +68,7 @@ export default function ChatPage() {
       socketRef.current = ws;
       ws.onopen = () => {
         attempt = 0;
+        refreshed = false;
         setConnected(true);
         void loadHistory(); // catches up on anything missed while disconnected
       };
@@ -82,7 +84,15 @@ export default function ChatPage() {
       ws.onclose = (event: CloseEvent) => {
         setConnected(false);
         if (event.code === POLICY_VIOLATION) {
-          setNotice("Not allowed to chat here. Your session may have expired — sign in again.");
+          const denied = () =>
+            setNotice("Not allowed to chat here. Your session may have expired — sign in again.");
+          if (refreshed) return denied();
+          refreshed = true;
+          void refreshSession().then((ok) => {
+            if (cancelled) return;
+            if (ok) connect();
+            else denied();
+          });
           return;
         }
         attempt += 1;

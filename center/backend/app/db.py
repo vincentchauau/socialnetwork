@@ -6,6 +6,9 @@ from sqlalchemy.orm import DeclarativeBase, Session
 from sqlalchemy.pool import StaticPool
 
 
+DEFAULT_DATABASE_URL = "sqlite:///./center.db"
+
+
 class Base(DeclarativeBase):
     pass
 

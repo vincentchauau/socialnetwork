@@ -16,6 +16,7 @@ x-backend-env: &backend-env
 services:
   postgres:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
@@ -35,6 +36,13 @@ services:
     environment:
       <<: *backend-env
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/center
+      APP_ENV: ${APP_ENV:-development}
+      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-60}
+      REFRESH_DAYS: ${REFRESH_DAYS:-14}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      BIOMETRICS_ENABLED: ${BIOMETRICS_ENABLED:-0}
+      DATA_KEY: ${DATA_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-import { ApiError, User, apiFetch } from "@sn/api";
+import { ApiError, User, apiFetch, refreshSession } from "@sn/api";
 import AuthGate from "../../AuthGate";
 import { ChatLine, GameState, appendChat, newerState, parseServerEvent } from "../../game";
 import RoomBoard from "../../RoomBoard";
@@ -56,6 +56,8 @@ function Room({ roomId, user }: { roomId: string; user: User }) {
     let socket: WebSocket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
+    let cancelled = false;
+    let refreshed = false; // one session refresh per failed connection, never a loop
 
     const connect = () => {
       const ws = new WebSocket(socketUrl(roomId));
@@ -63,6 +65,7 @@ function Room({ roomId, user }: { roomId: string; user: User }) {
       socketRef.current = ws;
       ws.onopen = () => {
         attempt = 0;
+        refreshed = false;
         setConnected(true);
       };
       ws.onmessage = (event: MessageEvent<string>) => {
@@ -87,7 +90,15 @@ function Room({ roomId, user }: { roomId: string; user: User }) {
       ws.onclose = (event: CloseEvent) => {
         setConnected(false);
         if (event.code === POLICY_VIOLATION) {
-          setNotice("You are no longer connected to this game. Your session may have expired.");
+          const denied = () =>
+            setNotice("You are no longer connected to this game. Your session may have expired.");
+          if (refreshed) return denied();
+          refreshed = true;
+          void refreshSession().then((ok) => {
+            if (cancelled) return;
+            if (ok) connect();
+            else denied();
+          });
           return;
         }
         attempt += 1;
@@ -97,6 +108,7 @@ function Room({ roomId, user }: { roomId: string; user: User }) {
     connect();
 
     return () => {
+      cancelled = true;
       clearTimeout(retryTimer);
       if (socket) {
         // Detach first so a late onclose cannot touch the next connection's state.

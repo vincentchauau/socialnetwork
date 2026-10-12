@@ -16,6 +16,7 @@ ALGORITHM = "HS256"
 ISSUER = "sn-center"
 DEFAULT_TTL_SECONDS = 24 * 60 * 60
 MIN_SECRET_LENGTH = 32
+NON_ACCESS_TYPES = ("refresh", "mfa")  # center-only token kinds, never valid as a session
 
 
 class AuthError(Exception):
@@ -27,6 +28,8 @@ class TokenPayload:
     user_id: int
     username: str
     expires_at: int
+    role: str = "user"
+    ver: int | None = None  # token version; only center checks it
 
 
 def get_jwt_secret() -> str:
@@ -49,7 +52,13 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def create_token(user_id: int, username: str, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> str:
+def create_token(
+    user_id: int,
+    username: str,
+    ttl_seconds: int = DEFAULT_TTL_SECONDS,
+    role: str = "user",
+    ver: int | None = None,
+) -> str:
     now = int(time.time())
     claims = {
         "iss": ISSUER,
@@ -57,7 +66,10 @@ def create_token(user_id: int, username: str, ttl_seconds: int = DEFAULT_TTL_SEC
         "username": username,
         "iat": now,
         "exp": now + ttl_seconds,
+        "role": role,
     }
+    if ver is not None:
+        claims["ver"] = ver
     return jwt.encode(claims, get_jwt_secret(), algorithm=ALGORITHM)
 
 
@@ -70,10 +82,15 @@ def decode_token(token: str) -> TokenPayload:
             issuer=ISSUER,
             options={"require": ["exp", "iss", "sub"]},
         )
+        if claims.get("typ") in NON_ACCESS_TYPES:
+            raise ValueError("not an access token")
+        raw_ver = claims.get("ver")
         return TokenPayload(
             user_id=int(claims["sub"]),
             username=str(claims["username"]),
             expires_at=int(claims["exp"]),
+            role=str(claims.get("role", "user")),
+            ver=int(raw_ver) if raw_ver is not None else None,
         )
     except (jwt.PyJWTError, KeyError, ValueError) as exc:
         raise AuthError("Invalid or expired token") from exc
