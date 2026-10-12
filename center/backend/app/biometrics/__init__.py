@@ -89,6 +89,11 @@ class RealBiometrics:
     def face_distance(self, stored: bytes, probe: bytes) -> float:
         import numpy as np
 
+        # Corrupt or placeholder data is "infinitely far", never an exception: this runs for every
+        # candidate on a login attempt, so a 500 here would be reachable by anyone.
+        width = np.dtype(np.float32).itemsize
+        if len(stored) % width or len(probe) % width:
+            return float("inf")
         template, sample = np.frombuffer(stored, np.float32), np.frombuffer(probe, np.float32)
         if template.shape != sample.shape:
             return float("inf")

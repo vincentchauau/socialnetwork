@@ -8,7 +8,7 @@ export const METHOD_LABEL: Record<Method, string> = {
   password: "Mật khẩu",
   google: "Google",
   voice: "Giọng nói",
-  webcam: "Webcam",
+  webcam: "Webcam (khuôn mặt)",
 };
 
 interface Props {

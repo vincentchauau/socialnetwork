@@ -79,7 +79,7 @@ export default function LoginMethods({ me, config, onDone }: Props) {
           </Row>
         )}
         {enrol && (
-          <Row name="Webcam" state={me.webcam_login ? "đã bật" : "chưa bật"}>
+          <Row name="Webcam (khuôn mặt)" state={me.webcam_login ? "đã bật" : "chưa bật"}>
             <BiometricMethod kind="webcam" enabled={me.webcam_login} hasPassword={me.has_password} onDone={onDone} />
           </Row>
         )}

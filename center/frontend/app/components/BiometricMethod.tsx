@@ -30,11 +30,11 @@ const TEXT = {
     removed: "Đã hủy đăng nhập bằng giọng nói.",
   },
   webcam: {
-    name: "webcam",
+    name: "webcam (khuôn mặt)",
     add: "Lưu webcam",
     replace: "Thay webcam",
     remove: "Hủy webcam",
-    missing: "Hãy quay webcam trước khi lưu",
+    missing: "Hãy quay khuôn mặt trước khi lưu",
     saved: "Đã lưu webcam.",
     removed: "Đã hủy đăng nhập bằng webcam.",
   },
@@ -73,7 +73,7 @@ export default function BiometricMethod({ kind, enabled, hasPassword, onDone }: 
 
   return (
     <form onSubmit={save} aria-label={`Đăng nhập bằng ${text.name}`} className="mt-2">
-      <BiometricWarning />
+      <BiometricWarning kinds={[kind]} />
       {kind === "voice" ? (
         <AudioRecord key={recordingKey} disabled={busy} onRecorded={setBlob} />
       ) : (

@@ -110,7 +110,7 @@ export const loginWithBiometrics = (mfaToken: string, audio?: Blob, video?: Blob
 export const loginWithVoice = (username: string, audio: Blob) =>
   apiForm<Session>(`${CENTER_API}/auth/login/voice`, biometricForm({ username }, audio));
 
-/** Sign in with ONE webcam clip (face and voice together). */
+/** Sign in with ONE face-only webcam clip (no audio). */
 export const loginWithWebcam = (video: Blob, username?: string) =>
   apiForm<Session>(`${CENTER_API}/auth/login/webcam`, biometricForm({ username: username?.trim() || undefined }, undefined, video));
 

@@ -14,7 +14,7 @@ export default function BiometricCapture({ disabled, onVideo, onAudio }: Props) 
   return (
     <>
       <div className="mb-2">
-        <VideoRecord disabled={disabled} onRecorded={onVideo} />
+        <VideoRecord withAudio disabled={disabled} onRecorded={onVideo} />
       </div>
       <details className="mb-2">
         <summary className="cursor-pointer text-sm text-gray-700">Không quay được tiếng? Ghi giọng nói riêng</summary>

@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 
 import Alert from "./Alert";
 import AudioRecord from "./AudioRecord";
-import BiometricWarning from "./BiometricWarning";
+import BiometricWarning, { WarningKind } from "./BiometricWarning";
 import GoogleSignInButton from "./GoogleSignInButton";
 import { METHOD_LABEL, Method } from "./MethodTabs";
 import PasswordField from "./PasswordField";
@@ -21,6 +21,11 @@ type Chosen = Record<Method, boolean>;
 const DEFAULT_CHOSEN: Chosen = { password: true, google: false, voice: false, webcam: false };
 
 const OPTIONAL_HINT = "Không bắt buộc nếu chỉ dùng Google/Webcam: hệ thống sẽ tự tạo tên (ví dụ user-7f3a2c).";
+
+const warningKinds = (chosen: Chosen): WarningKind[] => [
+  ...(chosen.voice ? (["voice"] as const) : []),
+  ...(chosen.webcam ? (["webcam"] as const) : []),
+];
 
 /** Tên đăng nhập chỉ có thể bỏ trống khi mọi cách đã chọn đều tự nhận ra tài khoản (Google, webcam). */
 const isUsernameRequired = (chosen: Chosen) => chosen.password || chosen.voice;
@@ -52,7 +57,7 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
     if (chosen.password && !isPasswordValid(password)) return fail(PASSWORD_MESSAGE);
     if (chosen.google && !googleToken) return fail("Hãy chọn tài khoản Google trước khi đăng ký");
     if (chosen.voice && !audio) return fail("Hãy ghi giọng nói trước khi đăng ký");
-    if (chosen.webcam && !video) return fail("Hãy quay webcam trước khi đăng ký");
+    if (chosen.webcam && !video) return fail("Hãy quay khuôn mặt trước khi đăng ký");
     if (isUsernameRequired(chosen) && !username.trim()) return fail("Hãy nhập tên đăng nhập");
     let created: string | undefined;
     const ok = await run(async () => {
@@ -105,7 +110,7 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
           )}
         </div>
       )}
-      {(chosen.voice || chosen.webcam) && <BiometricWarning />}
+      {(chosen.voice || chosen.webcam) && <BiometricWarning kinds={warningKinds(chosen)} />}
       {chosen.voice && (
         <div className="mb-2">
           <AudioRecord key={`a${recordingKey}`} disabled={busy} onRecorded={setAudio} />

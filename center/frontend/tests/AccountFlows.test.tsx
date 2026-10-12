@@ -179,7 +179,7 @@ describe("AccountView", () => {
     expect(card).toHaveTextContent("Mật khẩu: đã đặt");
     expect(card).toHaveTextContent("Google: đã liên kết với b@example.com");
     expect(card).toHaveTextContent("Giọng nói: đã bật");
-    expect(card).toHaveTextContent("Webcam: chưa bật");
+    expect(card).toHaveTextContent("Webcam (khuôn mặt): chưa bật");
     expect(screen.getByRole("button", { name: "Hủy giọng nói" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Hủy webcam" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Thay giọng nói" })).toBeInTheDocument();
@@ -218,7 +218,7 @@ describe("AccountView", () => {
     const fetchMock = setupAccount({ has_password: false, google_linked: true });
     const user = userEvent.setup();
     render(<AccountView />);
-    const form = await screen.findByRole("form", { name: "Đăng nhập bằng webcam" });
+    const form = await screen.findByRole("form", { name: "Đăng nhập bằng webcam (khuôn mặt)" });
     expect(form.querySelector("#webcam-password")).toBeNull();
     await user.click(within(form).getByRole("button", { name: "fake webcam" }));
     await user.click(screen.getByRole("button", { name: "Lưu webcam" }));
@@ -227,13 +227,14 @@ describe("AccountView", () => {
     const body = call?.[1].body as FormData;
     expect(body.has("password")).toBe(false);
     expect(body.get("video")).toBeInstanceOf(Blob);
+    expect(body.has("audio")).toBe(false);
   });
 
   it("replaces an enabled webcam method", async () => {
     const fetchMock = setupAccount({ webcam_login: true, has_face: true, has_audio: true });
     const user = userEvent.setup();
     render(<AccountView />);
-    const form = await screen.findByRole("form", { name: "Đăng nhập bằng webcam" });
+    const form = await screen.findByRole("form", { name: "Đăng nhập bằng webcam (khuôn mặt)" });
     await user.click(within(form).getByRole("button", { name: "fake webcam" }));
     await user.type(form.querySelector("#webcam-password") as HTMLInputElement, "pw-pass-1");
     await user.click(screen.getByRole("button", { name: "Thay webcam" }));

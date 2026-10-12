@@ -20,7 +20,7 @@ FAILED = (401, '{"detail":"Biometric login failed"}')
 
 
 def clip(face: float, who: str) -> tuple[str, bytes]:
-    """Fake face = `face`, fake voice = `who` (both derive from the first 16 bytes of the clip)."""
+    """Fake face = `face`; `who` only makes the clip bytes unique (the voice plays no role in webcam sign-in)."""
     return ("c.webm", f"f{face:.2f}-{who}".encode())
 
 
@@ -65,25 +65,43 @@ def test_identifies_the_right_account_among_several(three):
         three.cookies.clear()
 
 
-def test_near_face_with_the_same_voice_signs_in(three):
-    # the voice template is alice's clip prefix; a separate audio file supplies the same voice
-    response = _post(three, ("c.webm", b"f0.30-zzz"), audio=("a.webm", b"f0.00-alice"))
-    assert response.status_code == 200 and response.json()["username"] == "alice"
+def test_near_face_signs_in_whatever_the_audio(three):
+    for audio in (None, ("a.webm", b"anything-at-all"), ("a.webm", b"bad-audio")):
+        response = _post(three, ("c.webm", b"f0.30-zzz"), audio=audio)
+        assert response.status_code == 200 and response.json()["username"] == "alice"
+        three.cookies.clear()
+        three.app.state.identify_ip_throttle.reset("testclient")
+
+
+def test_voice_plays_no_part_in_identification(three):
+    same_face_other_voice = _post(three, clip(0.0, "mallory"), audio=("a.webm", b"mallory-voice"))
+    assert same_face_other_voice.status_code == 200 and same_face_other_voice.json()["username"] == "alice"
+    three.cookies.clear()
+    silent = _post(three, ("c.webm", b"f1.00-silent"))
+    assert silent.status_code == 200 and silent.json()["username"] == "bob"
 
 
 def test_failures_are_identical_401s(three):
     wrong_face = _post(three, clip(5.0, "alice"))
-    wrong_voice = _post(three, clip(0.0, "mallory"))
     unusable = _post(three, ("b.webm", b"bad-clip"))
-    silent = _post(three, ("c.webm", b"f0.00-silent"))
     no_clip = _post(three, None)
-    for response in (wrong_face, wrong_voice, unusable, silent, no_clip):
+    unknown_with_audio = _post(three, clip(9.0, "alice"), audio=("a.webm", b"f0.00-alice"))
+    for response in (wrong_face, unusable, no_clip, unknown_with_audio):
         assert shape(response) == FAILED
         assert "set-cookie" not in response.headers
 
 
 def test_no_candidates_is_the_same_401(bio_client):
     assert shape(_post(bio_client, ALICE)) == FAILED
+
+
+def test_no_candidate_still_does_one_dummy_comparison(bio_client, monkeypatch):
+    calls = []
+    engine = bio_client.app.state.biometrics
+    original = engine.face_distance
+    monkeypatch.setattr(engine, "face_distance", lambda a, b: calls.append(1) or original(a, b))
+    assert shape(_post(bio_client, ALICE)) == FAILED
+    assert calls == [1]
 
 
 def test_method_not_enabled_is_the_same_401(bio_client):
@@ -102,7 +120,7 @@ def test_ambiguous_best_match_is_rejected(bio_client):
     with bio_client.app.state.session_factory() as db:
         twin = User(
             username="twin", password_hash="!", webcam_login=True,
-            face_embedding=cipher.encrypt(b"F:f0.02-alice"), audio_embedding=cipher.encrypt(b"A:f0.00-alice"),
+            face_embedding=cipher.encrypt(b"F:f0.02-alice"),
         )  # fmt: skip
         db.add(twin)
         db.commit()
@@ -115,7 +133,7 @@ def test_margin_is_configurable(bio_client, monkeypatch):
     with bio_client.app.state.session_factory() as db:
         db.add(User(
             username="twin", password_hash="!", webcam_login=True,
-            face_embedding=cipher.encrypt(b"F:f0.02-alice"), audio_embedding=cipher.encrypt(b"A:f0.00-alice"),
+            face_embedding=cipher.encrypt(b"F:f0.02-alice"),
         ))  # fmt: skip
         db.commit()
     settings = bio_client.app.state.settings
@@ -123,36 +141,30 @@ def test_margin_is_configurable(bio_client, monkeypatch):
     assert _post(bio_client, ALICE).json()["username"] == "alice"
 
 
-def test_voice_mismatch_counts_against_that_account_and_locks_only_webcam(three):
-    for _ in range(5):
-        assert shape(_post(three, clip(0.0, "mallory"))) == FAILED
-        three.app.state.identify_ip_throttle.reset("testclient")
-    # alice's webcam is locked even for the real owner (identical 401, nothing revealed)
-    assert shape(_post(three, ALICE)) == FAILED
+def test_there_is_no_per_account_identification_lock(three):
+    assert not hasattr(three.app.state, "webcam_account_throttle")
+    for _ in range(4):
+        assert shape(_post(three, clip(9.0, "x"))) == FAILED
     three.app.state.identify_ip_throttle.reset("testclient")
-    assert _post(three, BOB).status_code == 200  # other accounts unaffected
-    # username path also respects the lock
+    assert _post(three, ALICE).status_code == 200  # failures never lock the account's own face
     three.cookies.clear()
-    assert login_webcam(three, "alice", ALICE).status_code == 429
+    assert login_webcam(three, "alice", ALICE).status_code == 200  # nor the username path
 
 
-def test_account_lock_does_not_touch_other_methods(three):
-    three.app.state.webcam_account_throttle.record("alice")
-    assert row(three, "alice").webcam_login is True
-    assert three.app.state.alone_account_throttle.is_blocked("alice") is False
-
-
-def test_success_clears_ip_and_account_counters(three):
-    assert shape(_post(three, clip(0.0, "mallory"))) == FAILED
+def test_success_clears_the_ip_counter(three):
+    assert shape(_post(three, clip(9.0, "mallory"))) == FAILED
     assert _post(three, ALICE).status_code == 200
-    state = three.app.state
-    assert not state.identify_ip_throttle.is_blocked("testclient")
-    assert state.webcam_account_throttle.tracked_keys() == 0
+    assert not three.app.state.identify_ip_throttle.is_blocked("testclient")
+    assert three.app.state.identify_ip_throttle.tracked_keys() == 0
 
 
-def test_unknown_face_does_not_touch_account_throttles(three):
-    assert shape(_post(three, clip(9.0, "alice"))) == FAILED
-    assert three.app.state.webcam_account_throttle.tracked_keys() == 0
+def test_a_candidate_without_a_voice_template_is_identified(bio_client):
+    cipher = bio_client.app.state.cipher
+    with bio_client.app.state.session_factory() as db:
+        db.add(User(username="faceonly", password_hash="!", webcam_login=True,
+                    face_embedding=cipher.encrypt(b"F:f0.00-alice")))  # fmt: skip
+        db.commit()
+    assert _post(bio_client, ALICE).json()["username"] == "faceonly"
 
 
 # --- throttles and cap ------------------------------------------------------------------------
@@ -189,7 +201,7 @@ def test_username_given_path_unchanged(three):
 
 def test_audit_log_has_no_vectors_or_guessed_names(three, caplog):
     caplog.set_level(logging.INFO, logger="auth.audit")
-    _post(three, clip(0.0, "mallory"))
+    _post(three, clip(9.0, "mallory"))
     _post(three, ALICE)
     text = caplog.text
     assert "webcam identify failed ip=testclient" in text and "login ok (webcam identify)" in text

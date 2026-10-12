@@ -8,7 +8,6 @@ protection than per-row Fernet. Plaintext templates are never cached across requ
 
 import logging
 import math
-from dataclasses import dataclass
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy import func, select
@@ -20,19 +19,15 @@ MAX_IDENTIFY_CANDIDATES = 5000
 ENTER_USERNAME = "Enter your username"
 FACE_TAKEN = "This face is already registered"
 IDENTIFY_GLOBAL_KEY = "all"
-_DUMMY_VOICE = bytes(8)  # compared when there is no real template, so the work does not vary
+# Compared when there is no candidate, so the work does not vary. It must be a well-formed template
+# (128 float32 values): a malformed one used to crash the real engine and turn this into a 500.
+_DUMMY_FACE = bytes(128 * 4)
 
 log = logging.getLogger("auth.audit")
 
 
-@dataclass(frozen=True)
-class Identification:
-    user: User | None  # set only when the face was accepted unambiguously
-    voice_ok: bool  # meaningful only when `user` is set
-
-
 def _candidates_filter():
-    return (User.webcam_login.is_(True), User.face_embedding.is_not(None), User.audio_embedding.is_not(None))
+    return (User.webcam_login.is_(True), User.face_embedding.is_not(None))
 
 
 def candidate_count(db: Session) -> int:
@@ -43,11 +38,11 @@ def too_many_candidates(db: Session) -> bool:
     return candidate_count(db) > MAX_IDENTIFY_CANDIDATES
 
 
-def identify(request: Request, db: Session, face: bytes, voice: bytes | None) -> Identification:
-    """Pick the account whose face is closest, require it to be strict and unambiguous, then its voice.
+def identify(request: Request, db: Session, face: bytes) -> User | None:
+    """The account whose face is closest, if that match is strict and unambiguous; else None.
 
-    Always walks every candidate and always runs one voice comparison (against a dummy when needed),
-    so the amount of work does not reveal which check failed.
+    The face is the only factor. Always walks every candidate (and runs one dummy comparison when there
+    is none), so the amount of work does not reveal which check failed.
     """
     engine, cipher, settings = request.app.state.biometrics, request.app.state.cipher, request.app.state.settings
     best: User | None = None
@@ -62,12 +57,11 @@ def identify(request: Request, db: Session, face: bytes, voice: bytes | None) ->
             best, best_distance, second_distance = user, distance, best_distance
         elif distance < second_distance:
             second_distance = distance
+    if count == 0:
+        engine.face_distance(_DUMMY_FACE, face)
     unambiguous = count == 1 or second_distance - best_distance >= settings.face_identify_margin
     accepted = best is not None and best_distance <= settings.face_threshold_alone and unambiguous
-    stored_voice = cipher.decrypt(best.audio_embedding) if best is not None else None
-    voice_match = engine.audio_matches(stored_voice or _DUMMY_VOICE, voice or _DUMMY_VOICE, True)
-    voice_ok = bool(voice_match and voice is not None and stored_voice is not None)
-    return Identification(best if accepted else None, accepted and voice_ok)
+    return best if accepted else None
 
 
 def ensure_face_unique(request: Request, db: Session, face: bytes, exclude_user_id: int | None = None) -> None:

@@ -56,6 +56,27 @@ describe("recorder components", () => {
     expect(screen.getByText(/2 KB/)).toBeInTheDocument();
   });
 
+  it("records the face only by default: camera constraint without audio", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<VideoRecord onRecorded={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Quay khuôn mặt" }));
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ video: true, audio: false });
+    expect(await screen.findByRole("button", { name: /nhìn thẳng vào camera/ })).toBeInTheDocument();
+    await act(async () => void vi.advanceTimersByTime(RECORD_MS));
+    expect(screen.getByRole("status")).toHaveTextContent("Đã quay xong hình");
+    expect(screen.getByRole("status")).not.toHaveTextContent("tiếng");
+  });
+
+  it("records face and voice only when withAudio is set (second-factor step)", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<VideoRecord withAudio onRecorded={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Quay khuôn mặt \+ giọng nói/ }));
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ video: true, audio: true });
+    expect(await screen.findByRole("button", { name: /nhìn camera và nói/ })).toBeInTheDocument();
+    await act(async () => void vi.advanceTimersByTime(RECORD_MS));
+    expect(screen.getByRole("status")).toHaveTextContent("Đã quay xong hình và tiếng");
+  });
+
   it("records audio and offers playback", async () => {
     const onRecorded = vi.fn();
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

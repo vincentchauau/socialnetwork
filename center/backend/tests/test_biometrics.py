@@ -29,9 +29,16 @@ def files(audio=None, video=None):
 
 
 def enroll(client, session, audio=VOICE, video=FACE, data=None):
-    """Link the webcam method (face + voice) or, without a video, the voice method."""
-    route = "/auth/me/webcam" if video is not None else "/auth/me/voice"
-    return client.post(route, data=PW if data is None else data, files=files(audio, video), headers=csrf(session))
+    """Link the face (webcam method) and/or the voice: two independent methods with their own templates."""
+    data = PW if data is None else data
+    response = None
+    if audio is None and video is None:
+        return client.post("/auth/me/webcam", data=data, headers=csrf(session))  # nothing to enroll: 422
+    if audio is not None:
+        response = client.post("/auth/me/voice", data=data, files=files(audio), headers=csrf(session))
+    if video is not None:
+        response = client.post("/auth/me/webcam", data=data, files=files(None, video), headers=csrf(session))
+    return response
 
 
 @pytest.fixture
@@ -120,7 +127,7 @@ def test_enroll_stores_encrypted_templates_and_reports_state(bio_client):
     session = register(bio_client)
     response = enroll(bio_client, session)
     assert response.json() == {
-        "has_password": True, "google_linked": False, "voice_login": False, "webcam_login": True,
+        "has_password": True, "google_linked": False, "voice_login": True, "webcam_login": True,
         "has_audio": True, "has_face": True, "require_biometric_2fa": False,
     }  # fmt: skip
     me = bio_client.get("/auth/me").json()

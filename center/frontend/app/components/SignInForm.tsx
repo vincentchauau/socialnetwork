@@ -35,7 +35,7 @@ export function availableMethods(config: AuthConfig): Method[] {
 }
 
 const WEBCAM_HINT =
-  "Để trống: hệ thống tự nhận ra khuôn mặt và giọng nói của bạn. Nhập tên nếu muốn đối chiếu đúng tài khoản.";
+  "Chỉ cần khuôn mặt, không cần giọng nói. Để trống: hệ thống tự nhận ra khuôn mặt của bạn. Nhập tên nếu muốn đối chiếu đúng tài khoản.";
 
 /** Đăng nhập bằng MỘT cách: mật khẩu, Google, giọng nói hoặc webcam. */
 export default function SignInForm({ config, onMfa }: Props) {
@@ -82,7 +82,7 @@ export default function SignInForm({ config, onMfa }: Props) {
       return void signIn(async () => void (await loginWithVoice(username, audio)));
     }
     if (method === "webcam") {
-      if (!video) return fail("Hãy quay webcam trước khi đăng nhập");
+      if (!video) return fail("Hãy quay khuôn mặt trước khi đăng nhập");
       return void signIn(async () => void (await loginWithWebcam(video, username)));
     }
     void signIn(() => loginWithPassword(username, password));
@@ -109,7 +109,7 @@ export default function SignInForm({ config, onMfa }: Props) {
               optionalHint={WEBCAM_HINT}
             />
             {method === "password" && <PasswordField value={password} onChange={setPassword} isRegister={false} />}
-            {method !== "password" && <BiometricWarning />}
+            {(method === "voice" || method === "webcam") && <BiometricWarning kinds={[method]} />}
             {method === "voice" && <AudioRecord key={recordingKey} disabled={busy} onRecorded={setAudio} />}
             {method === "webcam" && <VideoRecord key={recordingKey} disabled={busy} onRecorded={setVideo} />}
             <button type="submit" disabled={busy} className={`${PRIMARY_BUTTON} mt-2`}>

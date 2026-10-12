@@ -104,26 +104,30 @@ def test_register_taken_by_a_password_account(bio_client):
 # --- registration: webcam ---------------------------------------------------------------------
 
 
-def test_register_webcam_takes_voice_from_the_clip(bio_client):
+def test_register_webcam_stores_the_face_only(bio_client):
     assert reg_webcam(bio_client).status_code == 201
     user = row(bio_client)
-    assert flags(user) == (False, False, False, True, True, True)  # voice template exists, voice login stays off
-    assert bio_client.app.state.cipher.decrypt(user.audio_embedding) == b"A:vera-camera-clip"
+    assert flags(user) == (False, False, False, True, False, True)  # no voice template at all
+    assert bio_client.app.state.cipher.decrypt(user.face_embedding) == b"F:vera-camera-clip"
 
 
-def test_register_webcam_with_a_separate_audio_file(bio_client):
+def test_register_webcam_ignores_an_audio_file(bio_client):
     assert reg_webcam(bio_client, audio=VOICE).status_code == 201
-    assert bio_client.app.state.cipher.decrypt(row(bio_client).audio_embedding) == b"A:vera-voice-sampl"
+    user = row(bio_client)
+    assert user.audio_embedding is None and user.face_embedding and user.voice_login is False
+
+
+def test_register_webcam_with_a_silent_clip_is_fine(bio_client):
+    assert reg_webcam(bio_client, video=SILENT).status_code == 201
+    assert row(bio_client).audio_embedding is None
 
 
 def test_register_webcam_rejections(bio_client):
-    silent = reg_webcam(bio_client, video=SILENT)
-    assert silent.status_code == 422 and silent.json() == {"detail": "Webcam sign-in needs both your face and your voice"}
     assert bio_client.post("/auth/register/webcam", data={"username": "vera"}).status_code == 422
     assert reg_webcam(bio_client, video=BAD).status_code == 400
-    assert reg_webcam(bio_client, audio=BAD).status_code == 400
+    assert reg_webcam(bio_client, video=BAD, audio=VOICE).status_code == 400
     assert row(bio_client) is None
-    assert reg_webcam(bio_client).status_code == 201
+    assert reg_webcam(bio_client, audio=BAD).status_code == 201  # audio is never looked at
     assert reg_webcam(bio_client).status_code == 409
     assert reg_webcam(bio_client, "x").status_code == 422
 
@@ -151,9 +155,9 @@ def test_register_throttle_is_shared_per_ip(bio_client):
     [
         ({"password": "correct-horse-battery"}, {}, (True, False, False, False, False, False)),
         ({}, {"voice_audio": VOICE}, (False, False, True, False, True, False)),
-        ({}, {"webcam_video": CAM}, (False, False, False, True, True, True)),
+        ({}, {"webcam_video": CAM}, (False, False, False, True, False, True)),
         ({"password": "correct-horse-battery"}, {"voice_audio": VOICE}, (True, False, True, False, True, False)),
-        ({"password": "correct-horse-battery"}, {"webcam_video": CAM}, (True, False, False, True, True, True)),
+        ({"password": "correct-horse-battery"}, {"webcam_video": CAM}, (True, False, False, True, False, True)),
         ({"google_id_token": "g1|vera@example.com"}, {"voice_audio": VOICE}, (False, True, True, False, True, False)),
         ({"google_id_token": "g1|vera@example.com"}, {}, (False, True, False, False, False, False)),
         (
@@ -172,11 +176,12 @@ def test_combined_registration_sets_the_right_flags(gclient, data, files, expect
     assert gclient.get("/auth/me").json()["username"] == "vera"
 
 
-def test_combined_with_voice_and_video_keeps_the_voice_file_template(gclient):
+def test_combined_with_voice_and_video_keeps_two_independent_templates(gclient):
     combined(gclient, webcam_video=CAM, voice_audio=VOICE)
     user = row(gclient)
     assert gclient.app.state.cipher.decrypt(user.audio_embedding) == b"A:vera-voice-sampl"
     assert gclient.app.state.cipher.decrypt(user.face_embedding) == b"F:vera-camera-clip"
+    assert user.voice_login is True and user.webcam_login is True
     assert user.email is None  # no google
 
 
@@ -190,10 +195,7 @@ def test_combined_signs_in_with_every_chosen_method_afterwards(gclient):
     gclient.cookies.clear()
     assert gclient.post("/auth/login", json={"username": "vera", "password": "correct-horse-battery"}).status_code == 200
     assert login_voice(gclient).status_code == 200
-    # the clip's own voice (here: the clip bytes) is compared with the voice FILE's template: mismatch
-    assert login_webcam(gclient).status_code == 401
-    unlock(gclient)
-    assert login_webcam(gclient, audio=VOICE).status_code == 200
+    assert login_webcam(gclient).status_code == 200  # face only: no voice involved
 
 
 @pytest.mark.parametrize(
@@ -201,7 +203,6 @@ def test_combined_signs_in_with_every_chosen_method_afterwards(gclient):
     [
         ({"password": "correct-horse-battery"}, {"voice_audio": BAD}, 400),
         ({"password": "correct-horse-battery"}, {"webcam_video": BAD}, 400),
-        ({"password": "correct-horse-battery"}, {"webcam_video": SILENT}, 422),
         ({"password": "short"}, {"voice_audio": VOICE}, 422),
         ({"google_id_token": "bad-token"}, {"voice_audio": VOICE}, 401),
         ({"password": "correct-horse-battery"}, {"voice_audio": VOICE, "webcam_video": BAD}, 400),
@@ -331,7 +332,6 @@ def test_webcam_login_failures_are_identical(bio_client):
         ("voiceonly", ("c.webm", b"vera-voice-samp")),  # method not enabled
         ("vera", OTHER_CAM),  # wrong person
         ("vera", BAD),
-        ("vera", SILENT),  # no usable voice
         ("vera", None),
     ]
     bad = []
@@ -341,13 +341,29 @@ def test_webcam_login_failures_are_identical(bio_client):
     assert {(r.status_code, r.text) for r in bad} == {FAILED}
 
 
-def test_webcam_login_needs_the_voice_to_match_too(bio_client):
-    reg_webcam(bio_client, audio=VOICE)  # voice template from the audio file, face from the clip
+def test_webcam_login_uses_the_face_only(bio_client):
+    reg_webcam(bio_client, audio=VOICE)
     bio_client.cookies.clear()
-    assert login_webcam(bio_client, audio=OTHER_VOICE).status_code == 401
-    bio_client.app.state.alone_throttle.reset("testclient|vera")
-    bio_client.app.state.alone_account_throttle.reset("vera")
-    assert login_webcam(bio_client, audio=VOICE).status_code == 200  # face from the clip, voice from the file
+    assert login_webcam(bio_client, audio=OTHER_VOICE).status_code == 200  # a wrong audio file does not matter
+    bio_client.cookies.clear()
+    assert login_webcam(bio_client, video=OTHER_CAM).status_code == 401  # another face
+    unlock(bio_client)
+    assert login_webcam(bio_client, video=CAM, audio=BAD).status_code == 200  # a bad audio file is never read
+    bio_client.cookies.clear()
+    assert login_webcam(bio_client).status_code == 200  # no audio at all
+    bio_client.cookies.clear()
+    assert login_webcam(bio_client, video=SILENT).status_code == 401  # a silent clip is just another face
+
+
+def test_webcam_login_ignores_a_stale_voice_template(bio_client):
+    session = register(bio_client)
+    h = csrf(session)
+    bio_client.post("/auth/me/voice", data=PW, files={"audio": VOICE}, headers=h)
+    bio_client.post("/auth/me/webcam", data=PW, files={"video": CAM}, headers=h)
+    bio_client.cookies.clear()
+    assert login_webcam(bio_client, "alice", audio=OTHER_VOICE).status_code == 200
+    bio_client.cookies.clear()
+    assert login_voice(bio_client, "alice", OTHER_VOICE).status_code == 401  # voice stays its own method
 
 
 def test_webcam_login_is_locked_after_three_tries(bio_client):
@@ -391,15 +407,25 @@ def test_link_voice_needs_csrf_login_and_password(bio_client):
 def test_link_webcam_and_replace_templates(bio_client):
     session = register(bio_client)
     h = csrf(session)
-    silent = bio_client.post("/auth/me/webcam", data=PW, files={"video": SILENT}, headers=h)
-    assert silent.status_code == 422
     assert bio_client.post("/auth/me/webcam", data=PW, files={"video": BAD}, headers=h).status_code == 400
     assert bio_client.post("/auth/me/webcam", data=PW, files={"audio": VOICE}, headers=h).status_code == 422
-    ok = bio_client.post("/auth/me/webcam", data=PW, files={"video": CAM}, headers=h)
-    assert ok.json() == status_body(webcam_login=True, has_audio=True, has_face=True)
+    ok = bio_client.post("/auth/me/webcam", data=PW, files={"video": CAM, "audio": VOICE}, headers=h)
+    assert ok.json() == status_body(webcam_login=True, has_face=True)  # the clip's audio is ignored
     assert bio_client.get("/auth/me").json()["webcam_login"] is True
     bio_client.cookies.clear()
     assert login_webcam(bio_client, "alice").status_code == 200
+
+
+def test_link_webcam_leaves_the_voice_template_untouched(bio_client):
+    session = register(bio_client)
+    h = csrf(session)
+    bio_client.post("/auth/me/voice", data=PW, files={"audio": VOICE}, headers=h)
+    before = row(bio_client, "alice").audio_embedding
+    ok = bio_client.post("/auth/me/webcam", data=PW, files={"video": CAM, "audio": OTHER_VOICE}, headers=h)
+    assert ok.json() == status_body(voice_login=True, webcam_login=True, has_audio=True, has_face=True)
+    assert row(bio_client, "alice").audio_embedding == before
+    bio_client.post("/auth/me/webcam", data=PW, files={"video": OTHER_CAM}, headers=h)  # relink
+    assert row(bio_client, "alice").audio_embedding == before
 
 
 def test_link_voice_and_webcam_without_a_password_needs_no_reauth(gclient):
@@ -436,15 +462,17 @@ def test_remove_voice_needs_the_password_and_cleans_up(bio_client):
     assert row(bio_client, "alice").audio_embedding is None
 
 
-def test_remove_voice_keeps_the_voice_template_while_webcam_needs_it(bio_client):
+def test_remove_voice_leaves_the_face(bio_client):
     session = register(bio_client)
     h = csrf(session)
     bio_client.post("/auth/me/webcam", data=PW, files={"video": CAM}, headers=h)
     bio_client.post("/auth/me/voice", data=PW, files={"audio": VOICE}, headers=h)
-    assert remove(bio_client, session, "voice").json() == status_body(webcam_login=True, has_audio=True, has_face=True)
+    assert remove(bio_client, session, "voice").json() == status_body(webcam_login=True, has_face=True)
+    user = row(bio_client, "alice")
+    assert user.audio_embedding is None and user.face_embedding
 
 
-def test_remove_webcam_cleans_face_and_voice_unless_voice_login_needs_it(bio_client):
+def test_remove_webcam_deletes_the_face_and_keeps_the_voice(bio_client):
     session = register(bio_client)
     h = csrf(session)
     bio_client.post("/auth/me/webcam", data=PW, files={"video": CAM}, headers=h)
@@ -454,6 +482,28 @@ def test_remove_webcam_cleans_face_and_voice_unless_voice_login_needs_it(bio_cli
     assert remove(bio_client, session, "webcam").json() == status_body(voice_login=True, has_audio=True)
     user = row(bio_client, "alice")
     assert user.face_embedding is None and user.audio_embedding
+
+
+def test_remove_webcam_keeps_an_old_unused_voice_template(bio_client):
+    session = register(bio_client)
+    cipher = bio_client.app.state.cipher
+    with bio_client.app.state.session_factory() as db:  # an account created before the change
+        user = db.scalar(select(User).where(User.username == "alice"))
+        user.webcam_login = True
+        user.face_embedding, user.audio_embedding = cipher.encrypt(b"F:x"), cipher.encrypt(b"A:x")
+        db.commit()
+    assert remove(bio_client, session, "webcam").json() == status_body(has_audio=True)
+    assert row(bio_client, "alice").audio_embedding
+
+
+def test_second_factor_switches_off_only_when_no_template_remains(bio_client):
+    session = register(bio_client)
+    h = csrf(session)
+    bio_client.post("/auth/me/webcam", data=PW, files={"video": CAM}, headers=h)
+    bio_client.post("/auth/me/voice", data=PW, files={"audio": VOICE}, headers=h)
+    bio_client.put("/auth/me/biometric-2fa", data={"enabled": "true", **PW}, headers=h)
+    assert remove(bio_client, session, "webcam").json()["require_biometric_2fa"] is True  # voice template remains
+    assert remove(bio_client, session, "voice").json()["require_biometric_2fa"] is False
 
 
 def test_removing_the_last_template_switches_the_second_factor_off(bio_client):
@@ -531,13 +581,27 @@ def test_removing_a_method_that_is_off_is_harmless_for_the_guard(bio_client):
 def test_second_factor_still_works_end_to_end(bio_client):
     session = register(bio_client)
     h = csrf(session)
-    bio_client.post("/auth/me/webcam", data=PW, files={"video": CAM, "audio": VOICE}, headers=h)
+    bio_client.post("/auth/me/webcam", data=PW, files={"video": CAM}, headers=h)
     on = bio_client.put("/auth/me/biometric-2fa", data={"enabled": "true", **PW}, headers=h)
-    assert on.json() == status_body(webcam_login=True, has_audio=True, has_face=True, require_biometric_2fa=True)
+    assert on.json() == status_body(webcam_login=True, has_face=True, require_biometric_2fa=True)
     bio_client.cookies.clear()
     token = bio_client.post("/auth/login", json=CREDS).json()["mfa_token"]
-    ok = bio_client.post("/auth/login/biometric", data={"mfa_token": token}, files={"video": CAM, "audio": VOICE})
+    ok = bio_client.post("/auth/login/biometric", data={"mfa_token": token}, files={"video": CAM})
     assert ok.status_code == 200
+
+
+def test_second_factor_needs_every_enrolled_template(bio_client):
+    session = register(bio_client)
+    h = csrf(session)
+    bio_client.post("/auth/me/voice", data=PW, files={"audio": VOICE}, headers=h)
+    bio_client.post("/auth/me/webcam", data=PW, files={"video": CAM}, headers=h)
+    bio_client.put("/auth/me/biometric-2fa", data={"enabled": "true", **PW}, headers=h)
+    bio_client.cookies.clear()
+    token = bio_client.post("/auth/login", json=CREDS).json()["mfa_token"]
+    face_only = bio_client.post("/auth/login/biometric", data={"mfa_token": token}, files={"video": CAM})
+    assert face_only.status_code == 401
+    both = bio_client.post("/auth/login/biometric", data={"mfa_token": token}, files={"video": CAM, "audio": VOICE})
+    assert both.status_code == 200
 
 
 # --- contract surface -----------------------------------------------------------------------------

@@ -1,5 +1,8 @@
 """Voice and webcam sign-in: register with them, sign in with them, link and remove them.
 
+Two independent methods, each with its own template: voice = audio template, webcam = face template
+only (like a phone Face ID: the sound of a webcam clip is never used).
+
 Re-auth rule: linking/removing asks for the password only when the account HAS one. Accounts without
 a password (voice, webcam or Google only) have nothing to re-enter, so no re-auth is asked for them:
 a stolen session of such an account can change its methods (known limitation).
@@ -35,6 +38,7 @@ from app.routes_biometrics import (
     _count_attempts,
     _reset,
     factors_match,
+    read_face,
     read_probes,
     require_biometrics,
 )
@@ -42,7 +46,7 @@ from app.schemas import MethodsStatus, SessionOut, checked_username
 from app.sessions import issue_session
 
 LOGIN_FAILED = "Biometric login failed"
-WEBCAM_NEEDS_BOTH = "Webcam sign-in needs both your face and your voice"
+NEEDS_FACE = "Send a video with your face"
 NEEDS_AUDIO = "Send an audio recording"
 NO_METHOD = "Choose at least one sign-in method"
 TAKEN = "Username already taken"
@@ -79,30 +83,29 @@ def _random_handle(db: Session) -> str:
 
 
 def _templates(
-    request: Request, db: Session, voice_file, video_file, clip_audio=None, exclude_user_id: int | None = None
+    request: Request, db: Session, voice_file, video_file, exclude_user_id: int | None = None
 ) -> dict:
     """Validate the samples and return the User columns they produce (nothing is stored yet).
 
-    Voice file only: voice template, voice login. Video only: face + voice from the clip's audio track,
-    webcam login. Both: the voice template comes from the voice file and the clip's face is the face
-    template; webcam login then compares the clip's own voice against that same template.
-    `clip_audio` is the optional separate audio of a webcam-only registration: it feeds the webcam
-    method's voice template but does NOT enable voice login.
+    Voice file: voice template + voice login. Webcam clip: face template + webcam login, from the face
+    ONLY (the clip's sound is ignored). Both: two independent templates.
     """
     if voice_file is None and video_file is None:
         return {}
     if not biometrics_available(request):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, UNAVAILABLE)
-    voice, face = read_probes(request, voice_file or clip_audio, video_file)
-    if video_file is not None and (voice is None or face is None):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, WEBCAM_NEEDS_BOTH)
-    if voice is None:
+    voice = read_probes(request, voice_file, None)[0] if voice_file is not None else None
+    face = read_face(request, video_file) if video_file is not None else None
+    if voice_file is not None and voice is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_AUDIO)
+    if video_file is not None and face is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)
     cipher = request.app.state.cipher
+    columns: dict = {}
+    if voice is not None:
+        columns.update(audio_embedding=cipher.encrypt(voice), voice_login=True)
     if face is not None:
         ensure_face_unique(request, db, face, exclude_user_id)
-    columns: dict = {"audio_embedding": cipher.encrypt(voice), "voice_login": voice_file is not None}
-    if face is not None:
         columns.update(face_embedding=cipher.encrypt(face), webcam_login=True)
     return columns
 
@@ -110,7 +113,6 @@ def _templates(
 def _register(
     request: Request, response: Response, db: Session, username: str | None, *,
     password: str | None = None, google_token: str | None = None, voice_file=None, video_file=None,
-    clip_audio=None,
 ) -> SessionOut:  # fmt: skip
     """All-or-nothing: every method is validated before the account row exists."""
     throttle, ip = request.app.state.register_throttle, client_ip(request)
@@ -145,7 +147,7 @@ def _register(
         columns.update(google_sub=identity.sub, email=None if email_taken else identity.email)
         if generate:
             name = unique_handle(identity.email, lambda h: _handle_taken(db, h))
-    columns.update(_templates(request, db, voice_file, video_file, clip_audio))
+    columns.update(_templates(request, db, voice_file, video_file))
     if generate and not name:
         name = _random_handle(db)
     user = User(username=name, **columns)
@@ -172,11 +174,11 @@ def register_voice(
 @methods_router.post("/register/webcam", status_code=status.HTTP_201_CREATED, response_model=SessionOut)
 def register_webcam(
     request: Request, response: Response, username: Annotated[str, Form()], video: Upload = None,
-    audio: Upload = None, db: Session = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> SessionOut:  # fmt: skip
     if video is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, WEBCAM_NEEDS_BOTH)
-    return _register(request, response, db, username, video_file=video, clip_audio=audio)
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)  # an `audio` field is ignored
+    return _register(request, response, db, username, video_file=video)
 
 
 @combined_router.post("/register/combined", status_code=status.HTTP_201_CREATED, response_model=SessionOut)
@@ -194,20 +196,33 @@ def register_combined(
 # --- sign-in --------------------------------------------------------------------------------------
 
 
+def _face_matches(request: Request, user: User, video: Upload) -> bool:
+    """Strict 1-1 face comparison; any processing error is a plain failure."""
+    try:
+        face = read_face(request, video)
+    except HTTPException as exc:
+        audit.warning("webcam login error user=%r status=%s", user.username, exc.status_code)
+        return False
+    template = request.app.state.cipher.decrypt(user.face_embedding) if user.face_embedding else None
+    return face is not None and template is not None and request.app.state.biometrics.face_matches(template, face, True)
+
+
 def _biometric_login(
     request: Request, response: Response, db: Session, username: str, audio: Upload, video: Upload, *, method: str
 ) -> SessionOut:  # fmt: skip
-    """Voice or webcam sign-in. Strict thresholds; every failure is the same 401."""
+    """Voice (audio only) or webcam (face only) sign-in. Strict thresholds; every failure is the same 401."""
     ip, state, name = client_ip(request), request.app.state, username.strip().lower()
     throttles = [state.alone_throttle, state.alone_account_throttle]
     keys = [f"{ip}|{name}", name]
     _count_attempts(throttles, keys, name, ip)
-    if method == "webcam" and state.webcam_account_throttle.is_blocked(name):
-        raise too_many()  # locked by failed 1-N identifications of this account
     user = db.scalar(select(User).where(User.username == name))
-    required = ("voice",) if method == "voice" else ("voice", "face")
-    enabled = user is not None and (user.voice_login if method == "voice" else user.webcam_login)
-    if not enabled or not factors_match(request, user, audio, video if method == "webcam" else None, True, required):
+    if user is None:
+        matched = False
+    elif method == "voice":
+        matched = user.voice_login and factors_match(request, user, audio, None, True, ("voice",))
+    else:
+        matched = user.webcam_login and _face_matches(request, user, video)
+    if not matched:
         audit.warning("%s login failed user=%r ip=%s", method, name, ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_FAILED)
     _reset(throttles, keys)
@@ -215,8 +230,8 @@ def _biometric_login(
     return issue_session(response, user, settings_of(request))
 
 
-def _identify_login(request: Request, response: Response, db: Session, audio: Upload, video: Upload) -> SessionOut:
-    """Webcam sign-in without a username (1-N). Every failure is the same 401 and the same work.
+def _identify_login(request: Request, response: Response, db: Session, video: Upload) -> SessionOut:
+    """Webcam sign-in without a username (1-N), by face only. Every failure is the same 401 and the same work.
 
     Audit lines carry the outcome and address only: never vectors, never a guessed name.
     """
@@ -229,29 +244,22 @@ def _identify_login(request: Request, response: Response, db: Session, audio: Up
     global_throttle.record(IDENTIFY_GLOBAL_KEY)
     if too_many_candidates(db):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, ENTER_USERNAME)
-    probes = _probes_or_none(request, audio, video)
-    matched = identify(request, db, probes[1], probes[0]) if probes is not None else None
-    user = matched.user if matched is not None else None
-    account_throttle = state.webcam_account_throttle
-    locked = user is not None and account_throttle.is_blocked(user.username)
-    if user is not None and not matched.voice_ok and not locked:
-        account_throttle.record(user.username)
-    if user is None or not matched.voice_ok or locked:
+    face = _face_or_none(request, video)
+    user = identify(request, db, face) if face is not None else None
+    if user is None:
         audit.warning("webcam identify failed ip=%s", ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_FAILED)
     ip_throttle.reset(ip)
-    account_throttle.reset(user.username)
     audit.info("login ok (webcam identify) user=%r ip=%s", user.username, ip)
     return issue_session(response, user, settings_of(request))
 
 
-def _probes_or_none(request: Request, audio: Upload, video: Upload):
-    """(voice, face) when the clip has a usable face; else None (an unusable clip depends on no account)."""
+def _face_or_none(request: Request, video: Upload) -> bytes | None:
+    """The clip face, or None (an unusable clip depends on no account)."""
     try:
-        voice, face = read_probes(request, audio, video)
+        return read_face(request, video)
     except HTTPException:
         return None
-    return None if face is None else (voice, face)
 
 
 @methods_router.post("/login/voice", response_model=SessionOut)
@@ -265,24 +273,24 @@ def login_voice(
 @methods_router.post("/login/webcam", response_model=SessionOut)
 def login_webcam(
     request: Request, response: Response, username: Annotated[str | None, Form(max_length=64)] = None,
-    video: Upload = None, audio: Upload = None, db: Session = Depends(get_db),
+    video: Upload = None, db: Session = Depends(get_db),
 ) -> SessionOut:  # fmt: skip
+    """Face only: an `audio` field, if sent, is ignored."""
     if username is None or not username.strip():
-        return _identify_login(request, response, db, audio, video)
-    return _biometric_login(request, response, db, username, audio, video, method="webcam")
+        return _identify_login(request, response, db, video)
+    return _biometric_login(request, response, db, username, None, video, method="webcam")
 
 
 # --- linking and removal --------------------------------------------------------------------------
 
 
-def _enroll(request: Request, session: AuthSession, password: str | None, audio: Upload, video: Upload):
-    """Re-auth, throttle, then (voice, face) probes."""
+def _enroll(request: Request, session: AuthSession, password: str | None) -> None:
+    """Throttle and re-auth, before any (expensive) sample processing."""
     user, throttle = session.user, request.app.state.enroll_throttle
     if throttle.is_blocked(str(user.id)):
         raise too_many()
     require_reauth(request, user, password)
     throttle.record(str(user.id))  # expensive: every call counts
-    return read_probes(request, audio, video)
 
 
 @methods_router.post("/me/voice", response_model=MethodsStatus)
@@ -290,7 +298,8 @@ def link_voice(
     request: Request, password: Text = None, audio: Upload = None,
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
-    voice, _ = _enroll(request, session, password, audio, None)
+    _enroll(request, session, password)
+    voice, _ = read_probes(request, audio, None)
     if voice is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_AUDIO)
     user = session.user
@@ -303,15 +312,17 @@ def link_voice(
 
 @methods_router.post("/me/webcam", response_model=MethodsStatus)
 def link_webcam(
-    request: Request, password: Text = None, video: Upload = None, audio: Upload = None,
+    request: Request, password: Text = None, video: Upload = None,
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
-    voice, face = _enroll(request, session, password, audio, video)
-    if voice is None or face is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, WEBCAM_NEEDS_BOTH)
-    user, cipher = session.user, request.app.state.cipher
+    """Face template only; the voice template (if any) is never touched. An `audio` field is ignored."""
+    _enroll(request, session, password)
+    face = read_face(request, video)
+    if face is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)
+    user = session.user
     ensure_face_unique(request, db, face, exclude_user_id=user.id)  # own old face is excluded
-    user.audio_embedding, user.face_embedding = cipher.encrypt(voice), cipher.encrypt(face)
+    user.face_embedding = request.app.state.cipher.encrypt(face)
     user.webcam_login = True
     db.commit()
     audit.info("webcam sign-in enabled user=%r ip=%s", user.username, client_ip(request))
@@ -323,15 +334,12 @@ def _remove(request: Request, session: AuthSession, db: Session, password: str |
     require_reauth(request, user, password)
     if usable_methods(user, without=method) == 0 and (user.voice_login if method == "voice" else user.webcam_login):
         raise HTTPException(status.HTTP_409_CONFLICT, KEEP_ONE)
-    if method == "voice":
+    if method == "voice":  # each method owns its template: voice = audio, webcam = face
         user.voice_login = False
-        if not user.webcam_login:
-            user.audio_embedding = None
+        user.audio_embedding = None
     else:
         user.webcam_login = False
         user.face_embedding = None
-        if not user.voice_login:
-            user.audio_embedding = None
     if not user.has_biometrics:
         user.biometric_2fa = False  # no template left: never keep a factor that cannot be met
     db.commit()

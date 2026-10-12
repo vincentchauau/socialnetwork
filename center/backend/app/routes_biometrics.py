@@ -1,5 +1,6 @@
 """Shared voice/face helpers (probes, template matching, throttles) and the opt-in second factor."""
 
+from contextlib import contextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
@@ -49,22 +50,14 @@ def read_upload(upload: UploadFile | None, max_bytes: int) -> bytes | None:
     return data or None
 
 
-def read_probes(request: Request, audio: Upload, video: Upload) -> tuple[bytes | None, bytes | None]:
-    """(voice, face) embeddings; at most two biometric jobs run at once server-wide."""
-    engine = request.app.state.biometrics
-    audio_raw, video_raw = read_upload(audio, MAX_AUDIO_BYTES), read_upload(video, MAX_VIDEO_BYTES)
-    if not audio_raw and not video_raw:
-        return None, None
+@contextmanager
+def biometric_slot(request: Request):
+    """At most two biometric jobs run at once server-wide; engine errors become plain HTTP errors."""
     slots = request.app.state.biometric_slots
     if not slots.acquire(timeout=SLOT_WAIT_SECONDS):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, BUSY)
     try:
-        face = engine.face_embedding(video_raw) if video_raw else None
-        if audio_raw:
-            voice = engine.audio_embedding(audio_raw)
-        else:
-            voice = _voice_from_video(engine, video_raw)
-        return voice, face
+        yield request.app.state.biometrics
     except BiometricError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, BAD_SAMPLE) from None
     except BiometricUnavailable as exc:
@@ -72,6 +65,26 @@ def read_probes(request: Request, audio: Upload, video: Upload) -> tuple[bytes |
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, UNAVAILABLE) from None
     finally:
         slots.release()
+
+
+def read_probes(request: Request, audio: Upload, video: Upload) -> tuple[bytes | None, bytes | None]:
+    """(voice, face) embeddings. The voice is the audio file's, or else the clip's own sound track."""
+    audio_raw, video_raw = read_upload(audio, MAX_AUDIO_BYTES), read_upload(video, MAX_VIDEO_BYTES)
+    if not audio_raw and not video_raw:
+        return None, None
+    with biometric_slot(request) as engine:
+        face = engine.face_embedding(video_raw) if video_raw else None
+        voice = engine.audio_embedding(audio_raw) if audio_raw else _voice_from_video(engine, video_raw)
+        return voice, face
+
+
+def read_face(request: Request, video: Upload) -> bytes | None:
+    """Face embedding of a webcam clip; the clip's sound is never decoded (the webcam method is face only)."""
+    video_raw = read_upload(video, MAX_VIDEO_BYTES)
+    if not video_raw:
+        return None
+    with biometric_slot(request) as engine:
+        return engine.face_embedding(video_raw)
 
 
 def _voice_from_video(engine, video_raw: bytes | None) -> bytes | None:

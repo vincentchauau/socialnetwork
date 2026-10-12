@@ -33,7 +33,6 @@ BIOMETRIC_WINDOW_SECONDS = 900.0
 BIOMETRIC_ACCOUNT_FACTOR = 4
 IDENTIFY_MAX_PER_IP = 5  # username-less webcam sign-in attempts per address per window
 IDENTIFY_GLOBAL_MAX = 100  # ... across all addresses (protects CPU: each attempt is O(candidates))
-WEBCAM_ACCOUNT_MAX_FAILURES = 5  # identified face but wrong voice: locks that account's webcam sign-in
 ENROLL_MAX_PER_HOUR = 10
 MAX_CONCURRENT_BIOMETRICS = 2
 
@@ -59,7 +58,6 @@ def _install_throttles(app: FastAPI) -> None:
     state.alone_account_throttle = AttemptThrottle(BIOMETRIC_ONLY_MAX_ATTEMPTS * BIOMETRIC_ACCOUNT_FACTOR, window)
     state.identify_ip_throttle = AttemptThrottle(IDENTIFY_MAX_PER_IP, window)
     state.identify_global_throttle = AttemptThrottle(IDENTIFY_GLOBAL_MAX, window)
-    state.webcam_account_throttle = AttemptThrottle(WEBCAM_ACCOUNT_MAX_FAILURES, window)
     state.enroll_throttle = AttemptThrottle(ENROLL_MAX_PER_HOUR, 3600.0)
     state.biometric_slots = threading.BoundedSemaphore(MAX_CONCURRENT_BIOMETRICS)
 
