@@ -1,6 +1,8 @@
 """Password hashing and JWT helpers shared by every backend.
 
-Only `center` issues tokens; every other service just verifies them.
+Only `center` issues access tokens (Ed25519 / JWT alg EdDSA, see `sn_shared.jwtkeys`); every other service just
+verifies them with public keys. `JWT_SECRET` (HS256) is center-private: it signs center-internal tokens
+(refresh, mfa, fresh, challenges) and is never given to an app.
 """
 
 import os
@@ -11,10 +13,11 @@ from typing import Mapping
 import bcrypt
 import jwt
 
-from sn_shared import revocation
+from sn_shared import jwtkeys, revocation
 
 COOKIE_NAME = "sn_token"
-ALGORITHM = "HS256"
+ACCESS_ALGORITHM = jwtkeys.ACCESS_ALGORITHM  # EdDSA: the only algorithm accepted for the access cookie
+INTERNAL_ALGORITHM = "HS256"  # center-internal tokens, signed with JWT_SECRET
 ISSUER = "sn-center"
 DEFAULT_TTL_SECONDS = 24 * 60 * 60
 MIN_SECRET_LENGTH = 32
@@ -76,15 +79,28 @@ def create_token(
         claims["ver"] = ver
     if sid is not None:
         claims["sid"] = sid
-    return jwt.encode(claims, get_jwt_secret(), algorithm=ALGORITHM)
+    signer = jwtkeys.get_signer()
+    return jwt.encode(claims, signer.private_key, algorithm=ACCESS_ALGORITHM, headers={"kid": signer.kid})
+
+
+def _verification_key(token: str):
+    """The public key named by the token's `kid`; only alg EdDSA is ever accepted (no HS256/none confusion)."""
+    header = jwt.get_unverified_header(token)
+    if header.get("alg") != ACCESS_ALGORITHM:
+        raise jwt.InvalidAlgorithmError("unexpected algorithm")
+    kid = header.get("kid")
+    key = jwtkeys.get_verification_keys().get(kid) if isinstance(kid, str) else None
+    if key is None:
+        raise jwt.InvalidKeyError("unknown key id")
+    return key
 
 
 def decode_token(token: str) -> TokenPayload:
     try:
         claims = jwt.decode(
             token,
-            get_jwt_secret(),
-            algorithms=[ALGORITHM],
+            _verification_key(token),
+            algorithms=[ACCESS_ALGORITHM],
             issuer=ISSUER,
             options={"require": ["exp", "iss", "sub"]},
         )

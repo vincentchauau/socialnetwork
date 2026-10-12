@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base, make_engine
 from app.routes_me import router as me_router
 from app.routes_videos import router as videos_router
-from sn_shared.security import get_jwt_secret
+from sn_shared.jwtkeys import require_verification_keys
 
 DEFAULT_DATABASE_URL = "sqlite:///./watch.db"
 DEFAULT_UPLOAD_DIR = "./uploads"
@@ -45,7 +45,7 @@ async def _stop_account_consumer(handle: Any) -> None:
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
-    get_jwt_secret()  # fail at startup, not on the first request
+    require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     Base.metadata.create_all(engine)
 

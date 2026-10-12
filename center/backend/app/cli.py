@@ -2,6 +2,7 @@
 
   python -m app.cli promote|demote <username>   grant / revoke the admin role
   python -m app.cli reset-password <username>   set a new password (prompt or stdin) and revoke all sessions
+  python -m app.cli gen-jwt-key                 print a new Ed25519 access-token keypair (private PEM, public PEM, kid)
 """
 
 import getpass
@@ -9,6 +10,7 @@ import os
 import sys
 from typing import Callable
 
+from sn_shared import jwtkeys
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -46,11 +48,24 @@ def _open_session() -> Session:
     return sessionmaker(engine, expire_on_commit=False)()
 
 
+def gen_jwt_key() -> int:
+    """Print a fresh keypair: the private key goes to center only, the public key to every app."""
+    private, public, kid = jwtkeys.generate_keypair()
+    print("# JWT_PRIVATE_KEY (center only; keep secret, e.g. save as secrets/jwt_private.pem):")
+    print(private.strip())
+    print("\n# JWT_PUBLIC_KEYS (every app; append to the existing keys when rotating):")
+    print(public.strip())
+    print(f"\n# kid (the JWT_KEY_ID default): {kid}")
+    return 0
+
+
 def main(
     argv: list[str],
     read_password: Callable[[], str] = read_new_password,
     open_session: Callable[[], Session] = _open_session,
 ) -> int:
+    if argv == ["gen-jwt-key"]:
+        return gen_jwt_key()
     if len(argv) != 2 or argv[0] not in COMMANDS:
         print(__doc__)
         return 2

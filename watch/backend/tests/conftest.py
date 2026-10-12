@@ -5,7 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 # create_app() runs at import time and needs these.
-os.environ.setdefault("JWT_SECRET", "t" * 40)
+from sn_shared.testing import install_test_keys  # noqa: E402
+
+install_test_keys()
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 os.environ.setdefault("UPLOAD_DIR", os.path.join(os.path.dirname(__file__), ".uploads"))
 
@@ -18,7 +20,7 @@ WEBM_BYTES = b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01" + bytes(range(256)) * 4
 
 @pytest.fixture(autouse=True)
 def env(monkeypatch, tmp_path):
-    monkeypatch.setenv("JWT_SECRET", "t" * 40)
+    install_test_keys(monkeypatch)
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
     monkeypatch.setenv("MAX_VIDEO_MB", "1")
 

@@ -9,7 +9,8 @@ description = "Shared auth primitives for socialnetwork services (library, not a
 requires-python = ">=3.11"
 dependencies = [
     "bcrypt>=4.2",
-    "PyJWT>=2.9",
+    "PyJWT[crypto]>=2.9",
+    "cryptography>=42",
     "fastapi>=0.115",
     "redis>=5",  # optional at runtime (imported lazily; no REDIS_URL = no revocation checks)
 ]

@@ -13,7 +13,7 @@ from app.constants import DEFAULT_ORDER_TTL_MINUTES
 from app.db import Base, make_engine
 from app.models import utcnow
 from app.payments import FakePaymentProvider, PaymentProvider
-from sn_shared.security import get_jwt_secret
+from sn_shared.jwtkeys import require_verification_keys
 
 DEFAULT_DATABASE_URL = "sqlite:///./market.db"
 
@@ -44,7 +44,7 @@ def create_app(
     clock: Callable[[], datetime] | None = None,
     order_ttl_minutes: float | None = None,
 ) -> FastAPI:
-    get_jwt_secret()  # fail at startup, not on the first request
+    require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     Base.metadata.create_all(engine)
 

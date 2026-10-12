@@ -5,6 +5,9 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 # create_app() runs at import time and needs these.
+from sn_shared.testing import install_test_keys  # noqa: E402
+
+install_test_keys()
 os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
@@ -16,6 +19,7 @@ from tests.fakes import FakeBiometrics, FakeMailer, fake_google_verifier  # noqa
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
     monkeypatch.setenv("JWT_SECRET", "t" * 40)
+    install_test_keys(monkeypatch)
     for name in (
         "APP_ENV", "COOKIE_SECURE", "ACCESS_TOKEN_MINUTES", "REFRESH_DAYS", "ALLOWED_ORIGINS",
         "GOOGLE_CLIENT_ID", "BIOMETRICS_ENABLED", "DATA_KEY", "WEBAUTHN_RP_ID", "WEBAUTHN_RP_NAME",

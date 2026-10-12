@@ -4,7 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 # create_app() runs at import time and needs these.
-os.environ.setdefault("JWT_SECRET", "t" * 40)
+from sn_shared.testing import install_test_keys  # noqa: E402
+
+install_test_keys()
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
 from app.main import create_app  # noqa: E402
@@ -15,7 +17,7 @@ ALLOWED_ORIGIN = "http://localhost:8080"
 
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
-    monkeypatch.setenv("JWT_SECRET", "t" * 40)
+    install_test_keys(monkeypatch)
     monkeypatch.setenv("ALLOWED_ORIGINS", ALLOWED_ORIGIN)
 
 

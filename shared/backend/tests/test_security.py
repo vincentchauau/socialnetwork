@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from sn_shared import (
@@ -8,12 +10,13 @@ from sn_shared import (
     hash_password,
     verify_password,
 )
-from sn_shared.security import payload_from_cookies
+from sn_shared.security import ISSUER, payload_from_cookies
+from sn_shared.testing import install_test_keys, sign_claims
 
 
 @pytest.fixture(autouse=True)
-def jwt_secret(monkeypatch):
-    monkeypatch.setenv("JWT_SECRET", "x" * 40)
+def jwt_keys(monkeypatch):
+    install_test_keys(monkeypatch)
 
 
 def test_password_round_trip():
@@ -41,19 +44,6 @@ def test_tampered_token_is_rejected():
         decode_token(create_token(1, "bob") + "x")
 
 
-def test_token_signed_with_other_secret_is_rejected(monkeypatch):
-    token = create_token(1, "bob")
-    monkeypatch.setenv("JWT_SECRET", "y" * 40)
-    with pytest.raises(AuthError):
-        decode_token(token)
-
-
-def test_short_secret_fails_fast(monkeypatch):
-    monkeypatch.setenv("JWT_SECRET", "short")
-    with pytest.raises(RuntimeError):
-        create_token(1, "bob")
-
-
 def test_missing_cookie_is_rejected():
     with pytest.raises(AuthError):
         payload_from_cookies({})
@@ -65,23 +55,13 @@ def test_payload_from_cookies():
 
 
 def test_token_without_issuer_is_rejected():
-    import time
-
-    import jwt
-
     now = int(time.time())
-    forged = jwt.encode(
-        {"sub": "1", "username": "bob", "iat": now, "exp": now + 60},
-        "x" * 40,
-        algorithm="HS256",
-    )
+    forged = sign_claims({"sub": "1", "username": "bob", "iat": now, "exp": now + 60})
     with pytest.raises(AuthError):
         decode_token(forged)
 
 
 def test_payload_exposes_expiry():
-    import time
-
     payload = decode_token(create_token(1, "bob", ttl_seconds=100))
     assert time.time() < payload.expires_at <= time.time() + 100
 
@@ -97,16 +77,18 @@ def test_legacy_token_without_role_defaults_to_user():
     assert payload.ver is None
 
 
-def test_refresh_and_mfa_tokens_are_not_access_tokens():
-    import jwt as pyjwt
-
-    from sn_shared.security import ALGORITHM, ISSUER, get_jwt_secret
-
-    for typ in ("refresh", "mfa"):
-        token = pyjwt.encode(
-            {"iss": ISSUER, "sub": "1", "username": "a", "typ": typ, "exp": 4102444800},
-            get_jwt_secret(),
-            algorithm=ALGORITHM,
-        )
+def test_refresh_mfa_and_fresh_tokens_are_not_access_tokens():
+    for typ in ("refresh", "mfa", "fresh"):
+        token = sign_claims({"iss": ISSUER, "sub": "1", "username": "a", "typ": typ, "exp": 4102444800})
         with pytest.raises(AuthError):
             decode_token(token)
+
+
+def test_internal_secret_must_be_long_enough(monkeypatch):
+    from sn_shared.security import get_jwt_secret
+
+    monkeypatch.setenv("JWT_SECRET", "short")
+    with pytest.raises(RuntimeError):
+        get_jwt_secret()
+    monkeypatch.setenv("JWT_SECRET", "x" * 40)
+    assert get_jwt_secret() == "x" * 40

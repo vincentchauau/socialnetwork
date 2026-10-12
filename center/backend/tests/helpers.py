@@ -1,7 +1,7 @@
 """Shared test helpers (plain functions, importable from any test module)."""
 
 from app.tokens import create_fresh_token
-from sn_shared.security import ALGORITHM, ISSUER, decode_token, get_jwt_secret
+from sn_shared.security import INTERNAL_ALGORITHM, ISSUER, decode_token, get_jwt_secret
 
 CREDS = {"username": "Alice", "password": "s3cret-pass"}
 STRONG = "correct-horse-battery"
@@ -39,7 +39,7 @@ def forge(claims: dict, secret: str | None = None) -> str:
     import jwt
 
     base = {"iss": ISSUER, "exp": 4102444800}
-    return jwt.encode({**base, **claims}, secret or get_jwt_secret(), algorithm=ALGORITHM)
+    return jwt.encode({**base, **claims}, secret or get_jwt_secret(), algorithm=INTERNAL_ALGORITHM)
 
 
 def grant_fresh(client, ttl: int = 300) -> None:

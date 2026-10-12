@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from app.audit import audit
+from sn_shared import jwtkeys
 from sn_shared.security import MIN_SECRET_LENGTH
 
 DEFAULT_ORIGINS = ("http://localhost:8080",)
@@ -152,6 +153,11 @@ class Settings:
                 "(set SMTP_STARTTLS=1 or SMTP_SSL=1, or SMTP_ALLOW_PLAINTEXT_AUTH=1 to accept the risk)"
             )
         settings.validate()
+        try:  # the access-token signing key (ephemeral in development) and any extra verification keys
+            jwtkeys.get_signer()
+            jwtkeys.get_verification_keys()
+        except RuntimeError as exc:
+            raise ConfigError(str(exc)) from None
         return settings
 
     def validate(self) -> None:

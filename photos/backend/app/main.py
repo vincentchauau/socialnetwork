@@ -18,7 +18,8 @@ from app.models import Comment, Like, Photo
 from app.schemas import CAPTION_MAX, CommentIn, CommentOut, LikeState, PhotoOut, PhotoPage
 from app.storage import PhotoStorage
 from sn_shared.deps import get_current_user
-from sn_shared.security import TokenPayload, get_jwt_secret
+from sn_shared.jwtkeys import require_verification_keys
+from sn_shared.security import TokenPayload
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ async def _stop_account_consumer(handle: Any) -> None:
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
-    get_jwt_secret()  # fail at startup, not on the first request
+    require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     Base.metadata.create_all(engine)
 

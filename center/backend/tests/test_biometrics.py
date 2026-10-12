@@ -247,9 +247,9 @@ def test_password_login_returns_an_mfa_challenge_without_cookies(enrolled_2fa):
 def test_mfa_token_is_a_five_minute_typed_token_bound_to_user_and_version(enrolled_2fa):
     import jwt
 
-    from sn_shared.security import ALGORITHM, ISSUER, get_jwt_secret
+    from sn_shared.security import INTERNAL_ALGORITHM, ISSUER, get_jwt_secret
 
-    claims = jwt.decode(mfa_token(enrolled_2fa), get_jwt_secret(), algorithms=[ALGORITHM], issuer=ISSUER)
+    claims = jwt.decode(mfa_token(enrolled_2fa), get_jwt_secret(), algorithms=[INTERNAL_ALGORITHM], issuer=ISSUER)
     assert claims["typ"] == "mfa" and claims["ver"] == 0 and claims["exp"] - claims["iat"] == 300
 
 

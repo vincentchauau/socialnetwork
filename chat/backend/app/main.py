@@ -19,7 +19,8 @@ from app.models import Message
 from app.rooms import MessageRateLimiter, RoomHub
 from app.schemas import ROOM_PATTERN, IncomingMessage, MessageOut
 from sn_shared.deps import get_current_user
-from sn_shared.security import AuthError, TokenPayload, get_jwt_secret, payload_from_cookies
+from sn_shared.jwtkeys import require_verification_keys
+from sn_shared.security import AuthError, TokenPayload, payload_from_cookies
 
 DEFAULT_DATABASE_URL = "sqlite:///./chat.db"
 DEFAULT_ALLOWED_ORIGINS = "http://localhost:8080"
@@ -79,7 +80,7 @@ async def _stop_account_consumer(handle: Any) -> None:
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
-    get_jwt_secret()  # fail at startup, not on the first request
+    require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     Base.metadata.create_all(engine)
 

@@ -8,7 +8,7 @@ socialnetwork/
   shared/
     backend/    sn_shared: JWT + password helpers (a library, not a service)
     frontend/   api.ts (fetch client), theme.css (design tokens)
-    infra/      generate_infra.py -> docker-compose.yml, nginx.conf, postgres/init.sql
+    infra/      generate_infra.py -> docker-compose.yml, nginx.conf, postgres/{init,apply}-roles.sh
   center/       accounts + shell UI (home, sign-in, app list)
   chat/         rooms + realtime messages (WebSocket)
   photos/       share photos, likes, comments (uploads on a volume)
@@ -23,7 +23,7 @@ socialnetwork/
 ## Rules
 
 1. `shared` holds libraries and infra only. **No app business logic.**
-2. Apps never call each other. They trust the JWT that `center` issues (cookie `sn_token`).
+2. Apps never call each other. They verify the Ed25519 JWT that `center` alone can sign (cookie `sn_token`), with public keys only.
 3. Each service owns its database. Never read another service's tables.
 4. `center` frontend is the shell (home, sign-in, app list). App frontends are mounted by the gateway under `/<app>`.
 
@@ -45,7 +45,8 @@ The chat WebSocket also checks the `Origin` header (cookies ride along automatic
 Verified end to end: pages, auth cookie, chat WebSocket and rate limiting all work through the gateway.
 
 ```bash
-cp .env.example .env        # then set JWT_SECRET and POSTGRES_PASSWORD
+cp .env.example .env        # then set JWT_SECRET, POSTGRES_PASSWORD, REDIS_PASSWORD and every DB_PASSWORD_*
+# access-token keys (see "Access-token keys"): creates shared/infra/secrets/jwt_private.pem + jwt_public_keys.pem
 docker compose --env-file .env -f shared/infra/docker-compose.yml up --build
 # open http://localhost:8080
 ```
@@ -55,7 +56,11 @@ docker compose --env-file .env -f shared/infra/docker-compose.yml up --build
 ```bash
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r center/backend/requirements-dev.txt -e shared/backend
-export JWT_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
+export JWT_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(48))")   # center only
+# center signs with an ephemeral key in development (warning in the log). Apps verify with public keys, so to run
+# an app next to center use one persistent pair:  (cd center/backend && python -m app.cli gen-jwt-key)
+#   export JWT_PRIVATE_KEY="<private PEM>"   # center
+#   export JWT_PUBLIC_KEYS="<public PEM>"    # apps (and optionally center, for rotation)
 
 (cd shared/backend && pytest)
 (cd center/backend && pytest --cov=app)
@@ -72,9 +77,9 @@ cd center/frontend && npm install && npm run dev
 1. Copy an existing app (`chat/` is the smallest) to `<app>/`, rename, and replace the domain code.
 2. Add it to `APPS` in `shared/infra/generate_infra.py` (set `volume`, `websocket`, `max_body`... as needed).
 3. Run `python shared/infra/generate_infra.py`. It rewrites `docker-compose.yml`, `nginx.conf`,
-   `postgres/init.sql` and `center/frontend/app/apps.ts` (the home-page app list).
-4. `init.sql` only runs on a **fresh** Postgres volume. For an existing one create the database by hand:
-   `docker compose ... exec postgres psql -U postgres -c "CREATE DATABASE <app>"`.
+   `postgres/init-roles.sh` / `apply-roles.sh` and `center/frontend/app/apps.ts` (the home-page app list).
+4. Add `DB_PASSWORD_<APP>` (hex) to `.env`. `init-roles.sh` only runs on a **fresh** Postgres volume; for an
+   existing one recreate postgres and run `apply-roles.sh` (see "Database roles").
 5. Protect routes with `Depends(get_current_user)` from `sn_shared.deps`.
 
 ## Sign-in methods (center)
@@ -167,6 +172,59 @@ One `users` row per account; six methods, **each usable on its own**, plus an op
   (20 msgs / 10 s), and closes itself when the JWT expires.
 - Containers drop privileges (`no-new-privileges`; backends and frontends also `cap_drop: ALL`).
 
+## Access-token keys (Ed25519) and rotation
+
+Only `center` can sign the access cookie `sn_token` (JWT alg `EdDSA`, header `kid`). Apps get public keys only.
+`JWT_SECRET` (HS256) is center-private: it signs the refresh, mfa, fresh and passkey-challenge tokens and is
+**not** passed to any app, frontend or the gateway. Apps accept only alg `EdDSA` with a known `kid` (HS256 and
+`none` tokens, even signed with the public key text, are refused).
+
+```bash
+# 1. generate (prints private PEM, public PEM and the kid)
+cd center/backend && python -m app.cli gen-jwt-key
+# 2. save them (never commit; shared/infra/secrets/ is git-ignored)
+mkdir -p shared/infra/secrets
+#   shared/infra/secrets/jwt_private.pem      the PRIVATE PEM  (chmod 600; the container user is uid 10001: chown 10001 or chmod 644)
+#   shared/infra/secrets/jwt_public_keys.pem  one or more PUBLIC PEMs
+```
+
+Config (env or `*_FILE`, compose uses files mounted as docker secrets): center `JWT_PRIVATE_KEY` /
+`JWT_PRIVATE_KEY_FILE`, `JWT_KEY_ID` (default: thumbprint of the public key; for a custom id put `kid: <id>` on
+the line before that key in the public-keys file); apps `JWT_PUBLIC_KEYS` / `JWT_PUBLIC_KEYS_FILE` (center also
+reads it, so it can still verify tokens of the previous key). In `APP_ENV=production` center refuses to start
+without a private key and apps without `JWT_PUBLIC_KEYS`. In development center generates an ephemeral keypair
+(warning in the log), so apps then cannot verify its tokens: use a persistent pair for local multi-service runs.
+
+**Rotation** (no forced logout; takes one access-token lifetime, `ACCESS_TOKEN_MINUTES`, default 60):
+1. Generate a new pair. Append the new PUBLIC key to `jwt_public_keys.pem` (keep the old one) and recreate the app
+   and center backends so every verifier knows both.
+2. Replace `jwt_private.pem` with the new private key (and `JWT_KEY_ID` if you set one) and recreate `center-backend`:
+   new tokens carry the new `kid`; old tokens still verify.
+3. After the access-token lifetime has passed, remove the old public key and recreate the backends again.
+
+**Upgrade note (breaking):** legacy HS256 access cookies are no longer accepted anywhere, so deploying this
+**forces one re-login for everybody** (refresh tokens are unaffected but the old access cookie is not valid; the
+next `/auth/refresh` issues an EdDSA one). Tokens without a session id keep the existing policy.
+
+## Database roles
+
+Each service has its own LOGIN role (`sn_center`, `sn_chat`, `sn_photos`, `sn_watch`, `sn_werewolf`, `sn_market`,
+`sn_learning`, `sn_jobs`) with the password `DB_PASSWORD_<APP>` from `.env`. The role owns its database (so
+`create_all` / `ensure_columns` keep working), is not superuser and cannot create databases or roles, and
+`CONNECT` is revoked from `PUBLIC`, so a service role cannot even connect to another service's database (or to
+`postgres` / `template1`). Only the `postgres` container knows `POSTGRES_PASSWORD`.
+
+* Fresh volume: `postgres/init-roles.sh` (mounted in `docker-entrypoint-initdb.d`) creates roles and databases.
+* Existing volume (init scripts do not run again): after adding the `DB_PASSWORD_*` values to `.env`
+  ```bash
+  docker compose --env-file .env -f shared/infra/docker-compose.yml up -d postgres      # recreate with the new env
+  docker compose --env-file .env -f shared/infra/docker-compose.yml exec -T postgres sh < shared/infra/postgres/apply-roles.sh
+  docker compose --env-file .env -f shared/infra/docker-compose.yml up -d --build        # backends now use their own roles
+  ```
+  `apply-roles.sh` is idempotent: it creates/updates the roles and passwords, runs `ALTER DATABASE ... OWNER TO`,
+  moves every table, view and free-standing sequence in `public` to the role, and applies the revokes. Re-run it
+  after changing a password (then recreate that backend).
+
 ## Known limits (intentional for now)
 
 - Chat rooms (and `werewolf` rooms) are in-memory, per process: the chat service cannot run several replicas yet.
@@ -176,8 +234,12 @@ One `users` row per account; six methods, **each usable on its own**, plus an op
   in-process counters (limits stay on but per replica; a challenge token could be replayed once per replica
   within its 5 minutes), an ERROR is logged at most once a minute, and `/health` reports `redis: degraded`
   (`ok` when healthy, `off` when unset). The app starts even if Redis is down at boot.
-- All services share one Postgres server and superuser, and one HS256 `JWT_SECRET`. Before production:
-  one DB role per service, and asymmetric keys (RS256/EdDSA) so only `center` can sign.
+- One Postgres server (one container) hosts every database. Access is separated per service by roles
+  (see "Database roles"), not by hardware: a Postgres superuser compromise or a server-level problem still
+  affects everything. Key and role secrets live in `.env` / `shared/infra/secrets/` on the host.
+- Access tokens are Ed25519, so an app compromise cannot mint tokens. `center` is still the single signer: if its
+  private key leaks, replace it and drop the old public key at once (step 3 of the rotation, skipping the wait): every
+  token it signed dies immediately. Keep `jwt_private.pem` out of backups that apps or developers can read.
 - Other apps revoke a token immediately only when Redis is configured and reachable (fail open, see Sessions); otherwise it lives until it expires (60 min).
 - The gateway serves plain HTTP and has no CSP/HSTS. Terminate TLS in front of it, set `COOKIE_SECURE=1`,
   then add HSTS and a CSP (Next.js inline scripts need nonces).

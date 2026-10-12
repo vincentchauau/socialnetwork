@@ -6,7 +6,7 @@ import time
 
 import jwt
 
-from sn_shared.security import ALGORITHM, ISSUER, AuthError, get_jwt_secret
+from sn_shared.security import INTERNAL_ALGORITHM, ISSUER, AuthError, get_jwt_secret
 
 
 MFA_TTL_SECONDS = 5 * 60
@@ -16,7 +16,7 @@ def _make(typ: str, user_id: int, ver: int, ttl_seconds: int, **extra: str | Non
     now = int(time.time())
     claims = {"iss": ISSUER, "sub": str(user_id), "typ": typ, "ver": ver, "iat": now, "exp": now + ttl_seconds}
     claims.update({k: v for k, v in extra.items() if v is not None})
-    return jwt.encode(claims, get_jwt_secret(), algorithm=ALGORITHM)
+    return jwt.encode(claims, get_jwt_secret(), algorithm=INTERNAL_ALGORITHM)
 
 
 def create_refresh_token(user_id: int, ver: int, ttl_seconds: int, sid: str | None = None) -> str:
@@ -39,7 +39,7 @@ def decode_claims(token: str, typ: str) -> dict:
         claims = jwt.decode(
             token,
             get_jwt_secret(),
-            algorithms=[ALGORITHM],
+            algorithms=[INTERNAL_ALGORITHM],
             issuer=ISSUER,
             options={"require": ["exp", "iss", "sub", "ver"]},
         )

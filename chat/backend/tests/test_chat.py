@@ -159,3 +159,28 @@ def test_flooding_closes_connection(client):
             for _ in range(60):
                 alice.send_json({"content": "spam"})
                 alice.receive_json()
+
+
+def _forged(algorithm: str, key) -> str:
+    import time
+
+    import jwt
+
+    from sn_shared.jwtkeys import get_verification_keys
+
+    claims = {"iss": "sn-center", "sub": "1", "username": "alice", "exp": int(time.time()) + 60}
+    return jwt.encode(claims, key, algorithm=algorithm, headers={"kid": next(iter(get_verification_keys()))})
+
+
+def test_ws_with_hs256_token_is_rejected(client):
+    headers = {"Cookie": f"{COOKIE_NAME}={_forged('HS256', 'x' * 40)}", "Origin": ALLOWED_ORIGIN}
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/ws/general", headers=headers):
+            pass
+
+
+def test_http_rejects_a_token_signed_by_another_private_key(client):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    forged = _forged("EdDSA", Ed25519PrivateKey.generate())
+    assert client.get("/rooms/general/messages", headers={"Cookie": f"{COOKIE_NAME}={forged}"}).status_code == 401

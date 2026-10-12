@@ -1,4 +1,4 @@
-"""Regenerates docker-compose.yml, nginx.conf and postgres/init.sql from the app list.
+"""Regenerates docker-compose.yml, nginx.conf and postgres/{init,apply}-roles.sh from the app list.
 
 Run from anywhere:  python shared/infra/generate_infra.py [--apps all|none|chat,photos,...]
 `--apps none` generates a stack with only postgres + center + the gateway (auth work); the other
@@ -48,11 +48,26 @@ PROXY_HEADERS = """        proxy_set_header Host $host;
 """
 
 
+def role_name(slug: str) -> str:
+    """The Postgres LOGIN role of a service (it owns the database of the same slug)."""
+    return f"sn_{slug}"
+
+
+def password_var(slug: str) -> str:
+    return f"DB_PASSWORD_{slug.upper()}"
+
+
+def database_url(slug: str) -> str:
+    var = password_var(slug)
+    return f"postgresql+psycopg://{role_name(slug)}:${{{var}:?set {var} in .env (hex)}}@postgres:5432/{slug}"
+
+
 def compose() -> str:
     services = []
     for app in APPS:
         env = ["      <<: *backend-env",
-               f"      DATABASE_URL: postgresql+psycopg://postgres:${{POSTGRES_PASSWORD}}@postgres:5432/{app.slug}",
+               f"      DATABASE_URL: {database_url(app.slug)}",
+               "      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys",  # apps verify only; they never see a private key
                "      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0"]  # revocation checks (sn_shared.revocation)
         if app.needs_origin:
             env.append("      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}")
@@ -64,6 +79,8 @@ def compose() -> str:
             f"      dockerfile: {app.slug}/backend/Dockerfile",
             "    environment:",
             *env,
+            "    secrets:",
+            "      - jwt_public_keys",
             "    depends_on:",
             "      postgres:",
             "        condition: service_healthy",
@@ -88,6 +105,10 @@ def compose() -> str:
     for app in APPS:
         gateway_deps += [f"      - {app.slug}-backend", f"      - {app.slug}-frontend"]
     volumes = ["  pgdata:"] + [f"  {app.slug}-data:" for app in APPS if app.volume]
+    db_password_env = [
+        f"      {password_var(slug)}: ${{{password_var(slug)}:?set {password_var(slug)} in .env (hex)}}"
+        for slug in ["center"] + [app.slug for app in APPS]
+    ]
 
     return f"""name: socialnetwork
 
@@ -100,8 +121,9 @@ x-hardening: &hardening
   security_opt: ["no-new-privileges:true"]
   restart: unless-stopped
 
+# Shared by every backend. JWT_SECRET is deliberately NOT here: it stays on center-backend alone.
 x-backend-env: &backend-env
-  JWT_SECRET: ${{JWT_SECRET:?set JWT_SECRET in .env (32+ characters)}}
+  APP_ENV: ${{APP_ENV:-development}}
   COOKIE_SECURE: ${{COOKIE_SECURE:-0}}
 
 services:
@@ -109,10 +131,13 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
+      # The superuser password lives on this service only; each service connects as its own role.
       POSTGRES_PASSWORD: ${{POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}
+{chr(10).join(db_password_env)}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Runs on a FRESH volume only; on an existing one use postgres/apply-roles.sh (see README).
+      - ./postgres/init-roles.sh:/docker-entrypoint-initdb.d/init-roles.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -154,7 +179,11 @@ services:
         WITH_BIOMETRICS: ${{WITH_BIOMETRICS:-0}}
     environment:
       <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://postgres:${{POSTGRES_PASSWORD}}@postgres:5432/center
+      DATABASE_URL: {database_url("center")}
+      JWT_SECRET: ${{JWT_SECRET:?set JWT_SECRET in .env (32+ characters, center only)}}
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
+      JWT_KEY_ID: ${{JWT_KEY_ID:-}}
       APP_ENV: ${{APP_ENV:-development}}
       ALLOWED_ORIGINS: ${{PUBLIC_ORIGIN:-http://localhost:8080}}
       ACCESS_TOKEN_MINUTES: ${{ACCESS_TOKEN_MINUTES:-60}}
@@ -172,6 +201,9 @@ services:
       SMTP_FROM: ${{SMTP_FROM:-Mạng xã hội <no-reply@localhost>}}
       SMTP_STARTTLS: ${{SMTP_STARTTLS:-0}}
       REDIS_URL: redis://:${{REDIS_PASSWORD}}@redis:6379/0
+    secrets:
+      - jwt_private_key
+      - jwt_public_keys
     depends_on:
       postgres:
         condition: service_healthy
@@ -211,6 +243,14 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
 {chr(10).join(gateway_deps)}
+
+# Access-token keys (Ed25519). Create with `python -m app.cli gen-jwt-key` in center/backend (see README);
+# the files are NOT in the repository. Only center-backend gets the private key.
+secrets:
+  jwt_private_key:
+    file: ./secrets/jwt_private.pem
+  jwt_public_keys:
+    file: ./secrets/jwt_public_keys.pem
 
 volumes:
 {chr(10).join(volumes)}
@@ -353,10 +393,97 @@ server {{
 """
 
 
-def init_sql() -> str:
-    names = ["center"] + [app.slug for app in APPS]
-    statements = "\n".join(f"CREATE DATABASE {name};" for name in names)
-    return f"-- GENERATED by generate_infra.py. One database per service; services never read each other's tables.\n{statements}\n"
+ROLES_PRELUDE = """set -eu
+# One LOGIN role per service, owner of its own database; nobody else (PUBLIC) may connect to it.
+# Passwords come from the environment of the postgres container (DB_PASSWORD_<SERVICE>).
+: "${POSTGRES_USER:=postgres}"
+
+admin() {
+  psql -v ON_ERROR_STOP=1 --no-psqlrc --quiet --username "$POSTGRES_USER" "$@"
+}
+
+# provision <role> <database> <password-env-var-name>
+provision() {
+  role="$1"; db="$2"; var="$3"
+  eval "password=\\"\\${$var:-}\\""
+  if [ -z "$password" ]; then
+    echo "roles: $var is not set in the postgres container" >&2
+    exit 1
+  fi
+  SN_ROLE_PASSWORD="$password" admin --dbname postgres -v role="$role" -v db="$db" <<'SQL'
+\\getenv pw SN_ROLE_PASSWORD
+SELECT format('CREATE ROLE %I', :'role') WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'role') \\gexec
+SELECT format('ALTER ROLE %I WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L', :'role', :'pw') \\gexec
+SELECT format('CREATE DATABASE %I OWNER %I', :'db', :'role') WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'db') \\gexec
+SELECT format('ALTER DATABASE %I OWNER TO %I', :'db', :'role') \\gexec
+SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', :'db') \\gexec
+SELECT format('REVOKE CONNECT ON DATABASE %I FROM PUBLIC', :'db') \\gexec
+SQL
+  # Tables created earlier by the superuser (a database that already holds data) move to the service role.
+  admin --dbname "$db" -v role="$role" <<'SQL'
+SELECT set_config('sn.owner', :'role', false);
+SELECT format('GRANT ALL ON SCHEMA public TO %I', :'role') \\gexec
+DO $$
+DECLARE
+  owner text := current_setting('sn.owner');
+  item record;
+BEGIN
+  FOR item IN
+    SELECT c.relkind, n.nspname, c.relname
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind IN ('r', 'p', 'v', 'm', 'S')
+      AND pg_get_userbyid(c.relowner) <> owner
+      AND (c.relkind <> 'S' OR NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype IN ('a', 'i')))
+    ORDER BY (c.relkind = 'S'), c.relname
+  LOOP
+    EXECUTE format(
+      'ALTER %s %I.%I OWNER TO %I',
+      CASE item.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'S' THEN 'SEQUENCE' ELSE 'TABLE' END,
+      item.nspname, item.relname, owner
+    );
+  END LOOP;
+END
+$$;
+SQL
+}
+"""
+
+ROLES_FINALE = """
+# The maintenance databases are not a way around the per-service databases.
+admin --dbname postgres <<'SQL'
+REVOKE ALL ON DATABASE postgres FROM PUBLIC;
+REVOKE ALL ON DATABASE template1 FROM PUBLIC;
+SQL
+"""
+
+
+def roles_body() -> str:
+    calls = "\n".join(
+        f"provision {role_name(slug)} {slug} {password_var(slug)}" for slug in ["center"] + [app.slug for app in APPS]
+    )
+    return f"{ROLES_PRELUDE}\n{calls}\n{ROLES_FINALE}"
+
+
+def init_roles_sh() -> str:
+    return (
+        "#!/bin/sh\n"
+        "# GENERATED by generate_infra.py. Runs once, when the postgres volume is created (docker-entrypoint-initdb.d).\n"
+        "# Creates every database and its owner role. For a volume that already exists use apply-roles.sh instead.\n"
+        + roles_body()
+    )
+
+
+def apply_roles_sh() -> str:
+    return (
+        "#!/bin/sh\n"
+        "# GENERATED by generate_infra.py. Idempotent: creates or updates the per-service roles and passwords, makes each\n"
+        "# role the owner of its database (and of the tables/sequences in it), and revokes PUBLIC access. Safe to re-run.\n"
+        "# Run it against the live postgres container (which must have the DB_PASSWORD_* variables, i.e. be recreated\n"
+        "# with the current compose file):\n"
+        "#   docker compose --env-file .env -f shared/infra/docker-compose.yml exec -T postgres sh < shared/infra/postgres/apply-roles.sh\n"
+        + roles_body()
+    )
 
 
 def apps_ts() -> str:
@@ -399,9 +526,10 @@ def main() -> None:
     APPS = select_apps(parser.parse_args().apps)
     (HERE / "docker-compose.yml").write_text(compose(), encoding="utf-8", newline="\n")
     (HERE / "nginx.conf").write_text(nginx(), encoding="utf-8", newline="\n")
-    (HERE / "postgres" / "init.sql").write_text(init_sql(), encoding="utf-8", newline="\n")
+    (HERE / "postgres" / "init-roles.sh").write_text(init_roles_sh(), encoding="utf-8", newline="\n")
+    (HERE / "postgres" / "apply-roles.sh").write_text(apply_roles_sh(), encoding="utf-8", newline="\n")
     (REPO / "center" / "frontend" / "app" / "apps.ts").write_text(apps_ts(), encoding="utf-8", newline="\n")
-    print("generated compose, nginx, init.sql, apps.ts for: center +", ", ".join(app.slug for app in APPS) or "(no apps)")
+    print("generated compose, nginx, postgres roles scripts, apps.ts for: center +", ", ".join(app.slug for app in APPS) or "(no apps)")
 
 
 if __name__ == "__main__":

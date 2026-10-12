@@ -32,7 +32,7 @@ from webauthn.helpers.structs import (
 from app.config import Settings
 from app.kv import Kv
 from app.models import Passkey, User
-from sn_shared.security import ALGORITHM, ISSUER, get_jwt_secret
+from sn_shared.security import INTERNAL_ALGORITHM, ISSUER, get_jwt_secret
 
 CHALLENGE_TTL_SECONDS = 5 * 60
 CHALLENGE_TYP = "webauthn"
@@ -94,14 +94,14 @@ def mint_challenge(
         claims["uh"] = bytes_to_base64url(user_handle)
     if username is not None:
         claims["uname"] = username
-    return jwt.encode(claims, get_jwt_secret(), algorithm=ALGORITHM)
+    return jwt.encode(claims, get_jwt_secret(), algorithm=INTERNAL_ALGORITHM)
 
 
 def read_challenge(token: str, purpose: str, store: ChallengeStore) -> Challenge:
     """Verify signature, expiry, kind and purpose, then consume it (single use). PasskeyError otherwise."""
     try:
         claims = jwt.decode(
-            token, get_jwt_secret(), algorithms=[ALGORITHM], issuer=ISSUER,
+            token, get_jwt_secret(), algorithms=[INTERNAL_ALGORITHM], issuer=ISSUER,
             options={"require": ["exp", "iss", "jti", "chal", "purpose"]},
         )  # fmt: skip
         if claims.get("typ") != CHALLENGE_TYP or claims["purpose"] != purpose:

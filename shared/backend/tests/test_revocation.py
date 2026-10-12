@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from sn_shared import COOKIE_NAME, AuthError, create_token, decode_token, revocation
 from sn_shared.deps import get_current_user
 from sn_shared.security import payload_from_cookies
+from sn_shared.testing import install_test_keys, sign_claims
 
 
 class FakeRequest:
@@ -14,7 +15,7 @@ class FakeRequest:
 
 @pytest.fixture(autouse=True)
 def jwt_secret(monkeypatch):
-    monkeypatch.setenv("JWT_SECRET", "x" * 40)
+    install_test_keys(monkeypatch)
     monkeypatch.delenv("REDIS_URL", raising=False)
     yield
     revocation.reset()
@@ -44,11 +45,9 @@ def test_token_carries_the_sid():
 
 
 def test_a_non_string_sid_is_rejected():
-    import jwt
+    from sn_shared.security import ISSUER
 
-    from sn_shared.security import ALGORITHM, ISSUER
-
-    bad = jwt.encode({"iss": ISSUER, "sub": "1", "username": "a", "exp": 4102444800, "sid": 5}, "x" * 40, algorithm=ALGORITHM)
+    bad = sign_claims({"iss": ISSUER, "sub": "1", "username": "a", "exp": 4102444800, "sid": 5})
     with pytest.raises(AuthError):
         decode_token(bad)
 
@@ -111,13 +110,9 @@ def test_a_corrupt_minimum_is_treated_as_revoked_and_repaired_by_the_next_publis
 
 
 def test_a_fresh_token_is_never_an_access_token():
-    import jwt
+    from sn_shared.security import ISSUER
 
-    from sn_shared.security import ALGORITHM, ISSUER
-
-    fresh = jwt.encode(
-        {"iss": ISSUER, "sub": "1", "username": "a", "typ": "fresh", "exp": 4102444800}, "x" * 40, algorithm=ALGORITHM
-    )
+    fresh = sign_claims({"iss": ISSUER, "sub": "1", "username": "a", "typ": "fresh", "exp": 4102444800})
     with pytest.raises(AuthError):
         decode_token(fresh)
 

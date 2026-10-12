@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app import applications, personal, postings
 from app.db import Base, make_engine
-from sn_shared.security import get_jwt_secret
+from sn_shared.jwtkeys import require_verification_keys
 
 DEFAULT_DATABASE_URL = "sqlite:///./jobs.db"
 
@@ -35,7 +35,7 @@ async def _stop_account_consumer(handle: Any) -> None:
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
-    get_jwt_secret()  # fail at startup, not on the first request
+    require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     Base.metadata.create_all(engine)
 

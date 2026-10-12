@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 # create_app() runs at import time and needs these.
-os.environ.setdefault("JWT_SECRET", "t" * 40)
+from sn_shared.testing import install_test_keys  # noqa: E402
+
+install_test_keys()
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 os.environ.setdefault("UPLOAD_DIR", tempfile.mkdtemp(prefix="photos-import-"))
 
@@ -17,7 +19,7 @@ from sn_shared import COOKIE_NAME, create_token
 
 @pytest.fixture(autouse=True)
 def env(monkeypatch, tmp_path):
-    monkeypatch.setenv("JWT_SECRET", "t" * 40)
+    install_test_keys(monkeypatch)
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
 
 
