@@ -40,6 +40,7 @@ function setupAccount(account: Partial<Account> = {}, config: unknown = CONFIG, 
   return mockFetch((url, init) => {
     const custom = extra?.(url, init);
     if (custom) return custom;
+    if (url.endsWith("/auth/sessions")) return jsonResponse([]);
     if (url.endsWith("/auth/config")) return jsonResponse(config);
     if (url.endsWith("/auth/me") && (init.method ?? "GET") === "GET") return jsonResponse(current);
     if (url.endsWith("/auth/me") && init.method === "DELETE") return jsonResponse(null, 204);

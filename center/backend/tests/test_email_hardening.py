@@ -14,7 +14,7 @@ from app.main import create_app
 from app.methods import methods_lost_on_unlink, usable_methods
 from app.models import User
 from app.tokenversion import bump_token_version
-from tests.helpers import CREDS, csrf, register
+from tests.helpers import CREDS, csrf, register, grant_fresh
 from tests.mail_helpers import (
     EMAIL, PW, add_email, code_of, last_mail, set_user, token_of, token_rows, user_row, verified_account,
     verify_by_link,
@@ -346,6 +346,7 @@ def test_unlinking_google_removes_the_address_google_supplied_and_resets_the_fla
 def test_verifying_a_different_address_takes_the_address_away_from_google(mail_client):
     mail_client.post("/auth/google", json={"id_token": GINA})
     session = mail_client.get("/auth/me").json()
+    grant_fresh(mail_client)
     assert add_email(mail_client, session, "gina.own@example.com", body={}).status_code == 202
     assert verify_by_link(mail_client, "gina.own@example.com").status_code == 200
     user = user_row(mail_client, "gina")
@@ -360,6 +361,7 @@ def test_verifying_a_different_address_takes_the_address_away_from_google(mail_c
 def test_verifying_the_same_address_keeps_the_flag(mail_client):
     mail_client.post("/auth/google", json={"id_token": GINA})
     session = mail_client.get("/auth/me").json()
+    grant_fresh(mail_client)
     add_email(mail_client, session, "gina@example.com", body={})
     assert verify_by_link(mail_client, "gina@example.com").status_code == 200
     assert user_row(mail_client, "gina").email_from_google is True
@@ -385,6 +387,7 @@ def test_the_last_method_guard_follows_the_flag(mail_client):
 def test_a_google_only_account_with_its_own_verified_address_may_unlink(mail_client):
     mail_client.post("/auth/google", json={"id_token": GINA})
     session = mail_client.get("/auth/me").json()
+    grant_fresh(mail_client)
     set_user(mail_client, "gina", email_from_google=False)  # the address is the user's own
     response = mail_client.request("DELETE", "/auth/me/google", headers=csrf(session))
     assert response.status_code == 200 and response.json()["email_verified"] is True

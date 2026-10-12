@@ -6,11 +6,13 @@ from typing import Annotated
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app import usersessions
 from app.audit import audit
 from app.config import Settings
 from app.db import get_db
 from app.models import User
 from app.passwords import verify_password
+from app.reauth import ReauthRequired, available_methods, has_fresh_proof
 from app.tokens import csrf_valid
 from sn_shared import COOKIE_NAME
 from sn_shared.security import AuthError, decode_token
@@ -56,6 +58,7 @@ def check_origin(request: Request) -> None:
 class AuthSession:
     user: User
     token: str  # the access token (CSRF is bound to it)
+    sid: str | None = None  # the session row (None: a token issued before sessions existed)
 
 
 def current_session(request: Request, db: Session = Depends(get_db)) -> AuthSession:
@@ -70,7 +73,12 @@ def current_session(request: Request, db: Session = Depends(get_db)) -> AuthSess
     # Legacy tokens carry no ver and stay valid until they expire.
     if user is None or (payload.ver is not None and payload.ver != user.token_version):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
-    return AuthSession(user=user, token=token)
+    if payload.sid is not None:  # a sid whose row is gone or revoked is dead (a sid-less legacy token is not)
+        row = usersessions.live_session(db, payload.sid, user.id)
+        if row is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+        usersessions.touch(db, row)
+    return AuthSession(user=user, token=token, sid=payload.sid)
 
 
 def csrf_session(
@@ -85,8 +93,19 @@ def csrf_session(
 
 
 def require_reauth(request: Request, user: User, password: str | None) -> None:
-    """Destructive actions on a password account need the password again (throttled)."""
+    """Sensitive actions need proof that the account owner is present.
+
+    - password account: a valid fresh proof, or the password (throttled; a wrong one is 403);
+    - account without a password: a valid fresh proof, else 401 {detail, reauth: [methods]} (app.reauth).
+      An account with no way to produce a proof at all (e.g. voice/webcam only) is let through: it could
+      never act otherwise.
+    """
+    if has_fresh_proof(request, user):
+        return
     if not user.has_password:
+        methods = available_methods(request, user)
+        if methods:
+            raise ReauthRequired(methods)
         return
     throttle = request.app.state.reauth_throttle
     key = str(user.id)

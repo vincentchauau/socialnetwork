@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import Alert from "./Alert";
 import { DANGER_BUTTON, INPUT, LABEL, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
+import { useReauth } from "../hooks/useReauth";
 import { deleteAccount } from "../lib/auth";
 import { goTo } from "../lib/navigate";
 
@@ -14,12 +15,13 @@ export default function DeleteAccount({ hasPassword }: { hasPassword: boolean })
   const [phrase, setPhrase] = useState("");
   const [password, setPassword] = useState("");
   const { busy, error, run } = useAction();
+  const { withReauth, dialog } = useReauth();
   const confirmed = phrase === DELETE_PHRASE;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!confirmed) return;
-    const ok = await run(() => deleteAccount(hasPassword ? password : undefined));
+    const ok = await run(() => withReauth(() => deleteAccount(hasPassword ? password : undefined)));
     if (ok) goTo("/");
   }
 
@@ -42,6 +44,7 @@ export default function DeleteAccount({ hasPassword }: { hasPassword: boolean })
         {busy ? "Đang xóa..." : "Xóa tài khoản của tôi"}
       </button>
       <Alert text={error} />
+      {dialog}
     </form>
   );
 }

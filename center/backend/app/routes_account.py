@@ -14,8 +14,8 @@ from app.notify import notify
 from app.passwords import hash_password, password_problem
 from app.routes_auth import me_out, verify_google_or_throttle
 from app.schemas import ChangePasswordBody, DeleteAccountBody, LinkGoogleBody, MeOut, SessionOut
-from app.sessions import clear_session_cookies, issue_session
-from app.tokenversion import bump_token_version
+from app.sessions import clear_session_cookies, reissue_session
+from app.tokenversion import bump_token_version, publish_token_version
 
 router = APIRouter(prefix="/auth/me", tags=["account"], dependencies=[Depends(check_origin)])
 
@@ -38,11 +38,13 @@ def change_password(
     if problem:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
     user.password_hash = hash_password(body.new_password)
-    bump_token_version(db, user)  # revokes all other sessions and refresh tokens
+    settings = settings_of(request)
+    bump_token_version(db, user, keep_sid=session.sid)  # revokes all other sessions and refresh tokens
     db.commit()
+    publish_token_version(user, settings)
     audit.info("password changed user=%r ip=%s", user.username, client_ip(request))
     notify(request, background, user, "password_changed")
-    return issue_session(response, user, settings_of(request))
+    return reissue_session(response, request, db, user, settings, session.sid)
 
 
 @router.post("/google", response_model=MeOut)

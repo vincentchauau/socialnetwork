@@ -8,6 +8,7 @@ import RecoveryCodesBox, { CopyButton } from "./RecoveryCodesBox";
 import { digitsOnly, TOTP_LENGTH } from "./TotpLoginForm";
 import { INPUT, LABEL, NOTE, PRIMARY_BUTTON, SECONDARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
+import { useReauth } from "../hooks/useReauth";
 import { TotpSetup, totpDisable, totpEnable, totpRegenerateRecoveryCodes, totpSetup } from "../lib/auth";
 
 export const TOTP_TITLE = "Xác thực hai bước (TOTP)";
@@ -57,12 +58,13 @@ function PasswordInput({ id, value, onChange }: { id: string; value: string; onC
 function StartSetup({ hasPassword, onStarted }: { hasPassword: boolean; onStarted: (setup: TotpSetup, password?: string) => void }) {
   const [password, setPassword] = useState("");
   const { busy, error, run } = useAction();
+  const { withReauth, dialog } = useReauth();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     let started: TotpSetup | undefined;
     const sent = hasPassword ? password : undefined;
-    const ok = await run(async () => void (started = await totpSetup(sent)));
+    const ok = await run(() => withReauth(async () => void (started = await totpSetup(sent))));
     setPassword("");
     if (ok && started) onStarted(started, sent);
   }
@@ -73,6 +75,7 @@ function StartSetup({ hasPassword, onStarted }: { hasPassword: boolean; onStarte
       {hasPassword && <PasswordInput id="totp-start-password" value={password} onChange={setPassword} />}
       <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>{busy ? "Đang xử lý..." : "Bật"}</button>
       <Alert text={error} />
+      {dialog}
     </form>
   );
 }
@@ -81,11 +84,12 @@ function StartSetup({ hasPassword, onStarted }: { hasPassword: boolean; onStarte
 function ConfirmSetup({ setup, password, onEnabled, onCancel }: { setup: TotpSetup; password?: string; onEnabled: (codes: string[]) => void; onCancel: () => void }) {
   const [code, setCode] = useState("");
   const { busy, error, run } = useAction();
+  const { withReauth, dialog } = useReauth();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     let codes: string[] = [];
-    if (await run(async () => void (codes = (await totpEnable(code, password)).recovery_codes))) onEnabled(codes);
+    if (await run(() => withReauth(async () => void (codes = (await totpEnable(code, password)).recovery_codes)))) onEnabled(codes);
     else setCode("");
   }
 
@@ -104,6 +108,7 @@ function ConfirmSetup({ setup, password, onEnabled, onCancel }: { setup: TotpSet
       </button>
       <button type="button" disabled={busy} onClick={onCancel} className={`${SECONDARY_BUTTON} mt-2`}>Hủy</button>
       <Alert text={error} />
+      {dialog}
     </form>
   );
 }
@@ -121,12 +126,13 @@ function CodeAction({ label, submitLabel, hasPassword, send, onCancel }: CodeAct
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const { busy, error, run, fail } = useAction();
+  const { withReauth, dialog } = useReauth();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const clean = code.trim().toLowerCase();
     if (!clean) return fail("Hãy nhập mã");
-    const ok = await run(() => send(clean, hasPassword ? password : undefined));
+    const ok = await run(() => withReauth(() => send(clean, hasPassword ? password : undefined)));
     setPassword("");
     if (!ok) setCode("");
   }
@@ -140,6 +146,7 @@ function CodeAction({ label, submitLabel, hasPassword, send, onCancel }: CodeAct
       <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>{busy ? "Đang xử lý..." : submitLabel}</button>
       <button type="button" disabled={busy} onClick={onCancel} className={`${SECONDARY_BUTTON} mt-2`}>Hủy</button>
       <Alert text={error} />
+      {dialog}
     </form>
   );
 }

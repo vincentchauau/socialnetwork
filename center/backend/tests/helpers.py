@@ -1,6 +1,7 @@
 """Shared test helpers (plain functions, importable from any test module)."""
 
-from sn_shared.security import ALGORITHM, ISSUER, get_jwt_secret
+from app.tokens import create_fresh_token
+from sn_shared.security import ALGORITHM, ISSUER, decode_token, get_jwt_secret
 
 CREDS = {"username": "Alice", "password": "s3cret-pass"}
 STRONG = "correct-horse-battery"
@@ -39,3 +40,12 @@ def forge(claims: dict, secret: str | None = None) -> str:
 
     base = {"iss": ISSUER, "exp": 4102444800}
     return jwt.encode({**base, **claims}, secret or get_jwt_secret(), algorithm=ALGORITHM)
+
+
+def grant_fresh(client, ttl: int = 300) -> None:
+    """Shortcut for the step-up proof: put a valid `sn_fresh` for the client's current session in its jar.
+
+    (Real browsers get it from /auth/reauth/*; its path is /api/center/auth, the jar here gets path "/".)
+    """
+    payload = decode_token(client.cookies.get("sn_token"))
+    client.cookies.set("sn_fresh", create_fresh_token(payload.user_id, payload.ver or 0, ttl, payload.sid), path="/")

@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app import emailtokens as et
 from app.models import EmailToken, User
-from tests.helpers import CREDS, csrf, register
+from tests.helpers import CREDS, csrf, register, grant_fresh
 from tests.mail_helpers import (
     EMAIL, PUBLIC_URL, PW, add_email, age_tokens, code_of, last_mail, link_of, sent_to, set_user, token_of,
     token_rows, user_row, verified_account, verify_by_link,
@@ -309,6 +309,7 @@ def test_remove_email(mail_client):
 
 def test_removing_the_only_method_email_is_refused(mail_client):
     session = verified_account(mail_client)
+    grant_fresh(mail_client)
     set_user(mail_client, password_hash="!")  # password gone: email is the only method left
     response = mail_client.request("DELETE", "/auth/me/email", headers=csrf(session))
     assert (response.status_code, response.json()) == (409, {"detail": "Keep at least one sign-in method"})
@@ -344,6 +345,7 @@ def test_google_unlink_is_refused_when_it_would_leave_no_method(mail_client):
     # Google-only account whose email (verified by Google) is wiped on unlink: nothing would remain
     created = mail_client.post("/auth/google", json={"id_token": "sub-7|gina@example.com"})
     assert created.status_code == 200
+    grant_fresh(mail_client)
     me = mail_client.get("/auth/me").json()
     assert (me["email"], me["email_verified"]) == ("gina@example.com", True)
     response = mail_client.request("DELETE", "/auth/me/google", headers=csrf(me))

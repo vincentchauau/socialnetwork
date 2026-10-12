@@ -130,7 +130,6 @@ One `users` row per account; six methods, **each usable on its own**, plus an op
   Development: `COMPOSE_PROFILES=mail-dev` starts **Mailpit** (inbox http://localhost:8025, API `/api/v1/messages`).
   Production: set `SMTP_HOST/PORT/USER/PASSWORD/FROM`, `SMTP_STARTTLS=1` (587) or `SMTP_SSL=1` (465);
   credentials over plain SMTP to a non-local host are refused unless `SMTP_ALLOW_PLAINTEXT_AUTH=1`.
-  Not done yet: step-up re-authentication for passkey-only / Google-only accounts when changing or removing the email.
 - **TOTP + recovery codes** (`app/totp.py`, `routes_totp.py`, `pyotp`): optional second step, never a sign-in method by itself
   (it does not count toward "keep at least one method"). Off by default; turn it on in `/account` (QR drawn in the browser,
   the secret never leaves the gateway), confirm with a first code, then save the 10 recovery codes shown once (stored only as
@@ -141,9 +140,13 @@ One `users` row per account; six methods, **each usable on its own**, plus an op
   IP (20) and per account (10) per 15 min. Enabling and disabling bump `token_version` (other sessions die) and mail a notice to a
   verified address. Secrets are Fernet-encrypted with `DATA_KEY` (or a key derived from `JWT_SECRET` when it is empty):
   **rotating either key makes every TOTP secret and recovery code unusable**: keep `DATA_KEY` set and stable.
-  Known limits: a thief with a stolen session on a password-less account can enrol TOTP (re-auth is a no-op there; other sessions
-  are revoked and the owner is mailed); the second-step lockout can be used to annoy an owner whose password is known;
+  Known limits: the second-step lockout can be used to annoy an owner whose password is known;
   accounts without a verified email get no notices. At most 10 passkeys per account (409).
+- **Sessions, revocation, step-up (Phase 5B)**:
+  - Every sign-in creates a row in `user_sessions` (`sid`, ip, user agent, `method` = primary factor, `last_seen_at` touched at most once a minute, `revoked_at`). The `sid` is a claim of the access AND refresh token (a refresh keeps it). `GET /auth/sessions`, `DELETE /auth/sessions/{sid}` (204; own sessions only, else 404), `POST /auth/sessions/revoke-others` -> `{revoked: n}`. Logout, password change/reset and TOTP changes bump `token_version` and revoke the rows (logout ends every session; password/TOTP changes keep the current one). Rows idle longer than `REFRESH_DAYS` are purged on sign-in.
+  - **Upgrade (one-time forced re-login)**: the first start that creates `user_sessions` on an existing database bumps every `token_version` once, so every pre-sessions token (which has no `sid` and could not be revoked) dies. `/auth/refresh` rejects tokens without a `sid` (generic 401). At most 50 live sessions per account (the oldest are revoked beyond that); revoked rows are purged after a day.
+  - **Immediate revocation in other apps**: with `REDIS_URL`, center publishes `sn:revoked:sid:<sid>` and `sn:minver:<user_id>` (TTL = access lifetime + 60 s) and `sn_shared.deps.get_current_user` rejects such tokens (a failed publish is logged as a warning with a count; Redis runs with `noeviction` and 128 MB, every key has a TTL, **monitor its memory**: when full, writes fail and revocations are not published; needs the `redis` package; without it or without a URL the check is a no-op). **Trade-off: fail open.** If Redis errors (0.3 s timeout) the token is accepted and one line a minute is logged, so a revocation can be up to one access token lifetime (60 min) late in the OTHER apps; center always checks its database. Websocket handlers using `payload_from_cookies` get the same check.
+  - **Step-up**: sensitive actions (method link/removal, email change/removal, TOTP setup/enable/disable/regenerate, account deletion) accept the password or a fresh proof (cookie `sn_fresh`, 5 min, bound to user + session). Accounts WITHOUT a password need the proof: otherwise `401 {"detail":"Re-authentication required","reauth":["passkey","google","email"]}`. Obtain it with `POST /auth/reauth/passkey/options|verify` (a passkey of the current user), `/auth/reauth/google {id_token}`, `/auth/reauth/email/request` + `/email/verify {code}` (6-digit code to the VERIFIED email, 10 min); `GET /auth/reauth/methods`. Failures are one generic 401, throttled per user. A Google ID token buys one proof only. Known limit: accounts with only voice/webcam have no step-up method and are not asked. New env: none beyond `REDIS_URL`.
 - Optional advanced setting `biometric_2fa` (off by default): after password/Google, also require a sample.
 - Sessions: `sn_token` (60 min) + `sn_refresh` (14 d), CSRF header on writes, `token_version` revocation.
 
@@ -163,10 +166,16 @@ One `users` row per account; six methods, **each usable on its own**, plus an op
 
 ## Known limits (intentional for now)
 
-- Throttles and chat rooms are in-memory, per process. Move to Redis before running several replicas.
+- Chat rooms (and `werewolf` rooms) are in-memory, per process: the chat service cannot run several replicas yet.
+- `center` throttles, email budgets and passkey single-use challenges live in Redis when `REDIS_URL` is set
+  (compose sets it from `REDIS_PASSWORD`; keys are `sn:*`, all with a TTL, nothing is persisted). Without
+  `REDIS_URL` (dev, tests) they are per process. If Redis fails at runtime, each call falls back to the
+  in-process counters (limits stay on but per replica; a challenge token could be replayed once per replica
+  within its 5 minutes), an ERROR is logged at most once a minute, and `/health` reports `redis: degraded`
+  (`ok` when healthy, `off` when unset). The app starts even if Redis is down at boot.
 - All services share one Postgres server and superuser, and one HS256 `JWT_SECRET`. Before production:
   one DB role per service, and asymmetric keys (RS256/EdDSA) so only `center` can sign.
-- JWTs cannot be revoked before they expire (24 h); logout only clears the cookie.
+- Other apps revoke a token immediately only when Redis is configured and reachable (fail open, see Sessions); otherwise it lives until it expires (60 min).
 - The gateway serves plain HTTP and has no CSP/HSTS. Terminate TLS in front of it, set `COOKIE_SECURE=1`,
   then add HSTS and a CSP (Next.js inline scripts need nonces).
 - `db.py` / `utcnow` are duplicated in `center` and `chat`; fold them into `sn_shared` when a third service needs them.
@@ -174,4 +183,3 @@ One `users` row per account; six methods, **each usable on its own**, plus an op
 - The watch per-user byte quota is not atomic under concurrent uploads (can overshoot briefly).
 - A multi-seller `market` order has one shared status (any involved seller can mark it shipped).
 - `werewolf` keeps rooms in memory (lost on restart) and omits the old "Ma" faction; `market` has no shipping address.
-- Email request budgets are in memory per process (like the other throttles).

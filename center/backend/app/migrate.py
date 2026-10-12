@@ -44,6 +44,19 @@ def _column_ddl(engine: Engine, name: str, type_: TypeEngine, default: tuple[str
     return ddl
 
 
+def sessions_table_is_new(engine: Engine) -> bool:
+    """True when `users` exists but `user_sessions` does not yet (call BEFORE create_all): the first start of
+    the release that introduced sessions, whose old tokens carry no sid and could never be revoked."""
+    tables = set(inspect(engine).get_table_names())
+    return TABLE in tables and "user_sessions" not in tables
+
+
+def force_relogin(engine: Engine) -> None:
+    """One-time: bump every token_version so every pre-sessions token dies (a single forced re-login)."""
+    with engine.begin() as conn:
+        conn.execute(text(f"UPDATE {TABLE} SET token_version = token_version + 1"))
+
+
 def ensure_columns(engine: Engine) -> list[str]:
     """Add missing columns/indexes to `users`; returns the names of added columns."""
     if TABLE not in inspect(engine).get_table_names():

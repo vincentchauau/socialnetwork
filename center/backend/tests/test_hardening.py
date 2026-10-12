@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.config import ConfigError, Settings
 from app.main import create_app
-from tests.helpers import CREDS, STRONG, csrf, register
+from tests.helpers import CREDS, STRONG, csrf, register, grant_fresh
 
 SECRETS = ("s3cret-pass", "wrong-password", STRONG, "eyJ")  # passwords and the start of any JWT
 
@@ -160,6 +160,7 @@ def test_audit_log_never_contains_google_tokens_or_embeddings(bio_client, caplog
     bio_client.app.state.google_verifier = fake_google_verifier
     bio_client.post("/auth/google", json={"id_token": "bad-token-value"})
     session = bio_client.post("/auth/google", json={"id_token": "sub-77|zed@example.com"}).json()
+    grant_fresh(bio_client)
     bio_client.post(
         "/auth/me/voice",
         files={"audio": ("a.webm", b"very-secret-audio-bytes")},

@@ -5,6 +5,7 @@ import { FormEvent, ReactNode, useState } from "react";
 import Alert from "./Alert";
 import { INPUT, LABEL, NOTE, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
+import { useReauth } from "../hooks/useReauth";
 
 interface Props {
   id: string;
@@ -27,11 +28,12 @@ export default function BiometricSwitch(props: Props) {
   const { id, title, enabled, hasPassword, canEnable, requirement, description, warning } = props;
   const [password, setPassword] = useState("");
   const { busy, error, run } = useAction();
+  const { withReauth, dialog } = useReauth();
   const blocked = !enabled && !canEnable;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const ok = await run(async () => void (await props.save(!enabled, hasPassword ? password : undefined)));
+    const ok = await run(() => withReauth(async () => void (await props.save(!enabled, hasPassword ? password : undefined))));
     if (ok) {
       setPassword("");
       await props.onDone();
@@ -59,6 +61,7 @@ export default function BiometricSwitch(props: Props) {
         {busy ? "Đang lưu..." : enabled ? props.disableLabel : props.enableLabel}
       </button>
       <Alert text={error} />
+      {dialog}
     </form>
   );
 }

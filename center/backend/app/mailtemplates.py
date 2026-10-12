@@ -94,6 +94,14 @@ def _link_mail(kind: str, link: str, code: str | None) -> Rendered:
     return Rendered(subject=f"{subject} - {APP_NAME}", text=LINE_BREAK.join(text), html=_page(body))
 
 
+def _code_mail(code: str) -> Rendered:
+    """Re-authentication: a code only, never a link."""
+    intro = "Nhập mã này để xác nhận thao tác nhạy cảm trong tài khoản (có hiệu lực 10 phút):"
+    text = LINE_BREAK.join([intro, code, "", IGNORE])
+    body = _p(intro) + f"<p><strong>{escape(code)}</strong></p>" + _p(IGNORE)
+    return Rendered(subject=f"Xác nhận thao tác - {APP_NAME}", text=text, html=_page(body))
+
+
 def _notice(kind: str, **ctx: str) -> Rendered:
     subject, template = EVENTS[kind]
     values = {"username": "", "new_email": "", **ctx}
@@ -105,7 +113,9 @@ def _notice(kind: str, **ctx: str) -> Rendered:
 
 
 def render(kind: str, **ctx: str | None) -> Rendered:
-    """`verify`/`login`/`reset` need `link` (and `code` for verify/login); the others are notices."""
+    """`reauth` needs only `code`; `verify`/`login`/`reset` need `link` (and `code` for verify/login); the others are notices."""
+    if kind == "reauth":
+        return _code_mail(str(ctx["code"]))
     if kind in _LINK_MAILS:
         return _link_mail(kind, str(ctx["link"]), ctx.get("code"))
     return _notice(kind, **{k: str(v) for k, v in ctx.items() if v is not None})

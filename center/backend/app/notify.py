@@ -46,3 +46,8 @@ def send_link_mail(
 ) -> None:
     path = {"verify": "/verify-email", "login": "/login/magic", "reset": "/reset-password"}[kind]
     send_in_background(request, background, kind, to, link=_link(request, path, token), code=code)
+
+
+def send_code_mail(request: Request, background: BackgroundTasks, kind: str, to: str, code: str) -> None:
+    """A mail that carries only a code (no link)."""
+    send_in_background(request, background, kind, to, code=code)

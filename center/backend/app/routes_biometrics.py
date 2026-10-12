@@ -13,8 +13,9 @@ from app.deps import AuthSession, biometrics_available, check_origin, client_ip,
 from app.methods import methods_status
 from app.models import User
 from app.schemas import MethodsStatus, SessionOut
-from app.sessions import issue_session
-from app.tokens import decode_typed
+from app.sessions import begin_session
+from app.tokens import decode_claims
+from app.usersessions import checked_method
 from sn_shared.security import AuthError
 
 UNAVAILABLE = "Biometrics are not available"
@@ -151,11 +152,11 @@ def login_biometric(
     """Second factor for accounts that opted in: EVERY enrolled factor must match, one 401 for all failures."""
     ip, state = client_ip(request), request.app.state
     try:
-        user_id, ver = decode_typed(mfa_token, "mfa")
+        claims = decode_claims(mfa_token, "mfa")
     except AuthError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA) from None
-    user = db.get(User, user_id)
-    if user is None or user.token_version != ver or user.totp_enabled or not (user.biometric_2fa and user.has_biometrics):
+    user = db.get(User, int(claims["sub"]))
+    if user is None or user.token_version != int(claims["ver"]) or user.totp_enabled or not (user.biometric_2fa and user.has_biometrics):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA)  # also: switched off meanwhile, or TOTP is on (it never accepts a biometric instead)
     throttles = [state.bio_throttle, state.bio_account_throttle]
     keys = [f"{ip}|{user.username}", user.username]
@@ -165,7 +166,7 @@ def login_biometric(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, BIOMETRIC_FAILED)
     _reset(throttles, keys)
     audit.info("login ok (biometric 2nd factor) user=%r ip=%s", user.username, ip)
-    return issue_session(response, user, settings_of(request))
+    return begin_session(response, request, db, user, settings_of(request), checked_method(claims.get("mth")))
 
 
 @router.put("/me/biometric-2fa", response_model=MethodsStatus)

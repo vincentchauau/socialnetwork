@@ -52,7 +52,8 @@ def compose() -> str:
     services = []
     for app in APPS:
         env = ["      <<: *backend-env",
-               f"      DATABASE_URL: postgresql+psycopg://postgres:${{POSTGRES_PASSWORD}}@postgres:5432/{app.slug}"]
+               f"      DATABASE_URL: postgresql+psycopg://postgres:${{POSTGRES_PASSWORD}}@postgres:5432/{app.slug}",
+               "      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0"]  # revocation checks (sn_shared.revocation)
         if app.needs_origin:
             env.append("      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}")
         backend = [
@@ -65,6 +66,8 @@ def compose() -> str:
             *env,
             "    depends_on:",
             "      postgres:",
+            "        condition: service_healthy",
+            "      redis:",
             "        condition: service_healthy",
         ]
         if app.volume:
@@ -116,6 +119,32 @@ services:
       timeout: 3s
       retries: 10
 
+  # Shared throttle counters and single-use challenge markers (center REDIS_URL). Internal network only,
+  # nothing persisted: every key has a TTL; noeviction (writes fail rather than dropping a revocation) so monitor memory.
+  redis:
+    image: redis:7-alpine
+    user: redis  # already unprivileged: the entrypoint then skips its setuid step, which cap_drop ALL forbids
+    <<: *hardening
+    command:
+      - redis-server
+      - --requirepass
+      - ${{REDIS_PASSWORD:?set REDIS_PASSWORD in .env}}
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - noeviction
+    environment:
+      REDIS_PASSWORD: ${{REDIS_PASSWORD}}
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   center-backend:
     <<: *hardening
     build:
@@ -142,8 +171,11 @@ services:
       SMTP_PASSWORD: ${{SMTP_PASSWORD:-}}
       SMTP_FROM: ${{SMTP_FROM:-Mạng xã hội <no-reply@localhost>}}
       SMTP_STARTTLS: ${{SMTP_STARTTLS:-0}}
+      REDIS_URL: redis://:${{REDIS_PASSWORD}}@redis:6379/0
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   center-frontend:

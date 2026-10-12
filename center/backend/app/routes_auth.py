@@ -24,9 +24,10 @@ from app.methods import methods_status, passkey_items
 from app.models import User
 from app.passwords import NO_PASSWORD, hash_password, needs_rehash, password_problem, verify_password
 from app.schemas import AuthConfig, Credentials, GoogleBody, LoginBody, MeOut, MfaRequired, SessionOut
-from app.sessions import REFRESH_COOKIE, clear_session_cookies, issue_session, start_login
-from app.tokens import csrf_token, decode_typed
-from app.tokenversion import bump_token_version
+from app import usersessions
+from app.sessions import REFRESH_COOKIE, begin_session, clear_session_cookies, issue_session, start_login
+from app.tokens import csrf_token, decode_claims
+from app.tokenversion import bump_token_version, publish_token_version
 from sn_shared.security import AuthError
 
 router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(check_origin)])
@@ -67,9 +68,8 @@ def register(
     body: Credentials, request: Request, response: Response, db: Session = Depends(get_db)
 ) -> SessionOut:
     throttle, ip = request.app.state.register_throttle, client_ip(request)
-    if throttle.is_blocked(ip):
+    if not throttle.check_and_record(ip):
         raise too_many()
-    throttle.record(ip)
     problem = password_problem(body.password, body.username)
     if problem:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
@@ -81,7 +81,7 @@ def register(
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "Username already taken") from None
     audit.info("register user=%r ip=%s", user.username, ip)
-    return issue_session(response, user, settings_of(request))
+    return begin_session(response, request, db, user, settings_of(request), "password")
 
 
 def _login_throttles(request: Request, ip: str, name: str) -> tuple[list, list[str]]:
@@ -114,7 +114,9 @@ def login(
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(body.password[:128])  # bcrypt -> scrypt
         db.commit()
-    result = start_login(response, user, settings_of(request), biometrics_available(request))
+    result = start_login(
+        response, user, settings_of(request), biometrics_available(request), request=request, db=db, method="password"
+    )
     audit.info("login %s user=%r ip=%s", "mfa-pending" if isinstance(result, MfaRequired) else "ok", name, ip)
     return result
 
@@ -130,21 +132,25 @@ def _reject_refresh(settings, reason: str, ip: str) -> JSONResponse:
 def refresh(request: Request, response: Response, db: Session = Depends(get_db)):
     settings, ip = settings_of(request), client_ip(request)
     throttle = request.app.state.refresh_throttle
-    if throttle.is_blocked(ip):
+    if not throttle.check_and_record(ip):
         raise too_many()
-    throttle.record(ip)
     token = request.cookies.get(REFRESH_COOKIE)
     if not token:
         return _reject_refresh(settings, "missing", ip)
     try:
-        user_id, ver = decode_typed(token, "refresh")
+        claims = decode_claims(token, "refresh")
     except AuthError:
         return _reject_refresh(settings, "invalid", ip)
-    user = db.get(User, user_id)
-    if user is None or user.token_version != ver:
+    user = db.get(User, int(claims["sub"]))
+    if user is None or user.token_version != int(claims["ver"]):
         return _reject_refresh(settings, "revoked", ip)
+    sid = claims.get("sid")
+    row = usersessions.live_session(db, sid, user.id) if sid else None
+    if row is None:  # revoked, unknown, or a pre-sessions token without a sid (no longer accepted)
+        return _reject_refresh(settings, "revoked", ip)
+    usersessions.touch(db, row)
     audit.info("refresh ok user=%r ip=%s", user.username, ip)
-    return issue_session(response, user, settings)
+    return issue_session(response, user, settings, sid)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -154,9 +160,12 @@ def logout(
     session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> None:
-    bump_token_version(db, session.user)  # revokes every refresh token and center-side session
+    settings = settings_of(request)
+    # Logout ends every session of the account (logout-everywhere): the bump also marks all session rows revoked.
+    bump_token_version(db, session.user)
     db.commit()
-    clear_session_cookies(response, settings_of(request))
+    publish_token_version(session.user, settings)
+    clear_session_cookies(response, settings)
     audit.info("logout user=%r ip=%s", session.user.username, client_ip(request))
 
 
@@ -225,9 +234,10 @@ def google_login(
     created = user is None
     if user is None:
         throttle = request.app.state.register_throttle
-        if throttle.is_blocked(ip):
+        if not throttle.check_and_record(ip):
             raise too_many()
-        throttle.record(ip)
         user = _create_google_user(db, identity)
     audit.info("google %s user=%r ip=%s", "register" if created else "login", user.username, ip)
-    return start_login(response, user, settings_of(request), biometrics_available(request))
+    return start_login(
+        response, user, settings_of(request), biometrics_available(request), request=request, db=db, method="google"
+    )

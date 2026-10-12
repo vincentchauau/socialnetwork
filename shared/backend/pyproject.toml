@@ -11,6 +11,7 @@ dependencies = [
     "bcrypt>=4.2",
     "PyJWT>=2.9",
     "fastapi>=0.115",
+    "redis>=5",  # optional at runtime (imported lazily; no REDIS_URL = no revocation checks)
 ]
 
 [tool.setuptools]

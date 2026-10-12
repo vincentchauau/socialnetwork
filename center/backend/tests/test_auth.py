@@ -193,7 +193,7 @@ def test_token_for_deleted_user_is_rejected(client):
 
 
 def test_health(client):
-    assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/health").json() == {"status": "ok", "redis": "off"}
 
 
 def test_strong_password_constant_is_acceptable():

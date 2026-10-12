@@ -9,6 +9,7 @@ os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
 from app.main import create_app  # noqa: E402
+from sn_shared import revocation  # noqa: E402
 from tests.fakes import FakeBiometrics, FakeMailer, fake_google_verifier  # noqa: E402
 
 
@@ -19,9 +20,28 @@ def env(monkeypatch):
         "APP_ENV", "COOKIE_SECURE", "ACCESS_TOKEN_MINUTES", "REFRESH_DAYS", "ALLOWED_ORIGINS",
         "GOOGLE_CLIENT_ID", "BIOMETRICS_ENABLED", "DATA_KEY", "WEBAUTHN_RP_ID", "WEBAUTHN_RP_NAME",
         "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM", "SMTP_STARTTLS", "PUBLIC_URL",
-        "SMTP_SSL", "SMTP_ALLOW_PLAINTEXT_AUTH",
+        "SMTP_SSL", "SMTP_ALLOW_PLAINTEXT_AUTH", "REDIS_URL",
     ):  # fmt: skip
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def no_revocation_store():
+    """No cross-app revocation store unless a test installs one (tests that do get a clean slate afterwards)."""
+    revocation.reset()
+    revocation.use_client(None)
+    yield
+    revocation.reset()
+
+
+@pytest.fixture
+def revocations():
+    """An in-memory Redis standing in for the revocation store shared with the other apps."""
+    import fakeredis
+
+    client = fakeredis.FakeRedis(decode_responses=True)
+    revocation.use_client(client)
+    return client
 
 
 @pytest.fixture(autouse=True)

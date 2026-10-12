@@ -49,7 +49,7 @@ from app.schemas import (
     TokenBody,
 )
 from app.sessions import start_login
-from app.tokenversion import bump_token_version
+from app.tokenversion import bump_token_version, publish_token_version
 
 BAD_LINK = "Invalid or expired link"
 BAD_CODE = "Invalid or expired code"
@@ -69,9 +69,8 @@ def _fail(code: int, detail: str) -> HTTPException:
 def _gate_submit(request: Request) -> None:
     """Link/code submissions: per address, every one counts (the 429 depends on counters only)."""
     throttle, ip = request.app.state.email_submit_throttle, client_ip(request)
-    if throttle.is_blocked(ip):
+    if not throttle.check_and_record(ip):
         raise too_many()
-    throttle.record(ip)
 
 
 def _gate_request(request: Request, kind: str, address: str) -> None:
@@ -80,11 +79,11 @@ def _gate_request(request: Request, kind: str, address: str) -> None:
     The pair counter stops one IP from spending the whole per-email budget, so a stranger cannot lock the owner out.
     """
     state, ip = request.app.state, client_ip(request)
-    counters = (
-        (state.email_login_ip_throttle, state.email_login_ip_addr_throttle, state.email_login_addr_throttle)
-        if kind == et.LOGIN
-        else (state.forgot_ip_throttle, state.forgot_ip_addr_throttle, state.forgot_addr_throttle)
-    )
+    counters = {
+        et.LOGIN: (state.email_login_ip_throttle, state.email_login_ip_addr_throttle, state.email_login_addr_throttle),
+        et.RESET: (state.forgot_ip_throttle, state.forgot_ip_addr_throttle, state.forgot_addr_throttle),
+        et.REAUTH: (state.reauth_mail_ip_throttle, state.reauth_mail_ip_addr_throttle, state.reauth_mail_addr_throttle),
+    }[kind]
     keys = (ip, f"{ip}|{address}", address)
     if any(throttle.is_blocked(key) for throttle, key in zip(counters, keys)):
         raise too_many()
@@ -127,9 +126,11 @@ def _drop_tokens(db: Session, user_id: int, purpose: str) -> None:
     )
 
 
-def _login_result(request: Request, response: Response, user: User) -> SessionOut | MfaRequired:
+def _login_result(request: Request, response: Response, db: Session, user: User) -> SessionOut | MfaRequired:
     """Email is a primary factor: same hand-off as password and Google (the opt-in second factor applies)."""
-    result = start_login(response, user, settings_of(request), biometrics_available(request))
+    result = start_login(
+        response, user, settings_of(request), biometrics_available(request), request=request, db=db, method="email"
+    )
     audit.info("login %s (email) user=%r ip=%s", "mfa-pending" if isinstance(result, MfaRequired) else "ok",
                user.username, client_ip(request))  # fmt: skip
     return result
@@ -266,7 +267,7 @@ def login_with_code(
         audit.warning("email code login failed ip=%s", client_ip(request))
         raise _fail(status.HTTP_401_UNAUTHORIZED, BAD_CODE)
     db.commit()
-    return _login_result(request, response, user)
+    return _login_result(request, response, db, user)
 
 
 @router.post("/email/login/magic", response_model=SessionOut | MfaRequired)
@@ -282,7 +283,7 @@ def login_with_link(
         audit.warning("email link login failed ip=%s", client_ip(request))
         raise _fail(status.HTTP_401_UNAUTHORIZED, BAD_LINK)
     db.commit()
-    return _login_result(request, response, user)
+    return _login_result(request, response, db, user)
 
 
 # --- forgot / reset password ---------------------------------------------------------------------
@@ -316,6 +317,7 @@ def reset_password(
     bump_token_version(db, user)
     _drop_tokens(db, user.id, et.RESET)
     db.commit()
+    publish_token_version(user, settings_of(request))
     audit.info("password reset user=%r ip=%s", user.username, client_ip(request))
     notify(request, background, user, "password_reset")
     return OkOut()

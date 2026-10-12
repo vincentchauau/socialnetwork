@@ -12,7 +12,7 @@ from app.main import create_app
 from app.models import User
 from app.tokens import create_mfa_token
 from tests.fakes import FakeBiometrics
-from tests.helpers import CREDS, csrf, register
+from tests.helpers import CREDS, csrf, register, grant_fresh
 
 PW = {"password": CREDS["password"]}
 VOICE = ("voice.webm", b"alice-voice-sample")
@@ -188,6 +188,7 @@ def test_google_only_account_toggles_second_factor_without_a_password(bio_client
 
     bio_client.app.state.google_verifier = fake_google_verifier
     session = bio_client.post("/auth/google", json={"id_token": "g1|gina@example.com"}).json()
+    grant_fresh(bio_client)
     assert enroll(bio_client, session, data={}).status_code == 200
     assert set_2fa(bio_client, session, data={}).json()["require_biometric_2fa"] is True
 
@@ -210,6 +211,7 @@ def test_google_login_of_an_enrolled_account_signs_straight_in(bio_client):
 
     bio_client.app.state.google_verifier = fake_google_verifier
     session = bio_client.post("/auth/google", json={"id_token": "g1|gina@example.com"}).json()
+    grant_fresh(bio_client)
     assert enroll(bio_client, session, data={}).status_code == 200  # Google-only: no password to confirm
     bio_client.cookies.clear()
     response = bio_client.post("/auth/google", json={"id_token": "g1|gina@example.com"})
@@ -256,6 +258,7 @@ def test_google_login_with_second_factor_on_returns_a_challenge_without_cookies(
 
     bio_client.app.state.google_verifier = fake_google_verifier
     session = bio_client.post("/auth/google", json={"id_token": "g1|gina@example.com"}).json()
+    grant_fresh(bio_client)
     enroll(bio_client, session, data={})
     set_2fa(bio_client, session, data={})
     bio_client.cookies.clear()

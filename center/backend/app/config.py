@@ -10,6 +10,7 @@ from sn_shared.security import MIN_SECRET_LENGTH
 DEFAULT_ORIGINS = ("http://localhost:8080",)
 LOCAL_SMTP_HOSTS = ("localhost", "127.0.0.1", "::1", "mailpit")  # dev hosts where plaintext auth stays on the machine
 SMTP_SSL_PORT = 465
+REDIS_SCHEMES = ("redis", "rediss", "unix")
 
 
 class ConfigError(RuntimeError):
@@ -75,6 +76,7 @@ class Settings:
     smtp_ssl: bool = False  # implicit TLS (port 465, smtplib.SMTP_SSL)
     smtp_allow_plaintext_auth: bool = False  # let SMTP_USER log in without TLS to a non-local host
     public_url: str = "http://localhost:8080"  # base of every link in a mail; never taken from a request
+    redis_url: str = ""  # empty = per-process throttles/challenges; set = shared between replicas
 
     @property
     def smtp_plaintext_auth_refused(self) -> bool:
@@ -111,6 +113,9 @@ class Settings:
         public_url = os.environ.get("PUBLIC_URL", "").strip().rstrip("/") or (origins or DEFAULT_ORIGINS)[0]
         if urlparse(public_url).scheme not in ("http", "https") or not urlparse(public_url).netloc:
             raise ConfigError("PUBLIC_URL must be an http(s) URL")
+        redis_url = os.environ.get("REDIS_URL", "").strip()
+        if redis_url and urlparse(redis_url).scheme not in REDIS_SCHEMES:
+            raise ConfigError("REDIS_URL must start with redis://, rediss:// or unix://")
         smtp_ssl = _flag("SMTP_SSL")
         settings = Settings(
             jwt_secret=secret,
@@ -139,6 +144,7 @@ class Settings:
             smtp_ssl=smtp_ssl,
             smtp_allow_plaintext_auth=_flag("SMTP_ALLOW_PLAINTEXT_AUTH"),
             public_url=public_url,
+            redis_url=redis_url,
         )
         if settings.smtp_plaintext_auth_refused:
             audit.error(

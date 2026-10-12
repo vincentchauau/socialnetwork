@@ -8,6 +8,7 @@ import BiometricWarning from "./BiometricWarning";
 import VideoRecord from "./VideoRecord";
 import { INPUT, LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
+import { useReauth } from "../hooks/useReauth";
 import { MethodsStatus, removeVoice, removeWebcam, saveVoice, saveWebcam } from "../lib/auth";
 
 export type BiometricKind = "voice" | "webcam";
@@ -47,6 +48,7 @@ export default function BiometricMethod({ kind, enabled, hasPassword, onDone }: 
   const [password, setPassword] = useState("");
   const [recordingKey, setRecordingKey] = useState(0);
   const { busy, error, message, run, fail } = useAction();
+  const { withReauth, dialog } = useReauth();
 
   const reset = () => {
     setBlob(undefined);
@@ -57,7 +59,7 @@ export default function BiometricMethod({ kind, enabled, hasPassword, onDone }: 
 
   async function act(action: () => Promise<MethodsStatus>, done: string) {
     if (hasPassword && !password) return fail("Hãy nhập mật khẩu để xác nhận");
-    if (await run(async () => { await action(); return done; })) {
+    if (await run(async () => { await withReauth(action); return done; })) {
       reset();
       await onDone();
     }
@@ -96,6 +98,7 @@ export default function BiometricMethod({ kind, enabled, hasPassword, onDone }: 
       )}
       <Alert text={error} />
       <Alert text={message} ok />
+      {dialog}
     </form>
   );
 }

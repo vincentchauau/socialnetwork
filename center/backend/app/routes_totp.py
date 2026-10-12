@@ -15,9 +15,10 @@ from app.deps import AuthSession, check_origin, client_ip, csrf_session, require
 from app.models import RecoveryCode, User
 from app.notify import notify
 from app.schemas import DeleteAccountBody, RecoveryCodesOut, SessionOut, TotpCodeBody, TotpLoginBody, TotpSetupOut
-from app.sessions import issue_session
-from app.tokens import decode_typed
-from app.tokenversion import bump_token_version
+from app.sessions import begin_session, reissue_session
+from app.tokens import decode_claims
+from app.usersessions import checked_method
+from app.tokenversion import bump_token_version, publish_token_version
 from sn_shared.security import AuthError
 
 INVALID_CODE = "Invalid code"
@@ -105,8 +106,7 @@ def totp_enable(
     """Verify the pending secret, turn TOTP on and return the recovery codes (shown once).
 
     Other sessions and refresh tokens are revoked (token_version bump) and this session is re-issued; the new
-    `csrf_token` is in the body. Known limitation: for an account without a password (passkey/Google only)
-    require_reauth is a no-op, so a stolen session can enrol; the bump at least ends the thief's other sessions.
+    `csrf_token` is in the body. An account without a password needs a fresh proof first (see app.reauth).
     """
     user = session.user
     require_reauth(request, user, body.password)
@@ -126,10 +126,12 @@ def totp_enable(
     if result.rowcount != 1:
         raise _reject_code(request, db, user, keys)
     codes = totp.replace_recovery_codes(db, user.id)
-    bump_token_version(db, user)
+    settings = settings_of(request)
+    bump_token_version(db, user, keep_sid=session.sid)
     db.commit()
+    publish_token_version(user, settings)
     _forgive(request, keys)
-    fresh = issue_session(response, user, settings_of(request))
+    fresh = reissue_session(response, request, db, user, settings, session.sid)
     audit.info("totp enabled user=%r ip=%s", user.username, client_ip(request))
     notify(request, background, user, "totp_enabled")
     return RecoveryCodesOut(recovery_codes=codes, csrf_token=fresh.csrf_token)
@@ -153,10 +155,12 @@ def totp_disable(
     if not (totp.check_totp(db, _cipher(request), user, body.code) or totp.consume_recovery_code(db, user.id, body.code)):
         raise _reject_code(request, db, user, keys)
     _clear_totp(db, user)
-    bump_token_version(db, user)
+    settings = settings_of(request)
+    bump_token_version(db, user, keep_sid=session.sid)
     db.commit()
+    publish_token_version(user, settings)
     _forgive(request, keys)
-    issue_session(response, user, settings_of(request))
+    reissue_session(response, request, db, user, settings, session.sid)
     audit.info("totp disabled user=%r ip=%s", user.username, client_ip(request))
     notify(request, background, user, "totp_disabled")
 
@@ -187,13 +191,15 @@ def regenerate_recovery_codes(
 # --- login (second step) ---------------------------------------------------------------------------------
 
 
-def _login_user(db: Session, mfa_token: str) -> User | None:
+def _login_user(db: Session, mfa_token: str) -> tuple[User | None, str]:
+    """(user, the primary factor that preceded this step); (None, ...) for any bad token."""
     try:
-        user_id, ver = decode_typed(mfa_token, "mfa")
+        claims = decode_claims(mfa_token, "mfa")
     except AuthError:
-        return None
-    user = db.get(User, user_id)
-    return user if user is not None and user.token_version == ver and user.totp_enabled else None
+        return None, checked_method(None)
+    user = db.get(User, int(claims["sub"]))
+    ok = user is not None and user.token_version == int(claims["ver"]) and user.totp_enabled
+    return (user if ok else None), checked_method(claims.get("mth"))
 
 
 def _login_code_ok(request: Request, db: Session, user: User | None, body: TotpLoginBody) -> bool:
@@ -216,17 +222,15 @@ def login_totp(
 ) -> SessionOut:
     """Second factor with an authenticator code or a recovery code; any one listed factor completes the login."""
     ip, state = client_ip(request), request.app.state
-    if state.totp_login_ip_throttle.is_blocked(ip):
+    # check and count in one atomic step, up front, so parallel guesses cannot all slip through
+    if not state.totp_login_ip_throttle.check_and_record(ip):
         audit.warning("totp login locked ip=%s", ip)
         raise too_many()
-    user = _login_user(db, body.mfa_token)
+    user, method = _login_user(db, body.mfa_token)
     account = str(user.id) if user else None
-    if account is not None and state.totp_login_account_throttle.is_blocked(account):
+    if account is not None and not state.totp_login_account_throttle.check_and_record(account):
         audit.warning("totp login locked user=%r ip=%s", user.username, ip)
         raise too_many()
-    state.totp_login_ip_throttle.record(ip)  # counted up front so parallel guesses cannot all slip through
-    if account is not None:
-        state.totp_login_account_throttle.record(account)
     if not _login_code_ok(request, db, user, body):
         db.rollback()
         audit.warning("mfa totp failed user=%r ip=%s", user.username if user else None, ip)
@@ -239,4 +243,4 @@ def login_totp(
         notify(request, background, user, "recovery_code_used")
     else:
         audit.info("login ok (totp 2nd factor) user=%r ip=%s", user.username, ip)
-    return issue_session(response, user, settings_of(request))
+    return begin_session(response, request, db, user, settings_of(request), method)

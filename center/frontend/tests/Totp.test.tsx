@@ -257,6 +257,7 @@ function accountSetup(account: Partial<typeof me> = {}, extra?: Handler) {
   const fn = mockFetch((url, init) => {
     const custom = extra?.(url, init);
     if (custom) return custom;
+    if (url.endsWith("/auth/sessions")) return jsonResponse([]);
     if (url.endsWith("/auth/config")) return jsonResponse({ google_client_id: null, biometrics_enabled: false });
     if (url.endsWith("/auth/me") && (init.method ?? "GET") === "GET") return jsonResponse(state.current);
     if (url.endsWith("/totp/setup")) return jsonResponse(SETUP);

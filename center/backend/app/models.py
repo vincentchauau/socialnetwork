@@ -50,6 +50,7 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan", order_by="Passkey.id"
     )
     email_tokens: Mapped[list["EmailToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    sessions: Mapped[list["UserSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     @property
     def has_password(self) -> bool:
@@ -91,7 +92,7 @@ class EmailToken(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    purpose: Mapped[str] = mapped_column(String(16))  # 'verify' | 'login' | 'reset'
+    purpose: Mapped[str] = mapped_column(String(16))  # 'verify' | 'login' | 'reset' | 'reauth'
     email: Mapped[str] = mapped_column(String(254))  # the address the mail was sent to
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # SHA-256 hex
     code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # keyed HMAC, bound to the row id
@@ -113,3 +114,20 @@ class RecoveryCode(Base):
     code_hash: Mapped[str] = mapped_column(String(64), index=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserSession(Base):
+    """One signed-in device. Its `sid` is a claim of the access AND refresh tokens (a refresh keeps it)."""
+
+    __tablename__ = "user_sessions"
+
+    sid: Mapped[str] = mapped_column(String(32), primary_key=True)  # 32 random hex characters
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    ip: Mapped[str] = mapped_column(String(64), default="")  # as the server saw it
+    user_agent: Mapped[str] = mapped_column(String(200), default="")  # truncated
+    method: Mapped[str] = mapped_column(String(16))  # primary factor: password|google|email|passkey|voice|webcam|refresh
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="sessions")

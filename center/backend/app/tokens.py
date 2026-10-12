@@ -12,22 +12,29 @@ from sn_shared.security import ALGORITHM, ISSUER, AuthError, get_jwt_secret
 MFA_TTL_SECONDS = 5 * 60
 
 
-def _make(typ: str, user_id: int, ver: int, ttl_seconds: int) -> str:
+def _make(typ: str, user_id: int, ver: int, ttl_seconds: int, **extra: str | None) -> str:
     now = int(time.time())
     claims = {"iss": ISSUER, "sub": str(user_id), "typ": typ, "ver": ver, "iat": now, "exp": now + ttl_seconds}
+    claims.update({k: v for k, v in extra.items() if v is not None})
     return jwt.encode(claims, get_jwt_secret(), algorithm=ALGORITHM)
 
 
-def create_refresh_token(user_id: int, ver: int, ttl_seconds: int) -> str:
-    return _make("refresh", user_id, ver, ttl_seconds)
+def create_refresh_token(user_id: int, ver: int, ttl_seconds: int, sid: str | None = None) -> str:
+    return _make("refresh", user_id, ver, ttl_seconds, sid=sid)
 
 
-def create_mfa_token(user_id: int, ver: int, ttl_seconds: int = MFA_TTL_SECONDS) -> str:
-    return _make("mfa", user_id, ver, ttl_seconds)
+def create_mfa_token(user_id: int, ver: int, ttl_seconds: int = MFA_TTL_SECONDS, method: str | None = None) -> str:
+    """`method` is the primary factor already passed (it becomes the session's method after the second step)."""
+    return _make("mfa", user_id, ver, ttl_seconds, mth=method)
 
 
-def decode_typed(token: str, typ: str) -> tuple[int, int]:
-    """(user_id, ver) of a token of the given kind; AuthError for anything else."""
+def create_fresh_token(user_id: int, ver: int, ttl_seconds: int, sid: str | None) -> str:
+    """Proof of a recent re-authentication, bound to one user and one session."""
+    return _make("fresh", user_id, ver, ttl_seconds, sid=sid)
+
+
+def decode_claims(token: str, typ: str) -> dict:
+    """The verified claims of a token of the given kind; AuthError for anything else."""
     try:
         claims = jwt.decode(
             token,
@@ -38,9 +45,19 @@ def decode_typed(token: str, typ: str) -> tuple[int, int]:
         )
         if claims.get("typ") != typ:
             raise ValueError("wrong token type")
-        return int(claims["sub"]), int(claims["ver"])
+        int(claims["sub"]), int(claims["ver"])
+        for optional in ("sid", "mth"):
+            if optional in claims and not isinstance(claims[optional], str):
+                raise ValueError(f"bad {optional}")
+        return claims
     except (jwt.PyJWTError, ValueError, KeyError, TypeError) as exc:
         raise AuthError("Invalid or expired token") from exc
+
+
+def decode_typed(token: str, typ: str) -> tuple[int, int]:
+    """(user_id, ver) of a token of the given kind; AuthError for anything else."""
+    claims = decode_claims(token, typ)
+    return int(claims["sub"]), int(claims["ver"])
 
 
 def csrf_token(session_token: str) -> str:

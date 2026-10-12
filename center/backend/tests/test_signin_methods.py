@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.models import User
 from app.passwords import NO_PASSWORD
 from tests.fakes import fake_google_verifier
-from tests.helpers import CREDS, csrf, register
+from tests.helpers import CREDS, csrf, register, grant_fresh
 
 PW = {"password": CREDS["password"]}
 VOICE = ("v.webm", b"vera-voice-sample")
@@ -431,6 +431,7 @@ def test_link_webcam_leaves_the_voice_template_untouched(bio_client):
 
 def test_link_voice_and_webcam_without_a_password_needs_no_reauth(gclient):
     session = gclient.post("/auth/google", json={"id_token": "g1|gina@example.com"}).json()
+    grant_fresh(gclient)
     h = csrf(session)
     assert gclient.post("/auth/me/voice", files={"audio": VOICE}, headers=h).status_code == 200
     ok = gclient.post("/auth/me/webcam", files={"video": CAM}, headers=h)
@@ -545,12 +546,14 @@ def test_cannot_remove_the_only_webcam_method(bio_client):
 
 def test_cannot_unlink_the_only_google_method(gclient):
     session = gclient.post("/auth/google", json={"id_token": "g1|gina@example.com"}).json()
+    grant_fresh(gclient)
     response = gclient.request("DELETE", "/auth/me/google", headers=csrf(session))
     assert response.status_code == 409 and response.json() == KEEP
 
 
 def test_google_can_be_unlinked_when_voice_or_webcam_remains_and_then_voice_is_last(gclient):
     session = gclient.post("/auth/google", json={"id_token": "g1|gina@example.com"}).json()
+    grant_fresh(gclient)
     h = csrf(session)
     gclient.post("/auth/me/voice", files={"audio": VOICE}, headers=h)
     assert gclient.request("DELETE", "/auth/me/google", headers=h).status_code == 200

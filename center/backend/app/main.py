@@ -11,16 +11,20 @@ from app.config import Settings
 from app.crypto import TemplateCipher
 from app.db import DEFAULT_DATABASE_URL, Base, make_engine
 from app.google_auth import make_google_verifier
+from app.kv import Kv, make_kv
 from app.mailer import SmtpMailer
 from app.middleware import SecurityHeadersMiddleware
-from app.migrate import ensure_columns
+from app.migrate import ensure_columns, force_relogin, sessions_table_is_new
 from app.passkeys import ChallengeStore
 from app.routes_account import router as account_router
 from app.routes_auth import router as auth_router
 from app.routes_biometrics import router as biometrics_router
 from app.routes_email import router as email_router
 from app.routes_methods import combined_router, methods_router
+from app.reauth import ReauthRequired, reauth_response
 from app.routes_passkeys import router as passkeys_router
+from app.routes_reauth import router as reauth_router
+from app.routes_sessions import router as sessions_router
 from app.routes_totp import router as totp_router
 from app.throttle import AttemptThrottle
 from app.totp import make_cipher
@@ -58,54 +62,55 @@ TOTP_LOGIN_MAX_PER_IP = 20  # wrong TOTP/recovery codes at the second step, per 
 TOTP_LOGIN_MAX_PER_ACCOUNT = 10  # ... per account, across all addresses
 TOTP_MANAGE_MAX_FAILURES = 5  # wrong codes on enable/disable/regenerate, per (address, user)
 TOTP_WINDOW_SECONDS = 900.0
+FRESH_MAX_FAILURES = 5  # failed step-up proofs (passkey, Google, mailed code), per user
+FRESH_WINDOW_SECONDS = 900.0
+FRESH_MAX_FAILURES = 5  # failed step-up proofs (passkey, Google, mailed code), per user
+FRESH_WINDOW_SECONDS = 900.0
 REGISTER_MAIL_MAX_PER_ADDRESS = 3  # verification mails triggered by sign-ups, per target address
 
 
-def _install_throttles(app: FastAPI) -> None:
+def _install_throttles(app: FastAPI, kv: Kv) -> None:
     state = app.state
-    state.login_throttle = AttemptThrottle(max_attempts=LOGIN_MAX_FAILURES_PER_IP_USER)
-    state.login_ip_throttle = AttemptThrottle(max_attempts=LOGIN_MAX_FAILURES_PER_IP)
-    state.login_account_throttle = AttemptThrottle(
-        max_attempts=LOGIN_MAX_FAILURES_PER_IP_USER * LOGIN_ACCOUNT_FACTOR
-    )
-    state.register_throttle = AttemptThrottle(
-        max_attempts=REGISTER_MAX_PER_IP, window_seconds=REGISTER_WINDOW_SECONDS
-    )
-    state.refresh_throttle = AttemptThrottle(
-        max_attempts=REFRESH_MAX_PER_IP, window_seconds=REFRESH_WINDOW_SECONDS
-    )
-    state.reauth_throttle = AttemptThrottle(max_attempts=REAUTH_MAX_FAILURES)
+    state.kv = kv
+    state.login_throttle = AttemptThrottle(max_attempts=LOGIN_MAX_FAILURES_PER_IP_USER, name="login_throttle", kv=kv)
+    state.login_ip_throttle = AttemptThrottle(max_attempts=LOGIN_MAX_FAILURES_PER_IP, name="login_ip_throttle", kv=kv)
+    state.login_account_throttle = AttemptThrottle(max_attempts=LOGIN_MAX_FAILURES_PER_IP_USER * LOGIN_ACCOUNT_FACTOR, name="login_account_throttle", kv=kv)
+    state.register_throttle = AttemptThrottle(max_attempts=REGISTER_MAX_PER_IP, window_seconds=REGISTER_WINDOW_SECONDS, name="register_throttle", kv=kv)
+    state.refresh_throttle = AttemptThrottle(max_attempts=REFRESH_MAX_PER_IP, window_seconds=REFRESH_WINDOW_SECONDS, name="refresh_throttle", kv=kv)
+    state.reauth_throttle = AttemptThrottle(max_attempts=REAUTH_MAX_FAILURES, name="reauth_throttle", kv=kv)
     window = BIOMETRIC_WINDOW_SECONDS
-    state.bio_throttle = AttemptThrottle(BIOMETRIC_MAX_FAILURES, window)
-    state.bio_account_throttle = AttemptThrottle(BIOMETRIC_MAX_FAILURES * BIOMETRIC_ACCOUNT_FACTOR, window)
-    state.alone_throttle = AttemptThrottle(BIOMETRIC_ONLY_MAX_ATTEMPTS, window)
-    state.alone_account_throttle = AttemptThrottle(BIOMETRIC_ONLY_MAX_ATTEMPTS * BIOMETRIC_ACCOUNT_FACTOR, window)
-    state.identify_ip_throttle = AttemptThrottle(IDENTIFY_MAX_PER_IP, window)
-    state.identify_global_throttle = AttemptThrottle(IDENTIFY_GLOBAL_MAX, window)
+    state.bio_throttle = AttemptThrottle(BIOMETRIC_MAX_FAILURES, window, name="bio_throttle", kv=kv)
+    state.bio_account_throttle = AttemptThrottle(BIOMETRIC_MAX_FAILURES * BIOMETRIC_ACCOUNT_FACTOR, window, name="bio_account_throttle", kv=kv)
+    state.alone_throttle = AttemptThrottle(BIOMETRIC_ONLY_MAX_ATTEMPTS, window, name="alone_throttle", kv=kv)
+    state.alone_account_throttle = AttemptThrottle(BIOMETRIC_ONLY_MAX_ATTEMPTS * BIOMETRIC_ACCOUNT_FACTOR, window, name="alone_account_throttle", kv=kv)
+    state.identify_ip_throttle = AttemptThrottle(IDENTIFY_MAX_PER_IP, window, name="identify_ip_throttle", kv=kv)
+    state.identify_global_throttle = AttemptThrottle(IDENTIFY_GLOBAL_MAX, window, name="identify_global_throttle", kv=kv)
     # voice identification has its own counters: voice and face attempts never lock each other out
-    state.voice_identify_ip_throttle = AttemptThrottle(IDENTIFY_MAX_PER_IP, window)
-    state.voice_identify_global_throttle = AttemptThrottle(IDENTIFY_GLOBAL_MAX, window)
-    state.passkey_options_throttle = AttemptThrottle(PASSKEY_OPTIONS_MAX_PER_IP, PASSKEY_OPTIONS_WINDOW_SECONDS)
-    state.passkey_login_throttle = AttemptThrottle(PASSKEY_LOGIN_MAX_FAILURES_PER_IP, PASSKEY_LOGIN_WINDOW_SECONDS)
-    state.passkey_challenges = ChallengeStore()  # consumed challenge ids; per process, like the throttles
-    state.enroll_throttle = AttemptThrottle(ENROLL_MAX_PER_HOUR, 3600.0)
+    state.voice_identify_ip_throttle = AttemptThrottle(IDENTIFY_MAX_PER_IP, window, name="voice_identify_ip_throttle", kv=kv)
+    state.voice_identify_global_throttle = AttemptThrottle(IDENTIFY_GLOBAL_MAX, window, name="voice_identify_global_throttle", kv=kv)
+    state.passkey_options_throttle = AttemptThrottle(PASSKEY_OPTIONS_MAX_PER_IP, PASSKEY_OPTIONS_WINDOW_SECONDS, name="passkey_options_throttle", kv=kv)
+    state.passkey_login_throttle = AttemptThrottle(PASSKEY_LOGIN_MAX_FAILURES_PER_IP, PASSKEY_LOGIN_WINDOW_SECONDS, name="passkey_login_throttle", kv=kv)
+    state.passkey_challenges = ChallengeStore(kv)  # consumed challenge ids; shared like the throttles
+    state.enroll_throttle = AttemptThrottle(ENROLL_MAX_PER_HOUR, 3600.0, name="enroll_throttle", kv=kv)
     window = EMAIL_REQUEST_WINDOW_SECONDS
-    state.email_login_ip_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP, window)
-    state.email_login_ip_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP_ADDRESS, window)
-    state.email_login_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_ADDRESS, window)
-    state.forgot_ip_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP, window)
-    state.forgot_ip_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP_ADDRESS, window)
-    state.forgot_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_ADDRESS, window)
-    state.email_submit_throttle = AttemptThrottle(EMAIL_SUBMIT_MAX_PER_IP, window)
-    state.email_code_fail_throttle = AttemptThrottle(
-        EMAIL_CODE_MAX_FAILURES_PER_ADDRESS, EMAIL_CODE_FAILURE_WINDOW_SECONDS
-    )
-    state.email_change_throttle = AttemptThrottle(EMAIL_CHANGE_MAX_PER_HOUR, 3600.0)
-    state.email_change_target_throttle = AttemptThrottle(EMAIL_CHANGE_MAX_PER_TARGET, window)
-    state.register_mail_throttle = AttemptThrottle(REGISTER_MAIL_MAX_PER_ADDRESS, window)
-    state.totp_login_ip_throttle = AttemptThrottle(TOTP_LOGIN_MAX_PER_IP, TOTP_WINDOW_SECONDS)
-    state.totp_login_account_throttle = AttemptThrottle(TOTP_LOGIN_MAX_PER_ACCOUNT, TOTP_WINDOW_SECONDS)
-    state.totp_manage_throttle = AttemptThrottle(TOTP_MANAGE_MAX_FAILURES, TOTP_WINDOW_SECONDS)
+    state.email_login_ip_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP, window, name="email_login_ip_throttle", kv=kv)
+    state.email_login_ip_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP_ADDRESS, window, name="email_login_ip_addr_throttle", kv=kv)
+    state.email_login_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_ADDRESS, window, name="email_login_addr_throttle", kv=kv)
+    state.forgot_ip_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP, window, name="forgot_ip_throttle", kv=kv)
+    state.forgot_ip_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP_ADDRESS, window, name="forgot_ip_addr_throttle", kv=kv)
+    state.forgot_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_ADDRESS, window, name="forgot_addr_throttle", kv=kv)
+    state.email_submit_throttle = AttemptThrottle(EMAIL_SUBMIT_MAX_PER_IP, window, name="email_submit_throttle", kv=kv)
+    state.email_code_fail_throttle = AttemptThrottle(EMAIL_CODE_MAX_FAILURES_PER_ADDRESS, EMAIL_CODE_FAILURE_WINDOW_SECONDS, name="email_code_fail_throttle", kv=kv)
+    state.email_change_throttle = AttemptThrottle(EMAIL_CHANGE_MAX_PER_HOUR, 3600.0, name="email_change_throttle", kv=kv)
+    state.email_change_target_throttle = AttemptThrottle(EMAIL_CHANGE_MAX_PER_TARGET, window, name="email_change_target_throttle", kv=kv)
+    state.register_mail_throttle = AttemptThrottle(REGISTER_MAIL_MAX_PER_ADDRESS, window, name="register_mail_throttle", kv=kv)
+    state.totp_login_ip_throttle = AttemptThrottle(TOTP_LOGIN_MAX_PER_IP, TOTP_WINDOW_SECONDS, name="totp_login_ip_throttle", kv=kv)
+    state.totp_login_account_throttle = AttemptThrottle(TOTP_LOGIN_MAX_PER_ACCOUNT, TOTP_WINDOW_SECONDS, name="totp_login_account_throttle", kv=kv)
+    state.totp_manage_throttle = AttemptThrottle(TOTP_MANAGE_MAX_FAILURES, TOTP_WINDOW_SECONDS, name="totp_manage_throttle", kv=kv)
+    state.fresh_throttle = AttemptThrottle(FRESH_MAX_FAILURES, FRESH_WINDOW_SECONDS, name="fresh_throttle", kv=kv)
+    state.reauth_mail_ip_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP, window, name="reauth_mail_ip_throttle", kv=kv)
+    state.reauth_mail_ip_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP_ADDRESS, window, name="reauth_mail_ip_addr_throttle", kv=kv)
+    state.reauth_mail_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_ADDRESS, window, name="reauth_mail_addr_throttle", kv=kv)
     state.biometric_slots = threading.BoundedSemaphore(MAX_CONCURRENT_BIOMETRICS)
 
 
@@ -129,8 +134,11 @@ def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
 def create_app(database_url: str | None = None) -> FastAPI:
     settings = Settings.from_env()  # fail at startup, not on the first request
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
+    first_with_sessions = sessions_table_is_new(engine)
     Base.metadata.create_all(engine)
     ensure_columns(engine)  # upgrade a users table created by an older version
+    if first_with_sessions:
+        force_relogin(engine)  # tokens without a sid cannot be revoked: end them all, once
 
     docs = None if settings.production else "/docs"
     app = FastAPI(
@@ -141,7 +149,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
-    _install_throttles(app)
+    _install_throttles(app, make_kv(settings.redis_url))
     _install_biometrics(app, settings)
     app.state.totp_cipher = make_cipher(settings)  # fails at startup on a bad DATA_KEY
     app.state.google_verifier = (
@@ -156,6 +164,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         else None
     )
     app.add_exception_handler(RequestValidationError, _validation_error)
+    app.add_exception_handler(ReauthRequired, reauth_response)
     app.include_router(auth_router)
     app.include_router(account_router)
     app.include_router(email_router)
@@ -164,10 +173,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(combined_router)
     app.include_router(passkeys_router)
     app.include_router(totp_router)
+    app.include_router(sessions_router)
+    app.include_router(reauth_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok"}
+        return {"status": "ok", "redis": app.state.kv.probe()}
 
     enabled = settings.biometrics_enabled
     app.add_middleware(BodyLimitMiddleware, limit=lambda path: limit_for(path, enabled))

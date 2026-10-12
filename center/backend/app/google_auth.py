@@ -12,6 +12,7 @@ class GoogleAuthError(Exception):
 class GoogleIdentity:
     sub: str
     email: str
+    exp: int | None = None  # expiry of the ID token itself (None when the verifier does not know)
 
 
 Verifier = Callable[[str], GoogleIdentity]
@@ -30,6 +31,8 @@ def make_google_verifier(client_id: str) -> Verifier:
             raise GoogleAuthError("Invalid Google token") from exc
         if not claims.get("email_verified") or not claims.get("email") or not claims.get("sub"):
             raise GoogleAuthError("Google email is not verified")
-        return GoogleIdentity(sub=str(claims["sub"])[:64], email=str(claims["email"]).lower()[:254])
+        return GoogleIdentity(
+            sub=str(claims["sub"])[:64], email=str(claims["email"]).lower()[:254], exp=int(claims.get("exp") or 0) or None
+        )
 
     return verify

@@ -1,5 +1,7 @@
 import { ApiError, CENTER_API, apiFetch, apiForm, refreshSession } from "@sn/api";
 
+import { getPasskeyCredential } from "./passkey";
+
 export const MIN_PASSWORD = 8;
 export const MAX_PASSWORD = 128;
 export const MAX_AUDIO_BYTES = 3 * 1024 * 1024;
@@ -405,3 +407,52 @@ export async function totpDisable(code: string, password?: string): Promise<void
 
 export const totpRegenerateRecoveryCodes = (code: string, password?: string) =>
   apiFetch<RecoveryCodes>(`${CENTER_API}/auth/totp/recovery-codes`, json({ code, password }));
+
+/* ---- Devices and sign-in sessions ---- */
+
+export type SessionMethod = "password" | "google" | "email" | "passkey" | "voice" | "webcam";
+
+export interface DeviceSession {
+  id: number;
+  current: boolean;
+  created_at: string;
+  last_seen_at: string;
+  ip: string | null;
+  user_agent: string | null;
+  method: SessionMethod | string;
+}
+
+export const listSessions = () => apiFetch<DeviceSession[]>(`${CENTER_API}/auth/sessions`);
+
+export const revokeSession = (id: number) => apiFetch<void>(`${CENTER_API}/auth/sessions/${id}`, { method: "DELETE" });
+
+export const revokeOtherSessions = () =>
+  apiFetch<{ revoked: number }>(`${CENTER_API}/auth/sessions/revoke-others`, { method: "POST" });
+
+/* ---- Step-up (re-authentication) for accounts without a password ---- */
+
+export type ReauthMethod = "passkey" | "google" | "email";
+
+export interface Reauthed {
+  fresh_until: string;
+}
+
+export const reauthMethods = () => apiFetch<{ methods: string[] }>(`${CENTER_API}/auth/reauth/methods`);
+
+/** Passkey ceremony against the re-authentication endpoints (same shapes as passkey login). */
+export async function reauthPasskey(): Promise<Reauthed> {
+  const { options, challenge_token } = await apiFetch<PasskeyChallenge<unknown>>(
+    `${CENTER_API}/auth/reauth/passkey/options`,
+    { method: "POST" },
+  );
+  const credential = await getPasskeyCredential(options);
+  return apiFetch<Reauthed>(`${CENTER_API}/auth/reauth/passkey/verify`, json({ credential, challenge_token }));
+}
+
+export const reauthGoogle = (idToken: string) =>
+  apiFetch<Reauthed>(`${CENTER_API}/auth/reauth/google`, json({ id_token: idToken }));
+
+export const reauthEmailRequest = () => apiFetch<unknown>(`${CENTER_API}/auth/reauth/email/request`, json({}));
+
+export const reauthEmailVerify = (code: string) =>
+  apiFetch<Reauthed>(`${CENTER_API}/auth/reauth/email/verify`, json({ code: code.trim() }));

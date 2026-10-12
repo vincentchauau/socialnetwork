@@ -28,6 +28,32 @@ services:
       timeout: 3s
       retries: 10
 
+  # Shared throttle counters and single-use challenge markers (center REDIS_URL). Internal network only,
+  # nothing persisted: every key has a TTL; noeviction (writes fail rather than dropping a revocation) so monitor memory.
+  redis:
+    image: redis:7-alpine
+    user: redis  # already unprivileged: the entrypoint then skips its setuid step, which cap_drop ALL forbids
+    <<: *hardening
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - noeviction
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   center-backend:
     <<: *hardening
     build:
@@ -54,8 +80,11 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-Mạng xã hội <no-reply@localhost>}
       SMTP_STARTTLS: ${SMTP_STARTTLS:-0}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   center-frontend:
@@ -72,9 +101,12 @@ services:
     environment:
       <<: *backend-env
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/chat
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   chat-frontend:
@@ -91,8 +123,11 @@ services:
     environment:
       <<: *backend-env
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/photos
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - photos-data:/data
@@ -113,8 +148,11 @@ services:
     environment:
       <<: *backend-env
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/watch
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - watch-data:/data
@@ -135,9 +173,12 @@ services:
     environment:
       <<: *backend-env
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/werewolf
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   werewolf-frontend:
@@ -154,8 +195,11 @@ services:
     environment:
       <<: *backend-env
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/market
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   market-frontend:
@@ -172,8 +216,11 @@ services:
     environment:
       <<: *backend-env
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/learning
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   learning-frontend:
@@ -190,8 +237,11 @@ services:
     environment:
       <<: *backend-env
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/jobs
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   jobs-frontend:

@@ -193,6 +193,32 @@ class OkOut(BaseModel):
     ok: bool = True
 
 
+class ReauthCodeBody(BaseModel):
+    code: str = Field(max_length=32)
+
+
+class FreshOut(BaseModel):
+    fresh_until: datetime
+
+
+class ReauthMethodsOut(BaseModel):
+    methods: list[str]
+
+
+class SessionItem(BaseModel):
+    id: str
+    current: bool
+    created_at: datetime
+    last_seen_at: datetime
+    ip: str
+    user_agent: str
+    method: str
+
+
+class RevokedOut(BaseModel):
+    revoked: int
+
+
 class EmailVerifiedOut(BaseModel):
     email: str
     email_verified: bool = True

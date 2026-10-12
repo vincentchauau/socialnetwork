@@ -30,7 +30,7 @@ from app.schemas import (
     PasskeySignupOptionsBody,
     SessionOut,
 )
-from app.sessions import issue_session
+from app.sessions import begin_session
 
 LOGIN_FAILED = "Passkey sign-in failed"
 REGISTRATION_FAILED = "Passkey registration failed"
@@ -48,10 +48,9 @@ def _store(request: Request) -> pk.ChallengeStore:
 def _options_gate(request: Request) -> None:
     """Per-address cap on option requests (every call counts)."""
     throttle, ip = request.app.state.passkey_options_throttle, client_ip(request)
-    if throttle.is_blocked(ip):
+    if not throttle.check_and_record(ip):
         audit.warning("passkey options locked ip=%s", ip)
         raise too_many()
-    throttle.record(ip)
 
 
 def _options_out(options: dict, token: str) -> PasskeyOptionsOut:
@@ -102,7 +101,7 @@ def passkey_login(
     db.commit()
     throttle.reset(ip)
     audit.info("login ok (passkey) user=%r ip=%s", passkey.user.username, ip)
-    return issue_session(response, passkey.user, settings_of(request))
+    return begin_session(response, request, db, passkey.user, settings_of(request), "passkey")
 
 
 # --- sign up --------------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from app.models import User
-from tests.helpers import CREDS, STRONG, csrf, refresh_with, register, cookie_value
+from tests.helpers import CREDS, STRONG, csrf, refresh_with, register, cookie_value, grant_fresh
 
 
 def delete_account(client, session, body=None):
@@ -62,6 +62,7 @@ def test_delete_account_revokes_refresh_tokens(client):
 def test_google_only_account_can_set_a_first_password_without_current(google_client):
     client = google_client
     session = client.post("/auth/google", json={"id_token": "sub-1|first.user@example.com"}).json()
+    grant_fresh(google_client)
     me = client.get("/auth/me").json()
     assert me["has_password"] is False
 

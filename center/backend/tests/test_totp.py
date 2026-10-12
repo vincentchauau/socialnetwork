@@ -16,7 +16,7 @@ from app.config import ConfigError, Settings
 from app.crypto import TemplateCipher
 from app.main import create_app
 from app.models import Passkey, RecoveryCode, User
-from tests.helpers import CREDS, csrf, register
+from tests.helpers import CREDS, csrf, register, grant_fresh
 from tests.mail_helpers import PW, last_mail, set_user, user_row, verified_account
 from tests.test_biometrics import FACE, VOICE, enroll, files, set_2fa
 from tests.test_migrate import make_old_db
@@ -241,6 +241,7 @@ def test_wrong_codes_on_enable_are_throttled(client):
 def test_google_only_account_can_enable_without_a_password(google_client, clock):
     client = google_client
     session = client.post("/auth/google", json={"id_token": "sub-1|jane@example.com"}).json()
+    grant_fresh(google_client)
     secret = setup(client, session, {}).json()["secret"]
     assert enable(client, session, code_at(secret, clock), {}).status_code == 200
 
@@ -260,6 +261,7 @@ def test_totp_account_gets_a_challenge_listing_totp(account):
 def test_google_login_gets_the_challenge_too(google_client, clock):
     client = google_client
     session = client.post("/auth/google", json={"id_token": "sub-1|jane@example.com"}).json()
+    grant_fresh(google_client)
     turn_ok = setup(client, session, {}).json()["secret"]
     assert enable(client, session, code_at(turn_ok, clock), {}).status_code == 200
     client.cookies.clear()
@@ -533,11 +535,13 @@ def test_wrong_codes_on_disable_are_throttled(client, clock):
 
 def test_totp_is_not_a_sign_in_method(client, clock):
     session, auth, _ = passkey_only(client)
+    grant_fresh(client)
     secret, _ = turn_on(client, session, clock)  # a passkey-only account has no password to give
     client.cookies.clear()
     from tests.test_passkeys import delete, sign_in
 
     assert sign_in(client, auth).status_code == 200
+    grant_fresh(client)
     passkey_id = client.get("/auth/me/passkeys").json()["passkeys"][0]["id"]
     refreshed = client.get("/auth/me").json()
     response = delete(client, f"/auth/me/passkeys/{passkey_id}", refreshed)

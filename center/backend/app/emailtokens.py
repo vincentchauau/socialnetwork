@@ -1,4 +1,4 @@
-"""Single-use email tokens (verify / login / reset): a link token and an optional 6-digit code per row.
+"""Single-use email tokens (verify / login / reset / reauth): a link token and an optional 6-digit code per row.
 
 Only hashes are stored: SHA-256 of the link token, and an HMAC of the code keyed with a sub-key of
 JWT_SECRET and bound to the row id (a database leak alone cannot brute-force a 6-digit code).
@@ -22,10 +22,12 @@ from sn_shared.security import get_jwt_secret
 VERIFY = "verify"
 LOGIN = "login"
 RESET = "reset"
+REAUTH = "reauth"  # a code only: the link of its row is never sent
 
 VERIFY_TTL = timedelta(hours=24)
 LOGIN_TTL = timedelta(minutes=15)  # the code and the link of one login mail
 RESET_TTL = timedelta(minutes=30)
+REAUTH_TTL = timedelta(minutes=10)
 MAX_CODE_ATTEMPTS = 5
 MAX_LIVE_TOKENS = 3  # live (unused) tokens kept per (user, purpose)
 CODE_DIGITS = 6
@@ -36,7 +38,7 @@ def _NO_SYNC(statement):
     return statement.execution_options(synchronize_session=False)
 
 
-_TTL = {VERIFY: VERIFY_TTL, LOGIN: LOGIN_TTL, RESET: RESET_TTL}
+_TTL = {VERIFY: VERIFY_TTL, LOGIN: LOGIN_TTL, RESET: RESET_TTL, REAUTH: REAUTH_TTL}
 
 
 @dataclass(frozen=True)

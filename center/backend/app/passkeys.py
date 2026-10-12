@@ -1,16 +1,15 @@
 """WebAuthn (passkey) building blocks: challenge tokens, single-use tracking, option builders, verification.
 
 Challenges are stateless signed tokens (`typ="webauthn"`) that carry the challenge and what it was minted
-for. They are also SINGLE USE: consumed `jti`s are remembered in `ChallengeStore`, an in-process TTL set.
-Like the throttles it is per process: move it to Redis before running several replicas (a token could then
-be replayed once per replica, within its 5 minutes).
+for. They are also SINGLE USE: consumed `jti`s are remembered in `ChallengeStore`, a TTL marker in the Kv
+(Redis-backed when REDIS_URL is set, so replicas share it; per process otherwise, or while Redis is down: a
+token could then be replayed once per replica within its 5 minutes).
 
 Security stance: user verification REQUIRED, discoverable credentials REQUIRED, attestation "none",
 ES256 / RS256 / EdDSA only. Callers never report WHY a verification failed.
 """
 
 import secrets
-import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -31,17 +30,18 @@ from webauthn.helpers.structs import (
 )
 
 from app.config import Settings
+from app.kv import Kv
 from app.models import Passkey, User
 from sn_shared.security import ALGORITHM, ISSUER, get_jwt_secret
 
 CHALLENGE_TTL_SECONDS = 5 * 60
 CHALLENGE_TYP = "webauthn"
-SIGNUP, LINK, LOGIN = "signup", "link", "login"
-PURPOSES = (SIGNUP, LINK, LOGIN)
+SIGNUP, LINK, LOGIN, REAUTH = "signup", "link", "login", "reauth"
+PURPOSES = (SIGNUP, LINK, LOGIN, REAUTH)
 USER_HANDLE_BYTES = 32
 DEFAULT_PASSKEY_NAME = "Passkey"
 MAX_TRANSPORTS_LENGTH = 100
-CONSUMED_MAX_ENTRIES = 100_000
+CONSUMED_PREFIX = "passkey-jti:"
 SUPPORTED_ALGORITHMS = [
     COSEAlgorithmIdentifier.ECDSA_SHA_256,  # ES256
     COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,  # RS256
@@ -55,30 +55,16 @@ class PasskeyError(Exception):
 
 
 class ChallengeStore:
-    """Consumed challenge ids, kept until their token would have expired anyway (in-process, thread-safe)."""
+    """Consumed challenge ids, kept until their token would have expired anyway (shared when the Kv is)."""
 
-    def __init__(self, max_entries: int = CONSUMED_MAX_ENTRIES, now=time.time) -> None:
-        self._max = max_entries
+    def __init__(self, kv: Kv, now=time.time) -> None:
+        self._kv = kv
         self._now = now
-        self._expiry: dict[str, float] = {}
-        self._lock = threading.Lock()
 
     def consume(self, jti: str, expires_at: float) -> bool:
-        """True the first time `jti` is seen. Fails closed (False) when the set is full of live entries."""
-        with self._lock:
-            now = self._now()
-            if len(self._expiry) >= self._max:
-                self._expiry = {k: v for k, v in self._expiry.items() if v > now}
-                if len(self._expiry) >= self._max:
-                    return False
-            if jti in self._expiry and self._expiry[jti] > now:
-                return False
-            self._expiry[jti] = expires_at
-            return True
-
-    def __len__(self) -> int:
-        with self._lock:
-            return len(self._expiry)
+        """True the first time `jti` is seen. Fails closed (False) when the token is expired or the store is full."""
+        ttl = expires_at - self._now()
+        return ttl > 0 and self._kv.set_if_absent(f"{CONSUMED_PREFIX}{jti}", ttl)
 
 
 @dataclass(frozen=True)

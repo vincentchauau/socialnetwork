@@ -5,7 +5,7 @@ from app.google_auth import GoogleAuthError, make_google_verifier
 from app.handles import base_handle, unique_handle
 from app.models import User
 from app.passwords import NO_PASSWORD
-from tests.helpers import CREDS, csrf, register
+from tests.helpers import CREDS, csrf, register, grant_fresh
 
 
 def google_login(client, token="sub-1|jane.doe@example.com"):
@@ -204,6 +204,7 @@ def test_unlink_clears_google_sub_and_email_and_password_login_still_works(googl
 
 def test_google_only_account_cannot_unlink_its_only_method(google_client):
     session = google_login(google_client).json()
+    grant_fresh(google_client)
     response = google_client.request("DELETE", "/auth/me/google", headers=csrf(session))
     assert response.status_code == 409 and response.json() == {"detail": "Keep at least one sign-in method"}
     assert google_client.get("/auth/me").json()["google_linked"] is True
@@ -211,6 +212,7 @@ def test_google_only_account_cannot_unlink_its_only_method(google_client):
 
 def test_google_only_account_can_unlink_after_setting_a_password(google_client):
     session = google_login(google_client).json()
+    grant_fresh(google_client)
     set_pw = google_client.post("/auth/me/password", json={"new_password": "correct-horse-battery"}, headers=csrf(session))
     assert set_pw.status_code == 200
     session = set_pw.json()
@@ -240,6 +242,7 @@ def test_unlink_then_link_again(google_client):
 def test_the_account_always_keeps_a_usable_primary_method(google_client):
     """Password-only, Google-only and both: every route leaves at least one of password/Google."""
     session = google_login(google_client).json()  # Google only
+    grant_fresh(google_client)
     assert google_client.request("DELETE", "/auth/me/google", headers=csrf(session)).status_code == 409
     me = google_client.get("/auth/me").json()
     assert me["google_linked"] and not me["has_password"]

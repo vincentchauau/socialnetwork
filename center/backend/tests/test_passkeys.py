@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from app import passkeys as pk
 from app.models import Passkey, User
 from tests.fakes import fake_google_verifier
-from tests.helpers import CREDS, csrf, register
+from tests.helpers import CREDS, csrf, register, grant_fresh
 from tests.webauthn_helper import BE, BS, ES256, EDDSA, RS256, UP, UV, SoftAuthenticator, b64, unb64
 
 PW = {"password": CREDS["password"]}
@@ -518,6 +518,7 @@ def test_delete_needs_the_password_when_the_account_has_one(client):
 
 def test_the_last_passkey_of_a_passkey_only_account_cannot_go(client):
     session, auth, _ = passkey_only(client)
+    grant_fresh(client)
     (item,) = client.get("/auth/me/passkeys").json()["passkeys"]
     response = client.delete(f"/auth/me/passkeys/{item['id']}", headers=csrf(session))
     assert (response.status_code, response.json()) == (409, {"detail": "Keep at least one sign-in method"})
@@ -526,6 +527,7 @@ def test_the_last_passkey_of_a_passkey_only_account_cannot_go(client):
 
 def test_one_of_two_passkeys_can_go_on_a_passkey_only_account(client):
     session, auth, _ = passkey_only(client)
+    grant_fresh(client)
     _, _, added = link(client, session, body={})
     assert added.status_code == 200
     first, _ = added.json()["passkeys"]
@@ -553,6 +555,7 @@ def test_usable_methods_counts_passkeys_once():
 def test_google_can_be_unlinked_when_a_passkey_remains(google_client):
     client = google_client
     session = client.post("/auth/google", json={"id_token": "sub-1|g1@example.com"}).json()
+    grant_fresh(google_client)
     assert client.delete("/auth/me/google", headers=csrf(session)).status_code == 409  # alone
     _, _, added = link(client, session, body={})
     assert added.status_code == 200
@@ -565,6 +568,7 @@ def test_a_passkey_makes_removing_the_last_biometric_legal_and_vice_versa(bio_cl
     session = client.post(
         "/auth/register/voice", data={"username": "vera"}, files={"audio": ("v.webm", b"vera-voice-sample")}
     ).json()
+    grant_fresh(bio_client)
     assert client.delete("/auth/me/voice", headers=csrf(session)).status_code == 409
     _, _, added = link(client, session, body={})
     assert added.status_code == 200
@@ -578,6 +582,7 @@ def test_a_passkey_makes_removing_the_webcam_legal(bio_client):
     session = client.post(
         "/auth/register/webcam", data={"username": "cam"}, files={"video": ("c.webm", b"vera-camera-clip")}
     ).json()
+    grant_fresh(bio_client)
     assert client.delete("/auth/me/webcam", headers=csrf(session)).status_code == 409
     link(client, session, body={})
     assert client.delete("/auth/me/webcam", headers=csrf(session)).status_code == 200
@@ -594,6 +599,7 @@ def test_delete_account_removes_the_passkeys(client):
 
 def test_delete_account_of_a_passkey_only_account_is_allowed(client):
     session, _, _ = passkey_only(client)
+    grant_fresh(client)
     assert client.request("DELETE", "/auth/me", headers=csrf(session)).status_code == 204
     assert rows(client) == []
 
@@ -821,18 +827,6 @@ def test_production_requires_an_explicit_rp_id(monkeypatch):
     with pytest.raises(ConfigError, match="WEBAUTHN_RP_ID"):
         settings_from(monkeypatch, **prod)
     assert settings_from(monkeypatch, WEBAUTHN_RP_ID="example.com", **prod).webauthn_rp_id == "example.com"
-
-
-def test_challenge_store_is_single_use_and_forgets_expired_entries():
-    clock = [100.0]
-    store = pk.ChallengeStore(max_entries=2, now=lambda: clock[0])
-    assert store.consume("a", 200) and not store.consume("a", 200)
-    assert store.consume("b", 150)
-    assert not store.consume("c", 300)  # full of live entries: fails closed
-    clock[0] = 160.0  # "b" has expired
-    assert store.consume("c", 300) and len(store) == 2
-    clock[0] = 250.0
-    assert store.consume("a", 400)  # its old entry expired with its token
 
 
 def test_transports_are_sanitised():

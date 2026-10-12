@@ -50,7 +50,7 @@ from app.routes_biometrics import (
     require_biometrics,
 )
 from app.schemas import MethodsStatus, MfaRequired, SessionOut, checked_username, normalized_email
-from app.sessions import finish_primary_biometric_login, issue_session
+from app.sessions import begin_session, finish_primary_biometric_login
 
 LOGIN_FAILED = "Biometric login failed"
 NEEDS_FACE = "Send a video with your face"
@@ -141,9 +141,8 @@ def _send_signup_verification(
     if not settings_of(request).email_enabled:
         return
     try:
-        if state.register_mail_throttle.is_blocked(address):
+        if not state.register_mail_throttle.check_and_record(address):
             return
-        state.register_mail_throttle.record(address)
         if db.scalar(select(User.id).where(User.email == address, User.email_verified.is_(True))) is not None:
             return
         issued = et.issue(db, user, et.VERIFY, address, with_code=True)
@@ -153,6 +152,17 @@ def _send_signup_verification(
         audit.warning("signup verification mail not queued error=%s", type(exc).__name__)
 
 
+def _register_method(password, google_token, passkey, voice_file, video_file) -> str:
+    """The primary factor of a sign-up, for the session list (first of: password, Google, passkey, voice, webcam)."""
+    if password:
+        return "password"
+    if google_token:
+        return "google"
+    if passkey:
+        return "passkey"
+    return "voice" if voice_file is not None else "webcam"
+
+
 def _register(
     request: Request, response: Response, db: Session, username: str | None, *,
     password: str | None = None, google_token: str | None = None, voice_file=None, video_file=None,
@@ -160,9 +170,8 @@ def _register(
 ) -> SessionOut:  # fmt: skip
     """All-or-nothing: every method is validated before the account row exists."""
     throttle, ip = request.app.state.register_throttle, client_ip(request)
-    if throttle.is_blocked(ip):
+    if not throttle.check_and_record(ip):
         raise too_many()
-    throttle.record(ip)
     if not (password or google_token or voice_file is not None or video_file is not None or passkey):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NO_METHOD)
     # Google, voice, webcam and passkey sign in without a name, so only a password needs one. There is NO rename
@@ -211,7 +220,9 @@ def _register(
         _send_signup_verification(request, background, db, user, address)
     audit.info("register user=%r ip=%s methods=%s", name, ip,
                sorted([k for k in columns if k != "password_hash"] + (["passkey"] if passkey else [])))
-    return issue_session(response, user, settings_of(request))
+    return begin_session(response, request, db, user, settings_of(request), _register_method(
+        password, google_token, passkey, voice_file, video_file
+    ))
 
 
 @methods_router.post("/register/voice", status_code=status.HTTP_201_CREATED, response_model=SessionOut)
@@ -284,7 +295,9 @@ def _biometric_login(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_FAILED)
     _reset(throttles, keys)
     audit.info("login ok (%s) user=%r ip=%s", method, name, ip)
-    return finish_primary_biometric_login(response, user, settings_of(request))
+    return finish_primary_biometric_login(
+        response, user, settings_of(request), request=request, db=db, method=method
+    )
 
 
 def _identify_login(
@@ -316,7 +329,9 @@ def _identify_login(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_FAILED)
     ip_throttle.reset(ip)
     audit.info("login ok (%s identify) user=%r ip=%s", method, user.username, ip)
-    return finish_primary_biometric_login(response, user, settings_of(request))
+    return finish_primary_biometric_login(
+        response, user, settings_of(request), request=request, db=db, method=method
+    )
 
 
 def _face_or_none(request: Request, video: Upload) -> bytes | None:

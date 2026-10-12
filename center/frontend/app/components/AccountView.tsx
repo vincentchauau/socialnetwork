@@ -8,6 +8,7 @@ import DeleteAccount from "./DeleteAccount";
 import LinkGoogle from "./LinkGoogle";
 import LoginMethods from "./LoginMethods";
 import PasswordForm from "./PasswordForm";
+import SessionsMethod from "./SessionsMethod";
 import TotpMethod from "./TotpMethod";
 import { CARD, PRIMARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
@@ -93,6 +94,8 @@ export default function AccountView() {
           />
         </section>
       )}
+
+      <SessionsMethod />
 
       <section aria-label="Phiên đăng nhập" className={SECTION}>
         <h2 className="font-bold mb-2">Phiên đăng nhập</h2>

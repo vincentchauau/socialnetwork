@@ -2,6 +2,8 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    /** Parsed JSON error body (undefined when the body was not JSON). */
+    public readonly body?: unknown,
   ) {
     super(message);
   }
@@ -34,6 +36,14 @@ const NO_REFRESH_PATHS = new Set([
   "/api/center/auth/password/reset",
   REFRESH_PATH,
 ]);
+
+/** The re-authentication methods a 401 asks for ({detail, reauth:[...]}), or null for any other error. */
+export function reauthRequired(error: unknown): string[] | null {
+  if (!(error instanceof ApiError) || error.status !== 401) return null;
+  const list = (error.body as { reauth?: unknown } | undefined)?.reauth;
+  if (!Array.isArray(list)) return null;
+  return list.filter((item): item is string => typeof item === "string");
+}
 
 let csrfToken: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
@@ -80,10 +90,13 @@ async function send<T>(path: string, init: RequestInit, isForm: boolean, retried
   }
   const response = await fetch(path, { ...init, credentials: "include", headers });
   if (!response.ok) {
-    if (response.status === 401 && !retried && !NO_REFRESH_PATHS.has(pathOf(path))) {
+    const body = await readJson(response);
+    const error = new ApiError(response.status, errorMessage(response.status, body), body);
+    // A step-up request is not an expired session: no refresh, no retry.
+    if (response.status === 401 && !retried && !reauthRequired(error) && !NO_REFRESH_PATHS.has(pathOf(path))) {
       if (await refreshSession()) return send<T>(path, init, isForm, true);
     }
-    throw new ApiError(response.status, await errorMessage(response));
+    throw error;
   }
   if (response.status === 204) return undefined as T;
   const body = (await response.json()) as T;
@@ -122,15 +135,19 @@ async function doRefresh(): Promise<boolean> {
   }
 }
 
-async function errorMessage(response: Response): Promise<string> {
+async function readJson(response: Response): Promise<unknown> {
   try {
-    const body = await response.json();
-    if (typeof body.detail === "string") return body.detail;
-    if (Array.isArray(body.detail)) return "Please check the fields and try again";
+    return await response.json();
   } catch {
-    // body was not JSON
+    return undefined; // body was not JSON
   }
-  return `Request failed (${response.status})`;
+}
+
+function errorMessage(status: number, body: unknown): string {
+  const detail = (body as { detail?: unknown } | null | undefined)?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return "Please check the fields and try again";
+  return `Request failed (${status})`;
 }
 
 export interface User {

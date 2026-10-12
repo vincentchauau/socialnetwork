@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import Alert from "./Alert";
 import { INPUT, LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
+import { useReauth } from "../hooks/useReauth";
 import { EMAIL_INVALID, Me, isEmailValid, removeMyEmail, setMyEmail, verifyEmailCode } from "../lib/auth";
 
 interface Props {
@@ -20,6 +21,7 @@ export default function EmailMethod({ me, onDone }: Props) {
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const { busy, error, message, run, fail } = useAction();
+  const { withReauth, dialog } = useReauth();
   const needsPassword = me.has_password;
   const unverified = Boolean(me.email) && !me.email_verified;
 
@@ -28,7 +30,7 @@ export default function EmailMethod({ me, onDone }: Props) {
     if (!isEmailValid(email)) return fail(EMAIL_INVALID);
     const target = email.trim();
     const ok = await run(async () => {
-      await setMyEmail(target, needsPassword ? password : undefined);
+      await withReauth(() => setMyEmail(target, needsPassword ? password : undefined));
       return `Chúng tôi đã gửi mã xác minh tới ${target}.`;
     });
     if (!ok) return;
@@ -53,7 +55,7 @@ export default function EmailMethod({ me, onDone }: Props) {
     if (!me.email) return;
     const target = me.email;
     const ok = await run(async () => {
-      await setMyEmail(target, needsPassword ? password : undefined);
+      await withReauth(() => setMyEmail(target, needsPassword ? password : undefined));
       return `Đã gửi lại mã xác minh tới ${target}.`;
     });
     if (ok) setPassword("");
@@ -61,7 +63,7 @@ export default function EmailMethod({ me, onDone }: Props) {
 
   async function remove() {
     const ok = await run(async () => {
-      await removeMyEmail(needsPassword ? password : undefined);
+      await withReauth(() => removeMyEmail(needsPassword ? password : undefined));
       return "Đã xóa email.";
     });
     if (!ok) return;
@@ -105,6 +107,7 @@ export default function EmailMethod({ me, onDone }: Props) {
       )}
       <Alert text={error} />
       <Alert text={message} ok />
+      {dialog}
     </div>
   );
 }

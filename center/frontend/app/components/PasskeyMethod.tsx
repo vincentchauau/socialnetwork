@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import Alert from "./Alert";
 import { INPUT, LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
+import { useReauth } from "../hooks/useReauth";
 import { usePasskeySupport } from "../hooks/usePasskeySupport";
 import { MAX_PASSKEYS, PASSKEY_LIMIT_MESSAGE, PasskeyItem, addPasskey, deletePasskey, myPasskeyOptions, renamePasskey } from "../lib/auth";
 import { PASSKEY_UNSUPPORTED, createPasskeyCredential } from "../lib/passkey";
@@ -29,6 +30,7 @@ function PasskeyRow({ item, hasPassword, onDone }: { item: PasskeyItem; hasPassw
   const [confirming, setConfirming] = useState(false);
   const [password, setPassword] = useState("");
   const { busy, error, run, fail } = useAction();
+  const { withReauth, dialog } = useReauth();
 
   async function rename(event: FormEvent) {
     event.preventDefault();
@@ -42,7 +44,7 @@ function PasskeyRow({ item, hasPassword, onDone }: { item: PasskeyItem; hasPassw
   async function remove(event: FormEvent) {
     event.preventDefault();
     if (hasPassword && !password) return fail("Hãy nhập mật khẩu để xác nhận");
-    if (await run(async () => void (await deletePasskey(item.id, hasPassword ? password : undefined)))) {
+    if (await run(() => withReauth(async () => void (await deletePasskey(item.id, hasPassword ? password : undefined))))) {
       setPassword("");
       setConfirming(false);
       await onDone();
@@ -91,6 +93,7 @@ function PasskeyRow({ item, hasPassword, onDone }: { item: PasskeyItem; hasPassw
         </form>
       )}
       <Alert text={error} />
+      {dialog}
     </li>
   );
 }
@@ -101,6 +104,7 @@ export default function PasskeyMethod({ passkeys, hasPassword, onDone }: Props) 
   const [name, setName] = useState(DEFAULT_PASSKEY_NAME);
   const [password, setPassword] = useState("");
   const { busy, error, message, run, fail } = useAction();
+  const { withReauth, dialog } = useReauth();
 
   const full = passkeys.length >= MAX_PASSKEYS;
 
@@ -109,9 +113,9 @@ export default function PasskeyMethod({ passkeys, hasPassword, onDone }: Props) 
     if (full) return;
     if (hasPassword && !password) return fail("Hãy nhập mật khẩu để xác nhận");
     const ok = await run(async () => {
-      const { options, challenge_token } = await myPasskeyOptions(hasPassword ? password : undefined);
+      const { options, challenge_token } = await withReauth(() => myPasskeyOptions(hasPassword ? password : undefined));
       const credential = await createPasskeyCredential(options);
-      await addPasskey(credential, challenge_token, name);
+      await withReauth(() => addPasskey(credential, challenge_token, name));
       return "Đã thêm Passkey.";
     });
     setPassword("");
@@ -149,6 +153,7 @@ export default function PasskeyMethod({ passkeys, hasPassword, onDone }: Props) 
         <Alert text={error} />
         <Alert text={message} ok />
       </form>
+      {dialog}
     </div>
   );
 }

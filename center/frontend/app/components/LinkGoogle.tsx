@@ -6,6 +6,7 @@ import Alert from "./Alert";
 import GoogleSignInButton from "./GoogleSignInButton";
 import { INPUT, LABEL, NOTE, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
+import { useReauth } from "../hooks/useReauth";
 import { linkGoogle } from "../lib/auth";
 
 interface Props {
@@ -17,10 +18,11 @@ interface Props {
 export default function LinkGoogle({ clientId, hasPassword, onDone }: Props) {
   const [password, setPassword] = useState("");
   const { busy, error, message, run, fail } = useAction();
+  const { withReauth, dialog } = useReauth();
 
   async function link(idToken: string) {
     const ok = await run(async () => {
-      await linkGoogle(idToken, hasPassword ? password : undefined);
+      await withReauth(() => linkGoogle(idToken, hasPassword ? password : undefined));
       return "Đã liên kết tài khoản Google.";
     });
     if (ok) {
@@ -45,6 +47,7 @@ export default function LinkGoogle({ clientId, hasPassword, onDone }: Props) {
       </div>
       <Alert text={error} />
       <Alert text={message} ok />
+      {dialog}
     </section>
   );
 }

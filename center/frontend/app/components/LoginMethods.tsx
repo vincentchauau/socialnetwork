@@ -8,6 +8,7 @@ import EmailMethod from "./EmailMethod";
 import PasskeyMethod from "./PasskeyMethod";
 import { INPUT, LABEL, SECONDARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
+import { useReauth } from "../hooks/useReauth";
 import { AuthConfig, Me, unlinkGoogle } from "../lib/auth";
 
 interface Props {
@@ -37,6 +38,7 @@ const anchor = (href: string, text: string) => (
 function UnlinkGoogle({ hasPassword, onDone }: { hasPassword: boolean; onDone: Props["onDone"] }) {
   const [password, setPassword] = useState("");
   const { busy, error, run } = useAction();
+  const { withReauth, dialog } = useReauth();
 
   if (!hasPassword) {
     return <p className="text-sm text-gray-600">Hãy đặt mật khẩu trước khi hủy liên kết Google.</p>;
@@ -44,7 +46,7 @@ function UnlinkGoogle({ hasPassword, onDone }: { hasPassword: boolean; onDone: P
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (await run(async () => void (await unlinkGoogle(password)))) {
+    if (await run(() => withReauth(async () => void (await unlinkGoogle(password))))) {
       setPassword("");
       await onDone();
     }
@@ -59,6 +61,7 @@ function UnlinkGoogle({ hasPassword, onDone }: { hasPassword: boolean; onDone: P
         {busy ? "Đang xử lý..." : "Hủy liên kết Google"}
       </button>
       <Alert text={error} />
+      {dialog}
     </form>
   );
 }
