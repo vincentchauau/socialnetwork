@@ -58,6 +58,9 @@ def _install_throttles(app: FastAPI) -> None:
     state.alone_account_throttle = AttemptThrottle(BIOMETRIC_ONLY_MAX_ATTEMPTS * BIOMETRIC_ACCOUNT_FACTOR, window)
     state.identify_ip_throttle = AttemptThrottle(IDENTIFY_MAX_PER_IP, window)
     state.identify_global_throttle = AttemptThrottle(IDENTIFY_GLOBAL_MAX, window)
+    # voice identification has its own counters: voice and face attempts never lock each other out
+    state.voice_identify_ip_throttle = AttemptThrottle(IDENTIFY_MAX_PER_IP, window)
+    state.voice_identify_global_throttle = AttemptThrottle(IDENTIFY_GLOBAL_MAX, window)
     state.enroll_throttle = AttemptThrottle(ENROLL_MAX_PER_HOUR, 3600.0)
     state.biometric_slots = threading.BoundedSemaphore(MAX_CONCURRENT_BIOMETRICS)
 

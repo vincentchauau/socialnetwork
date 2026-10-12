@@ -297,12 +297,11 @@ def test_google_and_webcam_without_a_name_uses_the_email_handle(bio_client):
     [
         ({"password": "correct-horse-battery"}, {}),
         ({"password": "correct-horse-battery"}, {"webcam_video": ALICE}),
-        ({}, {"voice_audio": ("v.webm", b"vera-voice")}),
-        ({}, {"voice_audio": ("v.webm", b"vera-voice"), "webcam_video": ALICE}),
+        ({"password": "correct-horse-battery"}, {"voice_audio": ("v.webm", b"vera-voice")}),
         ({"username": "  ", "password": "correct-horse-battery"}, {}),
     ],
 )
-def test_username_required_for_password_and_voice(bio_client, data, files):
+def test_username_required_for_password(bio_client, data, files):
     response = combined_nameless(bio_client, data=data, **files)
     assert response.status_code == 422 and response.json()["detail"] == "Choose a username"
     with bio_client.app.state.session_factory() as db:

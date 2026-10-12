@@ -6,12 +6,14 @@ Embeddings are opaque `bytes` (float32 vectors) so the core never needs numpy.
 
 import functools
 import logging
+import math
 from typing import Callable, Protocol, TypeVar
 
 from app.config import Settings
 
 audit = logging.getLogger("auth.audit")
 T = TypeVar("T")
+NO_SIMILARITY = -1.0  # below any threshold: what malformed or unusable data scores
 
 
 class BiometricError(ValueError):
@@ -45,6 +47,7 @@ class Biometrics(Protocol):
     def audio_embedding(self, raw: bytes) -> bytes: ...
     def face_embedding(self, raw: bytes) -> bytes: ...
     def face_distance(self, stored: bytes, probe: bytes) -> float: ...
+    def audio_similarity(self, stored: bytes, probe: bytes) -> float: ...
     def audio_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool: ...
     def face_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool: ...
 
@@ -67,15 +70,25 @@ class RealBiometrics:
 
         return embed_face(raw, self._s.max_frames)
 
-    def audio_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool:
+    def audio_similarity(self, stored: bytes, probe: bytes) -> float:
+        """Cosine similarity; malformed, mismatched or zero-norm data is "no match" (-1.0), never an error."""
         import numpy as np
 
+        width = np.dtype(np.float32).itemsize
+        if not stored or len(stored) % width or len(probe) % width:
+            return NO_SIMILARITY
         template, sample = np.frombuffer(stored, np.float32), np.frombuffer(probe, np.float32)
-        if template.shape != sample.shape:  # corrupt or different model: a non-match, not a 500
-            return False
+        if template.shape != sample.shape:  # corrupt or different model
+            return NO_SIMILARITY
         denom = float(np.linalg.norm(template) * np.linalg.norm(sample))
-        similarity = float(np.dot(template, sample) / denom) if denom else 0.0
-        return similarity >= (self._s.audio_threshold_alone if strict else self._s.audio_threshold)
+        if not denom or not math.isfinite(denom):
+            return NO_SIMILARITY
+        return float(np.dot(template, sample) / denom)
+
+    def audio_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool:
+        return self.audio_similarity(stored, probe) >= (
+            self._s.audio_threshold_alone if strict else self._s.audio_threshold
+        )
 
     def face_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool:
         import numpy as np
@@ -92,7 +105,7 @@ class RealBiometrics:
         # Corrupt or placeholder data is "infinitely far", never an exception: this runs for every
         # candidate on a login attempt, so a 500 here would be reachable by anyone.
         width = np.dtype(np.float32).itemsize
-        if len(stored) % width or len(probe) % width:
+        if not stored or not probe or len(stored) % width or len(probe) % width:
             return float("inf")
         template, sample = np.frombuffer(stored, np.float32), np.frombuffer(probe, np.float32)
         if template.shape != sample.shape:

@@ -20,15 +20,15 @@ type Chosen = Record<Method, boolean>;
 
 const DEFAULT_CHOSEN: Chosen = { password: true, google: false, voice: false, webcam: false };
 
-const OPTIONAL_HINT = "Không bắt buộc nếu chỉ dùng Google/Webcam: hệ thống sẽ tự tạo tên (ví dụ user-7f3a2c).";
+const OPTIONAL_HINT = "Không bắt buộc nếu chỉ dùng Google, Giọng nói hoặc Webcam: hệ thống sẽ tự tạo tên (ví dụ user-7f3a2c).";
 
 const warningKinds = (chosen: Chosen): WarningKind[] => [
   ...(chosen.voice ? (["voice"] as const) : []),
   ...(chosen.webcam ? (["webcam"] as const) : []),
 ];
 
-/** Tên đăng nhập chỉ có thể bỏ trống khi mọi cách đã chọn đều tự nhận ra tài khoản (Google, webcam). */
-const isUsernameRequired = (chosen: Chosen) => chosen.password || chosen.voice;
+/** Tên đăng nhập chỉ bắt buộc khi có mật khẩu; Google, giọng nói, webcam tự nhận ra tài khoản. */
+const isUsernameRequired = (chosen: Chosen) => chosen.password;
 
 /** Đăng ký bằng một hoặc nhiều cách cùng lúc; cách còn thiếu bổ sung sau ở trang Tài khoản. */
 export default function RegisterForm({ config }: { config: AuthConfig }) {

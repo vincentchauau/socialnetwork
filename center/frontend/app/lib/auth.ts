@@ -62,8 +62,13 @@ export function safeNextPath(next: string | null | undefined): string {
   }
 }
 
+export const USERNAME_NEEDED = "Enter your username";
+const VOICE_TAKEN = "This voice is already registered";
+const VOICE_TAKEN_HELP = "Giọng nói này đã được đăng ký cho một tài khoản khác, hãy đăng nhập hoặc dùng giọng khác.";
+
 export function errorText(error: unknown): string {
   if (error instanceof ApiError && error.status === 429) return "Thử quá nhiều lần, hãy thử lại sau";
+  if (error instanceof Error && error.message === VOICE_TAKEN) return `${VOICE_TAKEN}. ${VOICE_TAKEN_HELP}`;
   return error instanceof Error ? error.message : "Có lỗi xảy ra, hãy thử lại";
 }
 
@@ -106,11 +111,11 @@ export async function loginWithGoogle(idToken: string): Promise<LoginResult> {
 export const loginWithBiometrics = (mfaToken: string, audio?: Blob, video?: Blob) =>
   apiForm<Session>(`${CENTER_API}/auth/login/biometric`, biometricForm({ mfa_token: mfaToken }, audio, video));
 
-/** Sign in with ONE voice clip. */
-export const loginWithVoice = (username: string, audio: Blob) =>
-  apiForm<Session>(`${CENTER_API}/auth/login/voice`, biometricForm({ username }, audio));
+/** Sign in with ONE voice clip; the username is only sent after the server asked for it. */
+export const loginWithVoice = (audio: Blob, username?: string) =>
+  apiForm<Session>(`${CENTER_API}/auth/login/voice`, biometricForm({ username: username?.trim() || undefined }, audio));
 
-/** Sign in with ONE face-only webcam clip (no audio). */
+/** Sign in with ONE face-only webcam clip (no audio); the username is only sent after the server asked for it. */
 export const loginWithWebcam = (video: Blob, username?: string) =>
   apiForm<Session>(`${CENTER_API}/auth/login/webcam`, biometricForm({ username: username?.trim() || undefined }, undefined, video));
 

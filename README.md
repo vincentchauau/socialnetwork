@@ -85,22 +85,28 @@ One `users` row per account; four methods, **each usable on its own**, all linke
 |---|---|---|
 | Password | `password_hash` (scrypt; `!` = none) | policy: 8-128 chars, not common, not the username |
 | Google | `google_sub`, `email` | ID token verified server side; needs `GOOGLE_CLIENT_ID` |
-| Voice | `audio_embedding` (Fernet), `voice_login` | one audio clip; strict threshold |
-| Webcam | `face_embedding`, `audio_embedding`, `webcam_login` | one clip: face AND voice must both match |
+| Voice | `audio_embedding` (Fernet), `voice_login` | one short audio clip; strict threshold; no username needed |
+| Webcam | `face_embedding` (Fernet), `webcam_login` | one camera-only clip (no microphone); FACE ONLY; no username needed |
 
 - **Register** with any one or several methods at once (`POST /auth/register/combined`, all-or-nothing),
   then link the rest in `/account`. Linking/removing needs the password again when the account has one,
   and at least one method must always remain (409 otherwise).
-- **Webcam needs no username** (like Face ID): `POST /auth/login/webcam` without `username` identifies the
-  account itself (1-N): best face match must be within `FACE_THRESHOLD_ALONE` (0.45) and beat the runner-up by
-  `FACE_IDENTIFY_MARGIN` (0.08), then the voice in the same clip must match too. Every failure is the same 401;
-  throttled per IP (5 / 15 min), globally, and per identified account. Cost is O(N) per attempt, so above
-  5000 webcam accounts the username is required again. A face already registered by another account is
-  refused at registration (409), which also reveals that a face is registered. Voice sign-in still needs the name.
-- The username is optional at registration only when the chosen methods are within {Google, webcam}; a
-  generated one (`user-xxxxxx`, or derived from the Google email) is permanent: there is no rename feature.
-- Measured with the real models (public test photos): same person, different photo 0.357; different people 0.844;
-  about 3 s per clip (first clip ~8 s while models load).
+- **Voice and webcam need no username** (like Face ID): `POST /auth/login/voice` and `/auth/login/webcam`
+  without `username` identify the account themselves (1-N, `app/identify.py`). The best match must pass the
+  strict threshold (face distance <= `FACE_THRESHOLD_ALONE` 0.45; voice cosine >= `AUDIO_THRESHOLD_ALONE` 0.88)
+  AND beat the runner-up by a margin (`FACE_IDENTIFY_MARGIN` 0.08, `VOICE_IDENTIFY_MARGIN` 0.05), otherwise the
+  attempt is rejected as ambiguous. Every failure is the same 401 and does the same work; throttled per IP
+  (5 / 15 min) and globally (100 / 15 min), with separate counters for face and voice. Cost is O(N) per attempt,
+  so above 5000 accounts of a method the username is required again (422 `Enter your username`).
+  A face or voice already registered by another account is refused at registration (409), which also
+  reveals that it is registered. Giving a username still works (1-1 check).
+- The username is required at registration only when a password is chosen. Otherwise a generated one
+  (`user-xxxxxx`, or derived from the Google email) is used; it is permanent: there is no rename feature.
+- Measured with the real models: face, same person on two different photos 0.357 vs 0.844 for different people
+  (threshold 0.45); voice, same synthetic speaker on two sentences 0.892 vs 0.494 for another speaker
+  (threshold 0.88: **tight**, tune it on real microphone data); about 3 s per clip.
+- Lesson kept in the tests: the real engine must never raise on malformed or placeholder templates (a
+  placeholder of the wrong length once made username-less sign-in a 500 when no account existed).
 - Voice and webcam are only available when `BIOMETRICS_ENABLED=1` (image built with `WITH_BIOMETRICS=1`,
   `DATA_KEY` set). They have **no liveness check**: anyone with a recording of the owner can pass.
 - Optional advanced setting `biometric_2fa` (off by default): after password/Google, also require a sample.

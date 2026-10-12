@@ -109,20 +109,21 @@ describe("API helpers", () => {
     expect(init2.body).toBe(JSON.stringify({ password: "pw" }));
   });
 
-  it("voice and webcam sign-in send only the username and their own clip", async () => {
+  it("voice and webcam sign-in send only their own clip (username only when given)", async () => {
     const fetchMock = mockFetch(() => jsonResponse(session));
-    await auth.loginWithVoice("ann", new Blob(["a"]));
-    await auth.loginWithWebcam(new Blob(["v"]), "ann");
+    await auth.loginWithVoice(new Blob(["a"]));
+    await auth.loginWithWebcam(new Blob(["v"]));
     const [[url1, init1], [url2, init2]] = fetchMock.mock.calls;
     expect(url1).toBe("/api/center/auth/login/voice");
     expect(url2).toBe("/api/center/auth/login/webcam");
     const voice = init1.body as FormData;
     const webcam = init2.body as FormData;
-    expect(voice.get("username")).toBe("ann");
+    expect(voice.has("username")).toBe(false);
     expect(voice.get("audio")).toBeInstanceOf(File);
     expect(voice.has("password")).toBe(false);
     expect(webcam.get("video")).toBeInstanceOf(File);
     expect(webcam.has("audio")).toBe(false);
+    expect(webcam.has("username")).toBe(false);
   });
 
   it("combined registration sends only the chosen fields", async () => {

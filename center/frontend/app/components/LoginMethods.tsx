@@ -25,6 +25,8 @@ function Row({ name, state, children }: { name: string; state: string; children?
   );
 }
 
+const NO_USERNAME = "Đăng nhập không cần tên đăng nhập";
+
 const anchor = (href: string, text: string) => (
   <a href={href} className="text-sm text-blue-700 underline">{text}</a>
 );
@@ -75,11 +77,13 @@ export default function LoginMethods({ me, config, onDone }: Props) {
         </Row>
         {enrol && (
           <Row name="Giọng nói" state={me.voice_login ? "đã bật" : "chưa bật"}>
+            {me.voice_login && <p className="text-xs text-gray-600">{NO_USERNAME}</p>}
             <BiometricMethod kind="voice" enabled={me.voice_login} hasPassword={me.has_password} onDone={onDone} />
           </Row>
         )}
         {enrol && (
           <Row name="Webcam (khuôn mặt)" state={me.webcam_login ? "đã bật" : "chưa bật"}>
+            {me.webcam_login && <p className="text-xs text-gray-600">{NO_USERNAME}</p>}
             <BiometricMethod kind="webcam" enabled={me.webcam_login} hasPassword={me.has_password} onDone={onDone} />
           </Row>
         )}

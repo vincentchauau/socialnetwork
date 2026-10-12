@@ -159,14 +159,20 @@ describe("AccountView", () => {
     vi.restoreAllMocks();
   });
 
-  it("tells webcam accounts that no username is needed", async () => {
-    setupAccount({ webcam_login: true });
+  it("tells voice and webcam accounts that no username is needed", async () => {
+    setupAccount({ voice_login: true, webcam_login: true });
     render(<AccountView />);
-    expect(await screen.findByText("Đăng nhập webcam không cần tên đăng nhập")).toBeInTheDocument();
+    expect(await screen.findAllByText("Đăng nhập không cần tên đăng nhập")).toHaveLength(2);
   });
 
-  it("hides the webcam username line when webcam is off", async () => {
-    setupAccount({ webcam_login: false });
+  it("shows the no-username line only for the enabled biometric row", async () => {
+    setupAccount({ voice_login: true, webcam_login: false });
+    render(<AccountView />);
+    expect(await screen.findAllByText("Đăng nhập không cần tên đăng nhập")).toHaveLength(1);
+  });
+
+  it("hides the no-username line when voice and webcam are off", async () => {
+    setupAccount({ voice_login: false, webcam_login: false });
     render(<AccountView />);
     await screen.findByRole("heading", { name: /Xin chào/ });
     expect(screen.queryByText(/không cần tên đăng nhập/)).not.toBeInTheDocument();

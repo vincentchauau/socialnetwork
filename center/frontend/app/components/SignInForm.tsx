@@ -2,6 +2,8 @@
 
 import { FormEvent, useState } from "react";
 
+import { ApiError } from "@sn/api";
+
 import Alert from "./Alert";
 import AudioRecord from "./AudioRecord";
 import BiometricWarning from "./BiometricWarning";
@@ -14,6 +16,7 @@ import { PRIMARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
 import {
   AuthConfig,
+  USERNAME_NEEDED,
   LoginResult,
   loginWithGoogle,
   loginWithPassword,
@@ -34,8 +37,12 @@ export function availableMethods(config: AuthConfig): Method[] {
   return methods;
 }
 
-const WEBCAM_HINT =
-  "Chỉ cần khuôn mặt, không cần giọng nói. Để trống: hệ thống tự nhận ra khuôn mặt của bạn. Nhập tên nếu muốn đối chiếu đúng tài khoản.";
+const AUTO_HINT = {
+  voice: "Hệ thống tự nhận ra giọng nói của bạn.",
+  webcam: "Hệ thống tự nhận ra khuôn mặt của bạn.",
+} as const;
+
+const FALLBACK_HINT = "Hệ thống chưa tự nhận ra bạn được, hãy nhập tên đăng nhập rồi gửi lại.";
 
 /** Đăng nhập bằng MỘT cách: mật khẩu, Google, giọng nói hoặc webcam. */
 export default function SignInForm({ config, onMfa }: Props) {
@@ -44,6 +51,7 @@ export default function SignInForm({ config, onMfa }: Props) {
   const [password, setPassword] = useState("");
   const [audio, setAudio] = useState<Blob>();
   const [video, setVideo] = useState<Blob>();
+  const [needUsername, setNeedUsername] = useState(false); // chỉ hiện khi máy chủ yêu cầu (hệ thống rất lớn)
   const [recordingKey, setRecordingKey] = useState(0); // đổi key để ô ghi âm/quay trở về trạng thái trống
   const { busy, error, run, fail } = useAction();
 
@@ -57,6 +65,7 @@ export default function SignInForm({ config, onMfa }: Props) {
     if (next === method) return;
     setMethod(next);
     setPassword("");
+    setNeedUsername(false);
     clearRecordings(); // bản ghi của cách trước không được dùng lại
     fail("");
   }
@@ -75,15 +84,25 @@ export default function SignInForm({ config, onMfa }: Props) {
     else goTo(postLoginTarget());
   }
 
+  /** 422 "Enter your username": giữ nguyên tab và hiện ô tên đăng nhập. */
+  async function withUsernameFallback<T>(call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 422 && caught.message === USERNAME_NEEDED) setNeedUsername(true);
+      throw caught;
+    }
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
     if (method === "voice") {
       if (!audio) return fail("Hãy ghi giọng nói trước khi đăng nhập");
-      return void signIn(async () => void (await loginWithVoice(username, audio)));
+      return void signIn(() => withUsernameFallback(async () => void (await loginWithVoice(audio, needUsername ? username : undefined))));
     }
     if (method === "webcam") {
       if (!video) return fail("Hãy quay khuôn mặt trước khi đăng nhập");
-      return void signIn(async () => void (await loginWithWebcam(video, username)));
+      return void signIn(() => withUsernameFallback(async () => void (await loginWithWebcam(video, needUsername ? username : undefined))));
     }
     void signIn(() => loginWithPassword(username, password));
   }
@@ -102,12 +121,12 @@ export default function SignInForm({ config, onMfa }: Props) {
           </div>
         ) : (
           <form onSubmit={submit} aria-label="Đăng nhập">
-            <UsernameField
-              value={username}
-              onChange={setUsername}
-              required={method !== "webcam"}
-              optionalHint={WEBCAM_HINT}
-            />
+            {(method === "password" || needUsername) && (
+              <UsernameField value={username} onChange={setUsername} optionalHint={needUsername ? FALLBACK_HINT : undefined} />
+            )}
+            {(method === "voice" || method === "webcam") && !needUsername && (
+              <p className="text-sm text-gray-600 mb-2">{AUTO_HINT[method]}</p>
+            )}
             {method === "password" && <PasswordField value={password} onChange={setPassword} isRegister={false} />}
             {(method === "voice" || method === "webcam") && <BiometricWarning kinds={[method]} />}
             {method === "voice" && <AudioRecord key={recordingKey} disabled={busy} onRecorded={setAudio} />}

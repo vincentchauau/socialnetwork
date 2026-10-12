@@ -36,22 +36,33 @@ class FakeBiometrics:
             return abs(a - b)
         return 0.0 if stored == probe else 9.0
 
+    def audio_similarity(self, stored: bytes, probe: bytes) -> float:
+        """Voices tagged b'v<number>-...' have similarity 1-|a-b|; other voices: 1 if equal, else 0."""
+        a, b = _tagged_value(stored, b"A:v"), _tagged_value(probe, b"A:v")
+        if a is not None and b is not None:
+            return 1.0 - abs(a - b)
+        return 1.0 if stored == probe else 0.0
+
     def audio_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool:
         self.strict_calls.append(strict)
-        return stored == probe
+        return self.audio_similarity(stored, probe) >= (0.88 if strict else 0.8)
 
     def face_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool:
         self.strict_calls.append(strict)
         return stored == probe
 
 
-def _face_value(embedding: bytes) -> float | None:
-    if not embedding.startswith(b"F:f"):
+def _tagged_value(embedding: bytes, prefix: bytes) -> float | None:
+    if not embedding.startswith(prefix):
         return None
     try:
-        return float(embedding[3:].split(b"-", 1)[0])
+        return float(embedding[len(prefix):].split(b"-", 1)[0])
     except ValueError:
         return None
+
+
+def _face_value(embedding: bytes) -> float | None:
+    return _tagged_value(embedding, b"F:f")
 
 
 def fake_google_verifier(token: str) -> GoogleIdentity:

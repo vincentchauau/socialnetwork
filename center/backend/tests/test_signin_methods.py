@@ -89,7 +89,7 @@ def test_register_voice_rejections(bio_client):
     assert reg_voice(bio_client, "Bad Name!").status_code == 422
     assert reg_voice(bio_client, "bob", BAD).status_code == 400
     assert row(bio_client, "bob") is None
-    assert reg_voice(bio_client, "bob").status_code == 201  # the failure did not burn the name
+    assert reg_voice(bio_client, "bob", OTHER_VOICE).status_code == 201  # the failure did not burn the name
     assert bio_client.post("/auth/register/voice", data={"username": "zed"}).status_code == 422
     r = reg_voice(bio_client, "amy", ("a.webm", b"missing-lib"))
     assert r.status_code == 503 and "ffmpeg" not in r.text
@@ -143,7 +143,7 @@ def test_register_routes_are_503_when_biometrics_are_disabled(client):
 
 
 def test_register_throttle_is_shared_per_ip(bio_client):
-    codes = [reg_voice(bio_client, f"user{i:02d}").status_code for i in range(11)]
+    codes = [reg_voice(bio_client, f"user{i:02d}", ("v.webm", f"voice-{i}".encode())).status_code for i in range(11)]
     assert codes == [201] * 10 + [429]
 
 

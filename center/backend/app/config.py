@@ -53,6 +53,7 @@ class Settings:
     audio_threshold_alone: float = 0.88  # stricter when biometrics are the only factor
     face_threshold_alone: float = 0.45
     face_identify_margin: float = 0.08  # 1-N sign-in: best face must beat the runner-up by this distance
+    voice_identify_margin: float = 0.05  # 1-N voice sign-in: best similarity must beat the runner-up by this
     ffmpeg_timeout: int = 20
     max_frames: int = 30
 
@@ -84,6 +85,7 @@ class Settings:
             audio_threshold_alone=_float("AUDIO_THRESHOLD_ALONE", 0.88),
             face_threshold_alone=_float("FACE_THRESHOLD_ALONE", 0.45),
             face_identify_margin=_float("FACE_IDENTIFY_MARGIN", 0.08),
+            voice_identify_margin=_float("VOICE_IDENTIFY_MARGIN", 0.05),
         )
         settings.validate()
         return settings

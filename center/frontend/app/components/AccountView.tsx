@@ -58,9 +58,6 @@ export default function AccountView() {
         <a href="/" className="text-blue-700 underline">Về trang chủ</a>
       </p>
       <h1 className="text-2xl font-bold mb-2">Xin chào, {me.username}</h1>
-      {me.webcam_login && (
-        <p className="mb-1 text-xs text-gray-600">Đăng nhập webcam không cần tên đăng nhập</p>
-      )}
       <p className="mb-1">Vai trò: {me.role}</p>
       <p className="mb-1 text-sm text-gray-600">Email: {me.email ?? "chưa có"}</p>
       <p className="mb-4 text-sm text-gray-600">Quản lý các cách đăng nhập của bạn ngay bên dưới.</p>
