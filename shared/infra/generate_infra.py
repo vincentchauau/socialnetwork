@@ -135,6 +135,13 @@ services:
       DATA_KEY: ${{DATA_KEY:-}}
       WEBAUTHN_RP_ID: ${{WEBAUTHN_RP_ID:-}}
       WEBAUTHN_RP_NAME: ${{WEBAUTHN_RP_NAME:-Mạng xã hội}}
+      PUBLIC_URL: ${{PUBLIC_ORIGIN:-http://localhost:8080}}
+      SMTP_HOST: ${{SMTP_HOST:-mailpit}}
+      SMTP_PORT: ${{SMTP_PORT:-1025}}
+      SMTP_USER: ${{SMTP_USER:-}}
+      SMTP_PASSWORD: ${{SMTP_PASSWORD:-}}
+      SMTP_FROM: ${{SMTP_FROM:-Mạng xã hội <no-reply@localhost>}}
+      SMTP_STARTTLS: ${{SMTP_STARTTLS:-0}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -146,6 +153,20 @@ services:
       dockerfile: center/frontend/Dockerfile
 
 {chr(10).join(s + chr(10) for s in services)}
+  # Development mail sink: catches every email the app sends (nothing leaves this machine).
+  # Enabled by COMPOSE_PROFILES=mail-dev in .env; in production point SMTP_* at a real server instead.
+  # Web inbox: http://localhost:8025 (bound to this machine only).
+  mailpit:
+    image: axllent/mailpit:latest
+    profiles: ["mail-dev"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+      MP_MAX_MESSAGES: "500"
+
   gateway:
     <<: *hardening
     # nginx needs CHOWN/SETUID/SETGID/NET_BIND_SERVICE at start-up; keep its

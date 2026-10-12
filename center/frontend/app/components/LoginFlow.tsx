@@ -8,12 +8,12 @@ import RegisterForm from "./RegisterForm";
 import SignInForm from "./SignInForm";
 import { CARD, LINK_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
-import { AuthConfig, getAuthConfig, loginWithBiometrics } from "../lib/auth";
+import { AuthConfig, NO_CONFIG, getAuthConfig, loginWithBiometrics } from "../lib/auth";
 import { goTo, postLoginTarget } from "../lib/navigate";
 
 type Mode = "login" | "register";
 
-const NO_CONFIG: AuthConfig = { google_client_id: null, biometrics_enabled: false };
+
 
 /** Bước xác minh thêm (tùy chọn) sau khi mật khẩu/Google đúng và tài khoản đã bật yêu cầu này. */
 function MfaStep({ mfaToken, onCancel }: { mfaToken: string; onCancel: () => void }) {

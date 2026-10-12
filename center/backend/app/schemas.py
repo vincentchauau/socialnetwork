@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from email_validator import EmailNotValidError, validate_email
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.handles import HANDLE_RE
 
@@ -19,6 +20,21 @@ def checked_username(value: str) -> str:
     if not HANDLE_RE.match(value):
         raise ValueError(USERNAME_HINT)
     return value
+
+
+MAX_EMAIL = 254
+EMAIL_HINT = "Enter a valid email address"
+
+
+def normalized_email(value: str) -> str:
+    """Strip, lowercase and syntax-check an address (no DNS lookup). Raises ValueError with a hint."""
+    value = value.strip().lower()
+    if not value or len(value) > MAX_EMAIL:
+        raise ValueError(EMAIL_HINT)
+    try:
+        return validate_email(value, check_deliverability=False).normalized.lower()
+    except EmailNotValidError:
+        raise ValueError(EMAIL_HINT) from None
 
 
 class Credentials(BaseModel):
@@ -79,6 +95,7 @@ class MethodsStatus(BaseModel):
     has_face: bool
     require_biometric_2fa: bool
     passkey_count: int = 0
+    email_verified: bool = False
 
 
 class PasskeyOut(BaseModel):
@@ -128,3 +145,49 @@ class PasskeyRenameBody(BaseModel):
 class AuthConfig(BaseModel):
     google_client_id: str | None
     biometrics_enabled: bool
+    email_enabled: bool = False
+
+
+class EmailBody(BaseModel):
+    email: str = Field(max_length=320)
+
+    @field_validator("email")
+    @classmethod
+    def valid_email(cls, value: str) -> str:
+        return normalized_email(value)
+
+
+class SetEmailBody(EmailBody):
+    password: str | None = Field(default=None, max_length=MAX_INPUT)
+
+
+class EmailVerifyBody(BaseModel):
+    token: str | None = Field(default=None, max_length=256)
+    code: str | None = Field(default=None, max_length=32)
+
+    @model_validator(mode="after")
+    def exactly_one(self) -> "EmailVerifyBody":
+        if bool(self.token) == bool(self.code):
+            raise ValueError("Send a token or a code")
+        return self
+
+
+class EmailCodeBody(EmailBody):
+    code: str = Field(max_length=32)
+
+
+class TokenBody(BaseModel):
+    token: str = Field(max_length=256)
+
+
+class ResetBody(TokenBody):
+    new_password: str = Field(max_length=MAX_INPUT)
+
+
+class OkOut(BaseModel):
+    ok: bool = True
+
+
+class EmailVerifiedOut(BaseModel):
+    email: str
+    email_verified: bool = True

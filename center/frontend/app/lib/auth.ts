@@ -17,6 +17,7 @@ export interface Me {
   username: string;
   role: string;
   email: string | null;
+  email_verified: boolean;
   has_password: boolean;
   google_linked: boolean;
   voice_login: boolean;
@@ -30,6 +31,7 @@ export interface Me {
 }
 
 export interface MethodsStatus {
+  email_verified: boolean;
   has_password: boolean;
   google_linked: boolean;
   voice_login: boolean;
@@ -63,7 +65,10 @@ export interface PasskeyList {
 export interface AuthConfig {
   google_client_id: string | null;
   biometrics_enabled: boolean;
+  email_enabled: boolean;
 }
+
+export const NO_CONFIG: AuthConfig = { google_client_id: null, biometrics_enabled: false, email_enabled: false };
 
 export type LoginResult = { kind: "session"; session: Session } | { kind: "mfa"; mfaToken: string };
 
@@ -164,8 +169,31 @@ export function takeNewUsername(): string | null {
   }
 }
 
+const VERIFY_EMAIL_KEY = "center.verifyEmail";
+
+/** Remember the address a verification mail was sent to, for a one-time notice (best effort). */
+export function rememberVerificationEmail(email: string): void {
+  try {
+    window.sessionStorage.setItem(VERIFY_EMAIL_KEY, email);
+  } catch {
+    /* the notice is optional */
+  }
+}
+
+/** Read and clear the one-time notice; always plain text. */
+export function takeVerificationEmail(): string | null {
+  try {
+    const value = window.sessionStorage.getItem(VERIFY_EMAIL_KEY);
+    window.sessionStorage.removeItem(VERIFY_EMAIL_KEY);
+    return value;
+  } catch {
+    return null;
+  }
+}
+
 export interface CombinedRegistration {
   username?: string;
+  email?: string;
   password?: string;
   googleIdToken?: string;
   voiceAudio?: Blob;
@@ -180,6 +208,8 @@ export async function registerCombined(input: CombinedRegistration): Promise<Ses
   const form = new FormData();
   const username = input.username?.trim();
   if (username) form.append("username", username);
+  const email = input.email?.trim();
+  if (email) form.append("email", email);
   if (input.password !== undefined) form.append("password", input.password);
   if (input.googleIdToken) form.append("google_id_token", input.googleIdToken);
   if (input.voiceAudio) form.append("voice_audio", input.voiceAudio, "voice.webm");
@@ -269,3 +299,47 @@ export const renamePasskey = (id: number, name: string) =>
 
 export const deletePasskey = (id: number, password?: string) =>
   apiFetch<PasskeyList>(`${CENTER_API}/auth/me/passkeys/${id}`, { method: "DELETE", body: JSON.stringify({ password }) });
+
+/* ---- Email: verification, sign-in (code or magic link), password reset ---- */
+
+export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const isEmailValid = (email: string): boolean => email.length <= 254 && EMAIL_PATTERN.test(email.trim());
+export const EMAIL_INVALID = "Email không hợp lệ";
+export const NEUTRAL_SIGN_IN_MESSAGE = "Nếu email này thuộc một tài khoản, chúng tôi đã gửi mã và liên kết đăng nhập.";
+export const NEUTRAL_RESET_MESSAGE = "Nếu email này thuộc một tài khoản, chúng tôi đã gửi liên kết đặt lại mật khẩu.";
+
+export interface VerifiedEmail {
+  email: string;
+  email_verified: boolean;
+}
+
+export const requestEmailLogin = (email: string) =>
+  apiFetch<unknown>(`${CENTER_API}/auth/email/login/request`, json({ email: email.trim() }));
+
+export async function verifyEmailLogin(email: string, code: string): Promise<LoginResult> {
+  return toLoginResult(
+    await apiFetch<SessionOrMfa>(`${CENTER_API}/auth/email/login/verify`, json({ email: email.trim(), code: code.trim() })),
+  );
+}
+
+export async function loginWithMagicLink(token: string): Promise<LoginResult> {
+  return toLoginResult(await apiFetch<SessionOrMfa>(`${CENTER_API}/auth/email/login/magic`, json({ token })));
+}
+
+export const forgotPassword = (email: string) =>
+  apiFetch<unknown>(`${CENTER_API}/auth/password/forgot`, json({ email: email.trim() }));
+
+export const resetPassword = (token: string, newPassword: string) =>
+  apiFetch<unknown>(`${CENTER_API}/auth/password/reset`, json({ token, new_password: newPassword }));
+
+export const verifyEmailToken = (token: string) =>
+  apiFetch<VerifiedEmail>(`${CENTER_API}/auth/email/verify`, json({ token }));
+
+export const verifyEmailCode = (code: string) =>
+  apiFetch<VerifiedEmail>(`${CENTER_API}/auth/email/verify`, json({ code: code.trim() }));
+
+export const setMyEmail = (email: string, password?: string) =>
+  apiFetch<unknown>(`${CENTER_API}/auth/me/email`, json({ email: email.trim(), password }));
+
+export const removeMyEmail = (password?: string) =>
+  apiFetch<MethodsStatus>(`${CENTER_API}/auth/me/email`, { method: "DELETE", body: JSON.stringify({ password }) });

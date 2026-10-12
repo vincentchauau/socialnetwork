@@ -5,13 +5,14 @@ interface Props {
   value: string;
   onChange: (value: string) => void;
   isRegister: boolean;
+  label?: string;
 }
 
-export default function PasswordField({ value, onChange, isRegister }: Props) {
+export default function PasswordField({ value, onChange, isRegister, label = "Mật khẩu" }: Props) {
   const longEnough = value.length >= MIN_PASSWORD;
   return (
     <>
-      <label htmlFor="password" className={LABEL}>Mật khẩu</label>
+      <label htmlFor="password" className={LABEL}>{label}</label>
       <input
         id="password"
         type="password"

@@ -16,6 +16,7 @@ from app.db import DEFAULT_DATABASE_URL, Base, make_engine
 from app.migrate import ensure_columns
 from app.models import User
 from app.passwords import hash_password, password_problem
+from app.tokenversion import bump_token_version
 
 COMMANDS = ("promote", "demote", "reset-password")
 
@@ -54,13 +55,13 @@ def main(
                 print(problem)
                 return 1
             user.password_hash = hash_password(new)
-            user.token_version += 1
+            bump_token_version(db, user)
             db.commit()
             print(f"Password reset for {username}; all sessions revoked")
             return 0
         user.role = "admin" if command == "promote" else "user"
         if command == "demote":
-            user.token_version += 1  # drop sessions that still carry the admin claim
+            bump_token_version(db, user)  # drop sessions that still carry the admin claim
         db.commit()
         print(f"Role of {username} is now {user.role}")
     return 0

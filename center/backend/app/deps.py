@@ -32,6 +32,12 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def require_email(request: Request) -> None:
+    """503 first when mail is not configured (SMTP_HOST empty), then the Origin check."""
+    if not settings_of(request).email_enabled:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Email is not available")
+
+
 def too_many() -> HTTPException:
     return HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many attempts, try later")
 

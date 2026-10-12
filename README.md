@@ -79,7 +79,7 @@ cd center/frontend && npm install && npm run dev
 
 ## Sign-in methods (center)
 
-One `users` row per account; four methods, **each usable on its own**, all linked to that row:
+One `users` row per account; six methods, **each usable on its own**, all linked to that row:
 
 | Method | Stored in `users` | Notes |
 |---|---|---|
@@ -88,6 +88,7 @@ One `users` row per account; four methods, **each usable on its own**, all linke
 | Voice | `audio_embedding` (Fernet), `voice_login` | one short audio clip; strict threshold; no username needed |
 | Webcam | `face_embedding` (Fernet), `webcam_login` | one camera-only clip (no microphone); FACE ONLY; no username needed |
 | **Passkey** | table `passkeys` (one row per device: `credential_id`, `public_key`, `sign_count`, `user_handle`, ...) | WebAuthn: fingerprint / Face ID / Windows Hello / security key, handled by the device; no username; **recommended over webcam/voice** |
+| **Email** | `email`, `email_verified`, `email_from_google`; table `email_tokens` (hashed token + code MAC) | magic link or 6-digit code to a VERIFIED address; also verification, password reset, security notices |
 
 - **Register** with any one or several methods at once (`POST /auth/register/combined`, all-or-nothing),
   then link the rest in `/account`. Linking/removing needs the password again when the account has one,
@@ -117,6 +118,19 @@ One `users` row per account; four methods, **each usable on its own**, all linke
   (per process, like the throttles), a non-increasing sign counter is rejected as a possible clone, the same
   device cannot register twice for one account. `WEBAUTHN_RP_ID` (default: host of `PUBLIC_ORIGIN`) is part of
   every passkey: **changing it later invalidates all registered passkeys**. Production requires it explicitly.
+- **Email** (`app/routes_email.py`, `emailtokens.py`, `mailer.py`): an address is usable for sign-in / reset only after it
+  is verified (link or code). Links look like `PUBLIC_URL/login/magic#token=...`: the secret is in the URL
+  **fragment**, never sent to a server or a Referer, cleared from the address bar, and consumed only by a POST after
+  the user presses a button (mail scanners that prefetch links cannot burn it). Tokens are stored as SHA-256, codes
+  as an HMAC; 3 live tokens per (user, purpose); 5 wrong codes kill the code (not the link); TTL verify 24 h,
+  sign-in 15 min, reset 30 min. Requests always answer 202 and take the same time for known and unknown addresses
+  (jitter 0-30 ms); budgets per IP 5, per (IP, address) 3, per address 10 per 15 min; wrong-code counter 10/hour per
+  address. Reset kills every session (`token_version`). Links are built from `PUBLIC_URL`, never the Host header.
+  A Google-supplied address is cleared on unlink only when Google wrote it (`email_from_google`).
+  Development: `COMPOSE_PROFILES=mail-dev` starts **Mailpit** (inbox http://localhost:8025, API `/api/v1/messages`).
+  Production: set `SMTP_HOST/PORT/USER/PASSWORD/FROM`, `SMTP_STARTTLS=1` (587) or `SMTP_SSL=1` (465);
+  credentials over plain SMTP to a non-local host are refused unless `SMTP_ALLOW_PLAINTEXT_AUTH=1`.
+  Not done yet: step-up re-authentication for passkey-only / Google-only accounts when changing or removing the email.
 - Optional advanced setting `biometric_2fa` (off by default): after password/Google, also require a sample.
 - Sessions: `sn_token` (60 min) + `sn_refresh` (14 d), CSRF header on writes, `token_version` revocation.
 
@@ -147,4 +161,4 @@ One `users` row per account; four methods, **each usable on its own**, all linke
 - The watch per-user byte quota is not atomic under concurrent uploads (can overshoot briefly).
 - A multi-seller `market` order has one shared status (any involved seller can mark it shipped).
 - `werewolf` keeps rooms in memory (lost on restart) and omits the old "Ma" faction; `market` has no shipping address.
-- No email verification, password reset or refresh tokens.
+- Email request budgets are in memory per process (like the other throttles).

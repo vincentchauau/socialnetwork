@@ -26,6 +26,7 @@ from app.passwords import NO_PASSWORD, hash_password, needs_rehash, password_pro
 from app.schemas import AuthConfig, Credentials, GoogleBody, LoginBody, MeOut, MfaRequired, SessionOut
 from app.sessions import REFRESH_COOKIE, clear_session_cookies, issue_session, start_login
 from app.tokens import csrf_token, decode_typed
+from app.tokenversion import bump_token_version
 from sn_shared.security import AuthError
 
 router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(check_origin)])
@@ -54,7 +55,11 @@ def me_out(user: User, token: str) -> MeOut:
 @router.get("/config", response_model=AuthConfig)
 def auth_config(request: Request) -> AuthConfig:
     s = settings_of(request)
-    return AuthConfig(google_client_id=s.google_client_id or None, biometrics_enabled=s.biometrics_enabled)
+    return AuthConfig(
+        google_client_id=s.google_client_id or None,
+        biometrics_enabled=s.biometrics_enabled,
+        email_enabled=s.email_enabled,
+    )
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED, response_model=SessionOut)
@@ -149,7 +154,7 @@ def logout(
     session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> None:
-    session.user.token_version += 1  # revokes every refresh token and center-side session
+    bump_token_version(db, session.user)  # revokes every refresh token and center-side session
     db.commit()
     clear_session_cookies(response, settings_of(request))
     audit.info("logout user=%r ip=%s", session.user.username, client_ip(request))
@@ -194,6 +199,8 @@ def _create_google_user(db: Session, identity: GoogleIdentity) -> User:
             username=handle,
             password_hash=NO_PASSWORD,
             email=None if email_taken else identity.email,
+            email_verified=not email_taken,  # Google verified it
+            email_from_google=not email_taken,  # Google wrote it: unlinking Google takes it away again
             google_sub=identity.sub,
         )
         db.add(user)

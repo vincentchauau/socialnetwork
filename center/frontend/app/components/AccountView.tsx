@@ -10,12 +10,12 @@ import LoginMethods from "./LoginMethods";
 import PasswordForm from "./PasswordForm";
 import { CARD, PRIMARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
-import { AuthConfig, Me, errorText, getAuthConfig, loadMe, logout } from "../lib/auth";
+import { AuthConfig, Me, NO_CONFIG, errorText, getAuthConfig, loadMe, logout } from "../lib/auth";
 import { goTo } from "../lib/navigate";
 
 type State = { status: "loading" } | { status: "error"; text: string } | { status: "ready"; me: Me };
 
-const NO_CONFIG: AuthConfig = { google_client_id: null, biometrics_enabled: false };
+
 
 export default function AccountView() {
   const [state, setState] = useState<State>({ status: "loading" });
@@ -59,7 +59,7 @@ export default function AccountView() {
       </p>
       <h1 className="text-2xl font-bold mb-2">Xin chào, {me.username}</h1>
       <p className="mb-1">Vai trò: {me.role}</p>
-      <p className="mb-1 text-sm text-gray-600">Email: {me.email ?? "chưa có"}</p>
+      {!config.email_enabled && <p className="mb-1 text-sm text-gray-600">Email: {me.email ?? "chưa có"}</p>}
       <p className="mb-4 text-sm text-gray-600">Quản lý các cách đăng nhập của bạn ngay bên dưới.</p>
 
       <LoginMethods me={me} config={config} onDone={reload} />

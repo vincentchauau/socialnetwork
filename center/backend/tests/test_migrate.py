@@ -8,7 +8,7 @@ from sn_shared import hash_password as bcrypt_hash
 
 NEW_COLUMNS = {
     "email", "google_sub", "role", "token_version", "audio_embedding", "face_embedding", "biometric_login",
-    "biometric_2fa", "voice_login", "webcam_login",
+    "biometric_2fa", "voice_login", "webcam_login", "email_verified", "email_from_google",
 }  # fmt: skip
 
 

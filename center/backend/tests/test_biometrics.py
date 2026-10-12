@@ -128,7 +128,7 @@ def test_enroll_stores_encrypted_templates_and_reports_state(bio_client):
     response = enroll(bio_client, session)
     assert response.json() == {
         "has_password": True, "google_linked": False, "voice_login": True, "webcam_login": True,
-        "has_audio": True, "has_face": True, "require_biometric_2fa": False, "passkey_count": 0,
+        "has_audio": True, "has_face": True, "require_biometric_2fa": False, "passkey_count": 0, "email_verified": False,
     }  # fmt: skip
     me = bio_client.get("/auth/me").json()
     assert (me["has_audio"], me["has_face"]) == (True, True)

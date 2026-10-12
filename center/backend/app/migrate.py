@@ -22,6 +22,8 @@ _COLUMNS: tuple[tuple[str, TypeEngine, tuple[str, str] | None], ...] = (
     ("voice_login", Boolean(), ("0", "FALSE")),
     ("webcam_login", Boolean(), ("0", "FALSE")),
     ("biometric_2fa", Boolean(), ("0", "FALSE")),
+    ("email_verified", Boolean(), ("0", "FALSE")),
+    ("email_from_google", Boolean(), ("0", "FALSE")),
 )
 _UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_sub"))
 
@@ -55,6 +57,20 @@ def ensure_columns(engine: Engine) -> list[str]:
             true = "TRUE" if engine.dialect.name == "postgresql" else "1"
             conn.execute(
                 text(f"UPDATE {TABLE} SET webcam_login = {true} WHERE biometric_login AND NOT webcam_login")
+            )
+        if "email_verified" in added:
+            # Google verified those addresses itself. Runs once, when the column is created: re-running it
+            # would re-verify an address the user later replaced or removed.
+            true = "TRUE" if engine.dialect.name == "postgresql" else "1"
+            conn.execute(
+                text(f"UPDATE {TABLE} SET email_verified = {true} WHERE google_sub IS NOT NULL AND email IS NOT NULL")
+            )
+        if "email_from_google" in added:
+            # Before this column, a Google account's address was assumed to come from Google. Runs once, when
+            # the column is created: re-running it would re-flag an address the user verified themselves.
+            true = "TRUE" if engine.dialect.name == "postgresql" else "1"
+            conn.execute(
+                text(f"UPDATE {TABLE} SET email_from_google = {true} WHERE google_sub IS NOT NULL AND email IS NOT NULL")
             )
         for index_name, column in _UNIQUE_INDEXES:
             conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {TABLE} ({column})"))

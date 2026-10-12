@@ -35,10 +35,15 @@ class User(Base):
     webcam_login: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Opt-in second factor after password/Google; OFF unless the user turns it on.
     biometric_2fa: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # An address counts as a sign-in method only once verified (Google verifies it itself).
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # True only while `email` is the address Google supplied (unlinking Google then removes it with the link).
+    email_from_google: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Deleting the account deletes its passkeys (ORM cascade here, ON DELETE CASCADE in the table).
     passkeys: Mapped[list["Passkey"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", order_by="Passkey.id"
     )
+    email_tokens: Mapped[list["EmailToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     @property
     def has_password(self) -> bool:
@@ -71,3 +76,22 @@ class Passkey(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="passkeys")
+
+
+class EmailToken(Base):
+    """A single-use email token: link (token_hash) and optionally a 6-digit code (code_hash) in one row."""
+
+    __tablename__ = "email_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    purpose: Mapped[str] = mapped_column(String(16))  # 'verify' | 'login' | 'reset'
+    email: Mapped[str] = mapped_column(String(254))  # the address the mail was sent to
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # SHA-256 hex
+    code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # keyed HMAC, bound to the row id
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    user: Mapped[User] = relationship(back_populates="email_tokens")

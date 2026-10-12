@@ -7,7 +7,7 @@ registration ceremony starts, since the finishing request is bound to that accou
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,6 +18,7 @@ from app.db import get_db
 from app.deps import AuthSession, check_origin, client_ip, csrf_session, current_session, require_reauth, settings_of, too_many
 from app.methods import KEEP_ONE, passkey_items, usable_methods
 from app.models import Passkey, User, utcnow
+from app.notify import notify
 from app.schemas import (
     DeleteAccountBody,
     PasskeyAddBody,
@@ -160,7 +161,8 @@ def link_options(
 
 @router.post("/me/passkeys", response_model=PasskeyList)
 def add_passkey(
-    body: PasskeyAddBody, request: Request, session: AuthSession = Depends(csrf_session),
+    body: PasskeyAddBody, request: Request, background: BackgroundTasks,
+    session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> PasskeyList:  # fmt: skip
     user = session.user
@@ -182,6 +184,7 @@ def add_passkey(
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, DUPLICATE) from None
     audit.info("passkey added user=%r ip=%s", user.username, client_ip(request))
+    notify(request, background, user, "passkey_added")
     return _listing(user)
 
 
@@ -213,7 +216,7 @@ def rename_passkey(
 
 @router.delete("/me/passkeys/{passkey_id}", response_model=PasskeyList)
 def delete_passkey(
-    passkey_id: int, request: Request, body: DeleteAccountBody | None = None,
+    passkey_id: int, request: Request, background: BackgroundTasks, body: DeleteAccountBody | None = None,
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> PasskeyList:  # fmt: skip
     user = session.user
@@ -224,4 +227,5 @@ def delete_passkey(
     user.passkeys.remove(passkey)
     db.commit()
     audit.info("passkey removed user=%r ip=%s", user.username, client_ip(request))
+    notify(request, background, user, "passkey_removed")
     return _listing(user)

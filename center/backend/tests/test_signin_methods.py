@@ -385,7 +385,7 @@ def test_voice_registered_account_cannot_sign_in_by_webcam(bio_client):
 def status_body(**over):
     base = {
         "has_password": True, "google_linked": False, "voice_login": False, "webcam_login": False,
-        "has_audio": False, "has_face": False, "require_biometric_2fa": False, "passkey_count": 0
+        "has_audio": False, "has_face": False, "require_biometric_2fa": False, "passkey_count": 0, "email_verified": False
     }  # fmt: skip
     return {**base, **over}
 
@@ -622,7 +622,7 @@ def test_me_has_the_new_shape(bio_client):
     body = bio_client.get("/auth/me").json()
     assert set(body) == {
         "id", "username", "role", "email", "has_password", "google_linked", "voice_login", "webcam_login",
-        "has_audio", "has_face", "require_biometric_2fa", "csrf_token", "passkey_count", "passkeys",
+        "has_audio", "has_face", "require_biometric_2fa", "csrf_token", "passkey_count", "passkeys", "email_verified",
     }  # fmt: skip
     assert me.status_code == 201
 

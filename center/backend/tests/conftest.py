@@ -9,7 +9,7 @@ os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
 from app.main import create_app  # noqa: E402
-from tests.fakes import FakeBiometrics, fake_google_verifier  # noqa: E402
+from tests.fakes import FakeBiometrics, FakeMailer, fake_google_verifier  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -18,6 +18,8 @@ def env(monkeypatch):
     for name in (
         "APP_ENV", "COOKIE_SECURE", "ACCESS_TOKEN_MINUTES", "REFRESH_DAYS", "ALLOWED_ORIGINS",
         "GOOGLE_CLIENT_ID", "BIOMETRICS_ENABLED", "DATA_KEY", "WEBAUTHN_RP_ID", "WEBAUTHN_RP_NAME",
+        "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM", "SMTP_STARTTLS", "PUBLIC_URL",
+        "SMTP_SSL", "SMTP_ALLOW_PLAINTEXT_AUTH",
     ):  # fmt: skip
         monkeypatch.delenv(name, raising=False)
 
@@ -48,4 +50,40 @@ def bio_client(monkeypatch):
     app = create_app("sqlite://")
     app.state.biometrics = FakeBiometrics()
     with TestClient(app) as test_client:
+        yield test_client
+
+
+PUBLIC_URL = "https://app.example"
+
+
+def _mail_app(monkeypatch, database_url="sqlite://"):
+    monkeypatch.setenv("SMTP_HOST", "smtp.test")
+    monkeypatch.setenv("PUBLIC_URL", PUBLIC_URL)
+    app = create_app(database_url)
+    app.state.mailer = FakeMailer()
+    app.state.google_verifier = fake_google_verifier
+    return app
+
+
+@pytest.fixture
+def mail_client(monkeypatch):
+    """Email enabled (fake mailer in app.state.mailer, PUBLIC_URL fixed, fake Google verifier)."""
+    with TestClient(_mail_app(monkeypatch)) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def mail_bio_client(monkeypatch):
+    monkeypatch.setenv("BIOMETRICS_ENABLED", "1")
+    monkeypatch.setenv("DATA_KEY", Fernet.generate_key().decode())
+    app = _mail_app(monkeypatch)
+    app.state.biometrics = FakeBiometrics()
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def mail_file_client(monkeypatch, tmp_path):
+    """Like mail_client on a file database (real connections per thread, for concurrency tests)."""
+    with TestClient(_mail_app(monkeypatch, f"sqlite:///{tmp_path / 'mail.db'}")) as test_client:
         yield test_client

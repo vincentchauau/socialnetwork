@@ -11,24 +11,27 @@ import PasswordField from "./PasswordField";
 import { availableMethods } from "./SignInForm";
 import UsernameField from "./UsernameField";
 import VideoRecord from "./VideoRecord";
-import { PRIMARY_BUTTON } from "./ui";
+import { INPUT, LABEL, PRIMARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
 import { usePasskeySupport } from "../hooks/usePasskeySupport";
 import {
   AuthConfig,
   CombinedRegistration,
+  EMAIL_INVALID,
   PASSWORD_MESSAGE,
+  isEmailValid,
   isPasswordValid,
   passkeyRegisterOptions,
   registerCombined,
   rememberNewUsername,
+  rememberVerificationEmail,
 } from "../lib/auth";
 import { goTo, postLoginTarget } from "../lib/navigate";
 import { PASSKEY_UNSUPPORTED, createPasskeyCredential } from "../lib/passkey";
 
 type Chosen = Record<Method, boolean>;
 
-const DEFAULT_CHOSEN: Chosen = { password: true, google: false, voice: false, webcam: false, passkey: false };
+const DEFAULT_CHOSEN: Chosen = { password: true, google: false, voice: false, webcam: false, passkey: false, email: false };
 
 const OPTIONAL_HINT = "Không bắt buộc nếu chỉ dùng Google, Giọng nói, Webcam hoặc Passkey: hệ thống sẽ tự tạo tên (ví dụ user-7f3a2c).";
 
@@ -44,6 +47,7 @@ const isUsernameRequired = (chosen: Chosen) => chosen.password;
 export default function RegisterForm({ config }: { config: AuthConfig }) {
   const [chosen, setChosen] = useState<Chosen>(DEFAULT_CHOSEN);
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [googleToken, setGoogleToken] = useState<string>();
   const [audio, setAudio] = useState<Blob>();
@@ -77,12 +81,15 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
     if (chosen.webcam && !video) return fail("Hãy quay khuôn mặt trước khi đăng ký");
     if (isUsernameRequired(chosen) && !username.trim()) return fail("Hãy nhập tên đăng nhập");
     if (chosen.passkey && !passkeySupported) return fail(PASSKEY_UNSUPPORTED);
+    const cleanEmail = email.trim();
+    if (cleanEmail && !isEmailValid(cleanEmail)) return fail(EMAIL_INVALID);
     let created: string | undefined;
     const ok = await run(async () => {
       const passkey = chosen.passkey ? await createPasskey() : {};
       const session = await registerCombined({
         ...passkey,
         username,
+        email: cleanEmail || undefined,
         password: chosen.password ? password : undefined,
         googleIdToken: chosen.google ? googleToken : undefined,
         voiceAudio: chosen.voice ? audio : undefined,
@@ -97,6 +104,7 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
     if (!ok) return;
     setPassword("");
     if (!username.trim() && created) rememberNewUsername(created);
+    if (cleanEmail) rememberVerificationEmail(cleanEmail);
     goTo(postLoginTarget());
   }
 
@@ -117,6 +125,13 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
           );
         })}
       </fieldset>
+      {config.email_enabled && (
+        <>
+          <label htmlFor="register-email" className={LABEL}>Email (tùy chọn, dùng để khôi phục tài khoản)</label>
+          <input id="register-email" type="email" name="email" value={email} autoComplete="email" inputMode="email"
+                 onChange={(e) => setEmail(e.target.value)} className={INPUT} />
+        </>
+      )}
       {chosen.password && <PasswordField value={password} onChange={setPassword} isRegister />}
       {chosen.google && config.google_client_id && (
         <div className="mb-3" aria-busy={busy}>

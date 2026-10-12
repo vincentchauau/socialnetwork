@@ -4,6 +4,7 @@ import { FormEvent, ReactNode, useState } from "react";
 
 import Alert from "./Alert";
 import BiometricMethod from "./BiometricMethod";
+import EmailMethod from "./EmailMethod";
 import PasskeyMethod from "./PasskeyMethod";
 import { INPUT, LABEL, SECONDARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
@@ -73,6 +74,11 @@ export default function LoginMethods({ me, config, onDone }: Props) {
         <Row name="Mật khẩu" state={me.has_password ? "đã đặt" : "chưa đặt"}>
           {anchor("#doi-mat-khau", me.has_password ? "Đổi mật khẩu" : "Đặt mật khẩu")}
         </Row>
+        {config.email_enabled && (
+          <Row name="Email" state={me.email ? `${me.email} (${me.email_verified ? "đã xác minh" : "chưa xác minh"})` : "chưa có"}>
+            <EmailMethod me={me} onDone={onDone} />
+          </Row>
+        )}
         <Row name="Google" state={me.google_linked ? `đã liên kết với ${me.email ?? "tài khoản Google"}` : "chưa liên kết"}>
           {me.google_linked && <UnlinkGoogle hasPassword={me.has_password} onDone={onDone} />}
           {!me.google_linked && config.google_client_id && anchor("#lien-ket-google", "Liên kết Google")}

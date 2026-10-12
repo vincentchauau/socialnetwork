@@ -115,7 +115,7 @@ def test_login_with_correct_password_authenticates_me(client):
     assert login.status_code == 200
     assert me.status_code == 200
     assert me.json() == {
-        "id": login.json()["id"], "username": "alice", "role": "user", "email": None,
+        "id": login.json()["id"], "username": "alice", "role": "user", "email": None, "email_verified": False,
         "has_password": True, "google_linked": False, "voice_login": False, "webcam_login": False,
         "has_audio": False, "has_face": False, "require_biometric_2fa": False, "passkey_count": 0, "passkeys": [],
         "csrf_token": login.json()["csrf_token"],
@@ -145,7 +145,7 @@ def test_me_without_cookie_returns_401(client):
 
 
 def test_config_is_public_and_reports_features(client):
-    assert client.get("/auth/config").json() == {"google_client_id": None, "biometrics_enabled": False}
+    assert client.get("/auth/config").json() == {"google_client_id": None, "biometrics_enabled": False, "email_enabled": False}
 
 
 def test_config_reports_google_client_id(monkeypatch):

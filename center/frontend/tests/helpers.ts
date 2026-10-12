@@ -25,6 +25,7 @@ export const session = { id: 1, username: "ann", role: "user", csrf_token: "csrf
 export const me: Me = {
   ...session,
   email: null,
+  email_verified: false,
   has_password: true,
   google_linked: false,
   voice_login: false,

@@ -4,6 +4,7 @@ import threading
 
 from app.biometrics import BiometricError, BiometricUnavailable
 from app.google_auth import GoogleAuthError, GoogleIdentity
+from app.mailer import Message
 
 
 class FakeBiometrics:
@@ -71,3 +72,19 @@ def fake_google_verifier(token: str) -> GoogleIdentity:
         raise GoogleAuthError("Invalid Google token")
     sub, email = token.split("|", 1)
     return GoogleIdentity(sub=sub, email=email)
+
+
+class FakeMailer:
+    """Collects messages instead of speaking SMTP; `fail` makes every send raise."""
+
+    def __init__(self) -> None:
+        self.sent: list[Message] = []
+        self.fail = False
+
+    def send(self, message: Message) -> None:
+        if self.fail:
+            raise RuntimeError("smtp is down")
+        self.sent.append(message)
+
+    def to(self, address: str) -> list[Message]:
+        return [m for m in self.sent if m.to == address]

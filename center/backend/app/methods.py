@@ -9,6 +9,10 @@ KEEP_ONE = "Keep at least one sign-in method"
 GOOGLE_IN_USE = "That Google account is already linked to an account"
 
 
+def has_verified_email(user: User) -> bool:
+    return bool(user.email and user.email_verified)
+
+
 def methods_status(user: User) -> MethodsStatus:
     return MethodsStatus(
         has_password=user.has_password,
@@ -19,6 +23,7 @@ def methods_status(user: User) -> MethodsStatus:
         has_face=bool(user.face_embedding),
         require_biometric_2fa=user.biometric_2fa,
         passkey_count=len(user.passkeys),
+        email_verified=has_verified_email(user),
     )
 
 
@@ -37,14 +42,22 @@ def passkey_items(user: User) -> list[PasskeyOut]:
     ]  # fmt: skip
 
 
-def usable_methods(user: User, without: str | None = None) -> int:
+def methods_lost_on_unlink(user: User) -> tuple[str, ...]:
+    """Unlinking Google removes the email too, but only an address Google itself supplied."""
+    return ("google", "email") if user.email_from_google else ("google",)
+
+
+def usable_methods(user: User, without: str | tuple[str, ...] | None = None) -> int:
     """Number of usable sign-in methods, optionally pretending `without` is removed
-    ("password", "google", "voice", "webcam" or "passkey": all of them at once)."""
+    ("password", "google", "email", "voice", "webcam" or "passkey"; a tuple removes several).
+    An email counts only once verified."""
+    removed = (without,) if isinstance(without, str) else tuple(without or ())
     flags = {
         "password": user.has_password,
         "google": user.google_linked,
+        "email": has_verified_email(user),
         "voice": user.voice_login,
         "webcam": user.webcam_login,
         "passkey": bool(user.passkeys),
     }
-    return sum(1 for name, on in flags.items() if on and name != without)
+    return sum(1 for name, on in flags.items() if on and name not in removed)

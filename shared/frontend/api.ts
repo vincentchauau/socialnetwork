@@ -25,6 +25,12 @@ const NO_REFRESH_PATHS = new Set([
   "/api/center/auth/passkey/login",
   "/api/center/auth/register/passkey/options",
   "/api/center/auth/logout",
+  "/api/center/auth/email/login/request",
+  "/api/center/auth/email/login/verify",
+  "/api/center/auth/email/login/magic",
+  "/api/center/auth/email/verify",
+  "/api/center/auth/password/forgot",
+  "/api/center/auth/password/reset",
   REFRESH_PATH,
 ]);
 

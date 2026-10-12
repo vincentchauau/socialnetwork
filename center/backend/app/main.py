@@ -11,12 +11,14 @@ from app.config import Settings
 from app.crypto import TemplateCipher
 from app.db import DEFAULT_DATABASE_URL, Base, make_engine
 from app.google_auth import make_google_verifier
+from app.mailer import SmtpMailer
 from app.middleware import SecurityHeadersMiddleware
 from app.migrate import ensure_columns
 from app.passkeys import ChallengeStore
 from app.routes_account import router as account_router
 from app.routes_auth import router as auth_router
 from app.routes_biometrics import router as biometrics_router
+from app.routes_email import router as email_router
 from app.routes_methods import combined_router, methods_router
 from app.routes_passkeys import router as passkeys_router
 from app.throttle import AttemptThrottle
@@ -41,6 +43,16 @@ PASSKEY_LOGIN_MAX_FAILURES_PER_IP = 10  # failed passkey sign-ins per address pe
 PASSKEY_LOGIN_WINDOW_SECONDS = 900.0
 ENROLL_MAX_PER_HOUR = 10
 MAX_CONCURRENT_BIOMETRICS = 2
+EMAIL_REQUEST_MAX_PER_IP = 5  # login-link / forgot-password requests per address per window
+EMAIL_REQUEST_MAX_PER_IP_ADDRESS = 3  # ... per (address, normalised email): one IP cannot spend the email's budget
+EMAIL_REQUEST_MAX_PER_ADDRESS = 10  # ... per normalised email across all addresses (same for known and unknown)
+EMAIL_REQUEST_WINDOW_SECONDS = 900.0
+EMAIL_SUBMIT_MAX_PER_IP = 20  # codes, links and reset submissions per address per window
+EMAIL_CODE_MAX_FAILURES_PER_ADDRESS = 10  # wrong code submissions per normalised email, across rows
+EMAIL_CODE_FAILURE_WINDOW_SECONDS = 3600.0
+EMAIL_CHANGE_MAX_PER_HOUR = 5  # verification mails per user
+EMAIL_CHANGE_MAX_PER_TARGET = 3  # verification mails per target address from the change-email route
+REGISTER_MAIL_MAX_PER_ADDRESS = 3  # verification mails triggered by sign-ups, per target address
 
 
 def _install_throttles(app: FastAPI) -> None:
@@ -71,6 +83,20 @@ def _install_throttles(app: FastAPI) -> None:
     state.passkey_login_throttle = AttemptThrottle(PASSKEY_LOGIN_MAX_FAILURES_PER_IP, PASSKEY_LOGIN_WINDOW_SECONDS)
     state.passkey_challenges = ChallengeStore()  # consumed challenge ids; per process, like the throttles
     state.enroll_throttle = AttemptThrottle(ENROLL_MAX_PER_HOUR, 3600.0)
+    window = EMAIL_REQUEST_WINDOW_SECONDS
+    state.email_login_ip_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP, window)
+    state.email_login_ip_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP_ADDRESS, window)
+    state.email_login_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_ADDRESS, window)
+    state.forgot_ip_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP, window)
+    state.forgot_ip_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP_ADDRESS, window)
+    state.forgot_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_ADDRESS, window)
+    state.email_submit_throttle = AttemptThrottle(EMAIL_SUBMIT_MAX_PER_IP, window)
+    state.email_code_fail_throttle = AttemptThrottle(
+        EMAIL_CODE_MAX_FAILURES_PER_ADDRESS, EMAIL_CODE_FAILURE_WINDOW_SECONDS
+    )
+    state.email_change_throttle = AttemptThrottle(EMAIL_CHANGE_MAX_PER_HOUR, 3600.0)
+    state.email_change_target_throttle = AttemptThrottle(EMAIL_CHANGE_MAX_PER_TARGET, window)
+    state.register_mail_throttle = AttemptThrottle(REGISTER_MAIL_MAX_PER_ADDRESS, window)
     state.biometric_slots = threading.BoundedSemaphore(MAX_CONCURRENT_BIOMETRICS)
 
 
@@ -111,9 +137,18 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.state.google_verifier = (
         make_google_verifier(settings.google_client_id) if settings.google_client_id else None
     )
+    app.state.mailer = (
+        SmtpMailer(
+            settings.smtp_host, settings.smtp_port, settings.smtp_user, settings.smtp_password, settings.smtp_from,
+            starttls=settings.smtp_starttls, use_ssl=settings.smtp_ssl,
+        )
+        if settings.email_enabled
+        else None
+    )
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.include_router(auth_router)
     app.include_router(account_router)
+    app.include_router(email_router)
     app.include_router(biometrics_router)
     app.include_router(methods_router)
     app.include_router(combined_router)

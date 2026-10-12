@@ -6,6 +6,7 @@ import { ApiError } from "@sn/api";
 
 import Alert from "./Alert";
 import AudioRecord from "./AudioRecord";
+import EmailLogin from "./EmailLogin";
 import BiometricWarning from "./BiometricWarning";
 import GoogleSignInButton from "./GoogleSignInButton";
 import MethodTabs, { Method } from "./MethodTabs";
@@ -40,6 +41,12 @@ export function availableMethods(config: AuthConfig): Method[] {
   if (config.biometrics_enabled) methods.push("voice", "webcam");
   methods.push("passkey");
   return methods;
+}
+
+/** Các tab đăng nhập: thêm Email (sau Mật khẩu) khi máy chủ bật email. */
+export function signInMethods(config: AuthConfig): Method[] {
+  const [password, ...rest] = availableMethods(config);
+  return config.email_enabled ? [password, "email", ...rest] : [password, ...rest];
 }
 
 const PASSKEY_HINT = "Dùng vân tay, Face ID, Windows Hello hoặc khóa bảo mật của thiết bị. Không cần nhập tên đăng nhập.";
@@ -125,7 +132,7 @@ export default function SignInForm({ config, onMfa }: Props) {
 
   return (
     <>
-      <MethodTabs methods={availableMethods(config)} value={method} disabled={busy} onChange={pick} />
+      <MethodTabs methods={signInMethods(config)} value={method} disabled={busy} onChange={pick} />
       <div role="tabpanel" aria-labelledby={`tab-${method}`}>
         {method === "google" && config.google_client_id ? (
           <div className="mb-4" aria-busy={busy}>
@@ -135,6 +142,8 @@ export default function SignInForm({ config, onMfa }: Props) {
               onError={fail}
             />
           </div>
+        ) : method === "email" && config.email_enabled ? (
+          <EmailLogin signIn={signIn} busy={busy} />
         ) : (
           <form onSubmit={submit} aria-label="Đăng nhập">
             {(method === "password" || needUsername) && (
@@ -153,6 +162,11 @@ export default function SignInForm({ config, onMfa }: Props) {
             {(method === "voice" || method === "webcam") && <BiometricWarning kinds={[method]} />}
             {method === "voice" && <AudioRecord key={recordingKey} disabled={busy} onRecorded={setAudio} />}
             {method === "webcam" && <VideoRecord key={recordingKey} disabled={busy} onRecorded={setVideo} />}
+            {method === "password" && config.email_enabled && (
+              <p className="text-sm text-right mb-2">
+                <a href="/forgot-password" className="text-blue-700 underline">Quên mật khẩu?</a>
+              </p>
+            )}
             <button type="submit" disabled={busy || (method === "passkey" && !passkeySupported)} className={`${PRIMARY_BUTTON} mt-2`}>
               {busy ? "Đang xử lý..." : method === "passkey" ? "Đăng nhập bằng Passkey" : "Đăng nhập"}
             </button>

@@ -11,7 +11,7 @@ a stolen session of such an account can change its methods (known limitation).
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -31,8 +31,10 @@ from app.identify import (
     too_many_candidates,
 )
 from app.deps import AuthSession, biometrics_available, check_origin, client_ip, csrf_session, require_reauth, settings_of, too_many
+from app import emailtokens as et
 from app.methods import GOOGLE_IN_USE, KEEP_ONE, methods_status, usable_methods
 from app.models import User
+from app.notify import notify, send_link_mail
 from app.passwords import NO_PASSWORD, hash_password, password_problem
 from app.routes_auth import verify_google_or_throttle
 from app.routes_passkeys import verified_signup_passkey
@@ -47,7 +49,7 @@ from app.routes_biometrics import (
     read_probes,
     require_biometrics,
 )
-from app.schemas import MethodsStatus, SessionOut, checked_username
+from app.schemas import MethodsStatus, SessionOut, checked_username, normalized_email
 from app.sessions import issue_session
 
 LOGIN_FAILED = "Biometric login failed"
@@ -117,10 +119,44 @@ def _templates(
     return columns
 
 
+def _signup_address(email: str | None) -> str | None:
+    """The optional sign-up email, normalised; email alone is never a method, so no extra rule here."""
+    if email is None or not email.strip():
+        return None
+    try:
+        return normalized_email(email)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"email: {exc}") from None
+
+
+def _send_signup_verification(
+    request: Request, background: BackgroundTasks, db: Session, user: User, address: str
+) -> None:
+    """Best effort: the account exists already, so nothing here may fail the registration.
+
+    Capped per target address (a sign-up must not become a way to mail someone repeatedly), and skipped
+    when the address is verified on another account.
+    """
+    state = request.app.state
+    if not settings_of(request).email_enabled:
+        return
+    try:
+        if state.register_mail_throttle.is_blocked(address):
+            return
+        state.register_mail_throttle.record(address)
+        if db.scalar(select(User.id).where(User.email == address, User.email_verified.is_(True))) is not None:
+            return
+        issued = et.issue(db, user, et.VERIFY, address, with_code=True)
+        send_link_mail(request, background, et.VERIFY, address, issued.token, issued.code)
+    except Exception as exc:  # noqa: BLE001 - never fail a registration over a mail
+        db.rollback()
+        audit.warning("signup verification mail not queued error=%s", type(exc).__name__)
+
+
 def _register(
     request: Request, response: Response, db: Session, username: str | None, *,
     password: str | None = None, google_token: str | None = None, voice_file=None, video_file=None,
-    passkey: tuple[str, str] | None = None,
+    passkey: tuple[str, str] | None = None, email: str | None = None, background: BackgroundTasks | None = None,
 ) -> SessionOut:  # fmt: skip
     """All-or-nothing: every method is validated before the account row exists."""
     throttle, ip = request.app.state.register_throttle, client_ip(request)
@@ -131,6 +167,7 @@ def _register(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NO_METHOD)
     # Google, voice, webcam and passkey sign in without a name, so only a password needs one. There is NO rename
     # endpoint (usernames are denormalised in other services), hence the generated handle is permanent.
+    address = _signup_address(email)  # validated before anything is stored
     generate = username is None or not username.strip()
     if generate and password:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, CHOOSE_USERNAME)
@@ -152,7 +189,10 @@ def _register(
         if db.scalar(select(User.id).where(User.google_sub == identity.sub)) is not None:
             raise HTTPException(status.HTTP_409_CONFLICT, GOOGLE_IN_USE)
         email_taken = db.scalar(select(User.id).where(User.email == identity.email)) is not None
-        columns.update(google_sub=identity.sub, email=None if email_taken else identity.email)
+        columns.update(
+            google_sub=identity.sub, email=None if email_taken else identity.email,
+            email_from_google=not email_taken,
+        )  # fmt: skip
         if generate:
             name = unique_handle(identity.email, lambda h: _handle_taken(db, h))
     columns.update(_templates(request, db, voice_file, video_file))
@@ -167,6 +207,8 @@ def _register(
     except IntegrityError:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, TAKEN) from None
+    if address and background is not None:
+        _send_signup_verification(request, background, db, user, address)
     audit.info("register user=%r ip=%s methods=%s", name, ip,
                sorted([k for k in columns if k != "password_hash"] + (["passkey"] if passkey else [])))
     return issue_session(response, user, settings_of(request))
@@ -196,14 +238,15 @@ def register_webcam(
 def register_combined(
     request: Request, response: Response, username: Annotated[str | None, Form()] = None,
     password: Text = None, google_id_token: Text = None, voice_audio: Upload = None, webcam_video: Upload = None,
-    passkey_credential: Text = None, passkey_challenge_token: Text = None, db: Session = Depends(get_db),
+    passkey_credential: Text = None, passkey_challenge_token: Text = None, email: Text = None,
+    background: BackgroundTasks = None, db: Session = Depends(get_db),
 ) -> SessionOut:  # fmt: skip
     if bool(passkey_credential) != bool(passkey_challenge_token):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, PASSKEY_BOTH)
     passkey = (passkey_credential, passkey_challenge_token) if passkey_credential and passkey_challenge_token else None
     return _register(
         request, response, db, username, password=password, google_token=google_id_token,
-        voice_file=voice_audio, video_file=webcam_video, passkey=passkey,
+        voice_file=voice_audio, video_file=webcam_video, passkey=passkey, email=email, background=background,
     )  # fmt: skip
 
 
@@ -328,7 +371,7 @@ def _enroll(request: Request, session: AuthSession, password: str | None) -> Non
 
 @methods_router.post("/me/voice", response_model=MethodsStatus)
 def link_voice(
-    request: Request, password: Text = None, audio: Upload = None,
+    request: Request, background: BackgroundTasks, password: Text = None, audio: Upload = None,
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
     _enroll(request, session, password)
@@ -341,12 +384,13 @@ def link_voice(
     user.voice_login = True
     db.commit()
     audit.info("voice sign-in enabled user=%r ip=%s", user.username, client_ip(request))
+    notify(request, background, user, "voice_added")
     return methods_status(user)
 
 
 @methods_router.post("/me/webcam", response_model=MethodsStatus)
 def link_webcam(
-    request: Request, password: Text = None, video: Upload = None,
+    request: Request, background: BackgroundTasks, password: Text = None, video: Upload = None,
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
     """Face template only; the voice template (if any) is never touched. An `audio` field is ignored."""
@@ -360,10 +404,13 @@ def link_webcam(
     user.webcam_login = True
     db.commit()
     audit.info("webcam sign-in enabled user=%r ip=%s", user.username, client_ip(request))
+    notify(request, background, user, "webcam_added")
     return methods_status(user)
 
 
-def _remove(request: Request, session: AuthSession, db: Session, password: str | None, method: str) -> MethodsStatus:
+def _remove(
+    request: Request, background: BackgroundTasks, session: AuthSession, db: Session, password: str | None, method: str
+) -> MethodsStatus:
     user = session.user
     require_reauth(request, user, password)
     if usable_methods(user, without=method) == 0 and (user.voice_login if method == "voice" else user.webcam_login):
@@ -378,18 +425,19 @@ def _remove(request: Request, session: AuthSession, db: Session, password: str |
         user.biometric_2fa = False  # no template left: never keep a factor that cannot be met
     db.commit()
     audit.info("%s sign-in removed user=%r ip=%s", method, user.username, client_ip(request))
+    notify(request, background, user, f"{method}_removed")
     return methods_status(user)
 
 
 @methods_router.delete("/me/voice", response_model=MethodsStatus)
 def remove_voice(
-    request: Request, password: Text = None, session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
+    request: Request, background: BackgroundTasks, password: Text = None, session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
-    return _remove(request, session, db, password, "voice")
+    return _remove(request, background, session, db, password, "voice")
 
 
 @methods_router.delete("/me/webcam", response_model=MethodsStatus)
 def remove_webcam(
-    request: Request, password: Text = None, session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
+    request: Request, background: BackgroundTasks, password: Text = None, session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
-    return _remove(request, session, db, password, "webcam")
+    return _remove(request, background, session, db, password, "webcam")
