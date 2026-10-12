@@ -27,6 +27,8 @@ export interface Me {
   require_biometric_2fa: boolean;
   passkey_count: number;
   passkeys: PasskeyItem[];
+  totp_enabled: boolean;
+  recovery_codes_left: number;
   csrf_token: string;
 }
 
@@ -41,6 +43,8 @@ export interface MethodsStatus {
   require_biometric_2fa: boolean;
   passkey_count: number;
   passkeys: PasskeyItem[];
+  totp_enabled: boolean;
+  recovery_codes_left: number;
 }
 
 export interface PasskeyItem {
@@ -70,7 +74,17 @@ export interface AuthConfig {
 
 export const NO_CONFIG: AuthConfig = { google_client_id: null, biometrics_enabled: false, email_enabled: false };
 
-export type LoginResult = { kind: "session"; session: Session } | { kind: "mfa"; mfaToken: string };
+export type MfaFactor = "totp" | "biometric";
+export interface MfaChallenge {
+  mfaToken: string;
+  factors: MfaFactor[];
+}
+
+export type LoginResult = { kind: "session"; session: Session } | ({ kind: "mfa" } & MfaChallenge);
+
+export const MAX_PASSKEYS = 10;
+export const PASSKEY_LIMIT_MESSAGE = "Tối đa 10 Passkey cho mỗi tài khoản";
+export const RECOVERY_CODE_COUNT = 10;
 
 export const PASSWORD_MESSAGE = `Mật khẩu cần ít nhất ${MIN_PASSWORD} ký tự`;
 
@@ -90,12 +104,14 @@ export function safeNextPath(next: string | null | undefined): string {
   }
 }
 
+const PASSKEY_LIMIT = "Passkey limit reached";
 export const USERNAME_NEEDED = "Enter your username";
 const VOICE_TAKEN = "This voice is already registered";
 const VOICE_TAKEN_HELP = "Giọng nói này đã được đăng ký cho một tài khoản khác, hãy đăng nhập hoặc dùng giọng khác.";
 
 export function errorText(error: unknown): string {
   if (error instanceof ApiError && error.status === 429) return "Thử quá nhiều lần, hãy thử lại sau";
+  if (error instanceof ApiError && error.status === 409 && error.message === PASSKEY_LIMIT) return PASSKEY_LIMIT_MESSAGE;
   if (error instanceof Error && error.message === VOICE_TAKEN) return `${VOICE_TAKEN}. ${VOICE_TAKEN_HELP}`;
   return error instanceof Error ? error.message : "Có lỗi xảy ra, hãy thử lại";
 }
@@ -120,10 +136,14 @@ const json = (body: unknown): RequestInit => ({ method: "POST", body: JSON.strin
 
 export const getAuthConfig = () => apiFetch<AuthConfig>(`${CENTER_API}/auth/config`);
 
-type SessionOrMfa = Session | { mfa_required: true; mfa_token: string };
+type SessionOrMfa = Session | { mfa_required: true; mfa_token: string; factors?: MfaFactor[] };
 
 function toLoginResult(body: SessionOrMfa): LoginResult {
-  if ("mfa_required" in body && body.mfa_required) return { kind: "mfa", mfaToken: body.mfa_token };
+  if ("mfa_required" in body && body.mfa_required) {
+    // Old servers send no `factors`: the only second factor then was the biometric one.
+    const factors = body.factors?.length ? body.factors : (["biometric"] as MfaFactor[]);
+    return { kind: "mfa", mfaToken: body.mfa_token, factors };
+  }
   return { kind: "session", session: body as Session };
 }
 
@@ -139,13 +159,24 @@ export async function loginWithGoogle(idToken: string): Promise<LoginResult> {
 export const loginWithBiometrics = (mfaToken: string, audio?: Blob, video?: Blob) =>
   apiForm<Session>(`${CENTER_API}/auth/login/biometric`, biometricForm({ mfa_token: mfaToken }, audio, video));
 
+/** Second factor with an authenticator code or (instead) a one-time recovery code. */
+export const loginWithTotp = (mfaToken: string, proof: { code: string } | { recoveryCode: string }) =>
+  apiFetch<Session>(
+    `${CENTER_API}/auth/login/totp`,
+    json("code" in proof ? { mfa_token: mfaToken, code: proof.code } : { mfa_token: mfaToken, recovery_code: proof.recoveryCode }),
+  );
+
 /** Sign in with ONE voice clip; the username is only sent after the server asked for it. */
-export const loginWithVoice = (audio: Blob, username?: string) =>
-  apiForm<Session>(`${CENTER_API}/auth/login/voice`, biometricForm({ username: username?.trim() || undefined }, audio));
+export async function loginWithVoice(audio: Blob, username?: string): Promise<LoginResult> {
+  const form = biometricForm({ username: username?.trim() || undefined }, audio);
+  return toLoginResult(await apiForm<SessionOrMfa>(`${CENTER_API}/auth/login/voice`, form));
+}
 
 /** Sign in with ONE face-only webcam clip (no audio); the username is only sent after the server asked for it. */
-export const loginWithWebcam = (video: Blob, username?: string) =>
-  apiForm<Session>(`${CENTER_API}/auth/login/webcam`, biometricForm({ username: username?.trim() || undefined }, undefined, video));
+export async function loginWithWebcam(video: Blob, username?: string): Promise<LoginResult> {
+  const form = biometricForm({ username: username?.trim() || undefined }, undefined, video);
+  return toLoginResult(await apiForm<SessionOrMfa>(`${CENTER_API}/auth/login/webcam`, form));
+}
 
 const NEW_USERNAME_KEY = "center.newUsername";
 
@@ -343,3 +374,34 @@ export const setMyEmail = (email: string, password?: string) =>
 
 export const removeMyEmail = (password?: string) =>
   apiFetch<MethodsStatus>(`${CENTER_API}/auth/me/email`, { method: "DELETE", body: JSON.stringify({ password }) });
+
+/* ---- TOTP second factor (authenticator app) + recovery codes ---- */
+
+export interface TotpSetup {
+  secret: string;
+  otpauth_uri: string;
+}
+
+export interface RecoveryCodes {
+  recovery_codes: string[];
+}
+
+export const totpSetup = (password?: string) =>
+  apiFetch<TotpSetup>(`${CENTER_API}/auth/totp/setup`, json({ password }));
+
+export async function totpEnable(code: string, password?: string): Promise<RecoveryCodes> {
+  // The reply carries the re-issued session's csrf_token (apiFetch stores it); /auth/me confirms it before any further write.
+  const result = await apiFetch<RecoveryCodes>(`${CENTER_API}/auth/totp/enable`, json({ code, password }));
+  await fetchMe();
+  return result;
+}
+
+/** `code` is a current authenticator code or an unused recovery code. */
+export async function totpDisable(code: string, password?: string): Promise<void> {
+  await apiFetch<void>(`${CENTER_API}/auth/totp`, { method: "DELETE", body: JSON.stringify({ code, password }) });
+  // The server re-issues the session cookies (new access token, new CSRF token): fetch it before any further write.
+  await fetchMe();
+}
+
+export const totpRegenerateRecoveryCodes = (code: string, password?: string) =>
+  apiFetch<RecoveryCodes>(`${CENTER_API}/auth/totp/recovery-codes`, json({ code, password }));

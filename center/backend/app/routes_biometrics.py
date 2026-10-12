@@ -155,8 +155,8 @@ def login_biometric(
     except AuthError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA) from None
     user = db.get(User, user_id)
-    if user is None or user.token_version != ver:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA)
+    if user is None or user.token_version != ver or user.totp_enabled or not (user.biometric_2fa and user.has_biometrics):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA)  # also: switched off meanwhile, or TOTP is on (it never accepts a biometric instead)
     throttles = [state.bio_throttle, state.bio_account_throttle]
     keys = [f"{ip}|{user.username}", user.username]
     _count_attempts(throttles, keys, user.username, ip)

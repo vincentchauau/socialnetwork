@@ -21,7 +21,9 @@ from app.routes_biometrics import router as biometrics_router
 from app.routes_email import router as email_router
 from app.routes_methods import combined_router, methods_router
 from app.routes_passkeys import router as passkeys_router
+from app.routes_totp import router as totp_router
 from app.throttle import AttemptThrottle
+from app.totp import make_cipher
 
 LOGIN_MAX_FAILURES_PER_IP_USER = 5  # per (client address, username)
 LOGIN_MAX_FAILURES_PER_IP = 20  # across all usernames from one address
@@ -52,6 +54,10 @@ EMAIL_CODE_MAX_FAILURES_PER_ADDRESS = 10  # wrong code submissions per normalise
 EMAIL_CODE_FAILURE_WINDOW_SECONDS = 3600.0
 EMAIL_CHANGE_MAX_PER_HOUR = 5  # verification mails per user
 EMAIL_CHANGE_MAX_PER_TARGET = 3  # verification mails per target address from the change-email route
+TOTP_LOGIN_MAX_PER_IP = 20  # wrong TOTP/recovery codes at the second step, per address per window
+TOTP_LOGIN_MAX_PER_ACCOUNT = 10  # ... per account, across all addresses
+TOTP_MANAGE_MAX_FAILURES = 5  # wrong codes on enable/disable/regenerate, per (address, user)
+TOTP_WINDOW_SECONDS = 900.0
 REGISTER_MAIL_MAX_PER_ADDRESS = 3  # verification mails triggered by sign-ups, per target address
 
 
@@ -97,6 +103,9 @@ def _install_throttles(app: FastAPI) -> None:
     state.email_change_throttle = AttemptThrottle(EMAIL_CHANGE_MAX_PER_HOUR, 3600.0)
     state.email_change_target_throttle = AttemptThrottle(EMAIL_CHANGE_MAX_PER_TARGET, window)
     state.register_mail_throttle = AttemptThrottle(REGISTER_MAIL_MAX_PER_ADDRESS, window)
+    state.totp_login_ip_throttle = AttemptThrottle(TOTP_LOGIN_MAX_PER_IP, TOTP_WINDOW_SECONDS)
+    state.totp_login_account_throttle = AttemptThrottle(TOTP_LOGIN_MAX_PER_ACCOUNT, TOTP_WINDOW_SECONDS)
+    state.totp_manage_throttle = AttemptThrottle(TOTP_MANAGE_MAX_FAILURES, TOTP_WINDOW_SECONDS)
     state.biometric_slots = threading.BoundedSemaphore(MAX_CONCURRENT_BIOMETRICS)
 
 
@@ -134,6 +143,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
     _install_throttles(app)
     _install_biometrics(app, settings)
+    app.state.totp_cipher = make_cipher(settings)  # fails at startup on a bad DATA_KEY
     app.state.google_verifier = (
         make_google_verifier(settings.google_client_id) if settings.google_client_id else None
     )
@@ -153,6 +163,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(methods_router)
     app.include_router(combined_router)
     app.include_router(passkeys_router)
+    app.include_router(totp_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

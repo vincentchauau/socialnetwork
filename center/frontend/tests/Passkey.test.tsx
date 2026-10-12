@@ -498,3 +498,39 @@ describe("passkey helpers", () => {
     expect([...(fetchMock.mock.calls[1][1].body as FormData).keys()]).toEqual(["passkey_credential", "passkey_challenge_token"]);
   });
 });
+
+describe("Passkey limit on /account", () => {
+  const many = (count: number): PasskeyItem[] =>
+    Array.from({ length: count }, (_, index) => ({ ...PASSKEYS[0], id: 100 + index, name: `Khóa ${index}` }));
+
+  it("disables the add form and explains the cap at 10 passkeys", async () => {
+    accountSetup({ passkeys: many(10) });
+    render(<AccountView />);
+    await card();
+    expect(screen.getByText("Tối đa 10 Passkey cho mỗi tài khoản")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Thêm Passkey" })).toBeDisabled();
+    expect(screen.getByLabelText("Tên Passkey (không bắt buộc)")).toBeDisabled();
+    expect(document.getElementById("passkey-password")).toBeDisabled();
+  });
+
+  it("keeps the form usable at 9 passkeys", async () => {
+    accountSetup({ passkeys: many(9) });
+    render(<AccountView />);
+    await card();
+    expect(screen.queryByText("Tối đa 10 Passkey cho mỗi tài khoản")).not.toBeInTheDocument();
+    // enabled once WebAuthn support has been detected (an effect), so wait for it
+    await waitFor(() => expect(screen.getByRole("button", { name: "Thêm Passkey" })).toBeEnabled());
+  });
+
+  it("shows the Vietnamese text when the server answers 409 Passkey limit reached", async () => {
+    accountSetup({ passkeys: many(2) }, (url) =>
+      url.endsWith("/me/passkeys/options") ? jsonResponse({ detail: "Passkey limit reached" }, 409) : undefined,
+    );
+    const user = userEvent.setup();
+    render(<AccountView />);
+    await card();
+    await user.type(document.getElementById("passkey-password") as HTMLInputElement, "pw-123456");
+    await user.click(screen.getByRole("button", { name: "Thêm Passkey" }));
+    expect((await screen.findAllByText("Tối đa 10 Passkey cho mỗi tài khoản")).length).toBeGreaterThan(0);
+  });
+});

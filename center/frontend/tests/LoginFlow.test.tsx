@@ -450,6 +450,26 @@ describe("LoginFlow second factor (unchanged)", () => {
   });
 });
 
+describe("LoginFlow voice/webcam with a TOTP account", () => {
+  it.each([
+    ["Giọng nói", "fake voice", "/login/voice"],
+    ["Webcam (khuôn mặt)", "fake webcam", "/login/webcam"],
+  ])("%s sign-in leads to the authenticator step", async (tab, fake, route) => {
+    setup({
+      config: BIO,
+      extra: (url) => (url.endsWith(route) ? jsonResponse({ mfa_required: true, mfa_token: "tok", factors: ["totp"] }) : undefined),
+    });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await user.click(await screen.findByRole("tab", { name: tab }));
+    await user.click(screen.getByRole("button", { name: fake }));
+    await user.click(screen.getByRole("button", { name: "Đăng nhập" }));
+    expect(await screen.findByRole("heading", { name: "Xác minh danh tính" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Mã xác thực 6 chữ số")).toBeInTheDocument();
+    expect(goTo).not.toHaveBeenCalled();
+  });
+});
+
 describe("LoginFlow register (multi-select)", () => {
   async function register(config: unknown = PLAIN) {
     const fetchMock = setup({ config });

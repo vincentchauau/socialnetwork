@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, LargeBinary, String, false
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -39,6 +39,12 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # True only while `email` is the address Google supplied (unlinking Google then removes it with the link).
     email_from_google: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # TOTP second factor. Secrets are Fernet tokens (app.totp), never plain; the pending one waits until enabled.
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_pending_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_last_step: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # replay protection
+    recovery_codes: Mapped[list["RecoveryCode"]] = relationship(cascade="all, delete-orphan")
     # Deleting the account deletes its passkeys (ORM cascade here, ON DELETE CASCADE in the table).
     passkeys: Mapped[list["Passkey"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", order_by="Passkey.id"
@@ -95,3 +101,15 @@ class EmailToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="email_tokens")
+
+
+class RecoveryCode(Base):
+    """One single-use TOTP recovery code, stored only as a keyed HMAC (see app.totp)."""
+
+    __tablename__ = "recovery_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64), index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

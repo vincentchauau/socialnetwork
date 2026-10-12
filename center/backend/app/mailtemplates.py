@@ -39,6 +39,19 @@ EVENTS: dict[str, tuple[str, str]] = {
     "voice_removed": ("Đã tắt đăng nhập bằng giọng nói", "Đăng nhập bằng giọng nói của tài khoản {username} vừa bị gỡ."),
     "webcam_added": ("Đã bật đăng nhập bằng khuôn mặt", "Đăng nhập bằng khuôn mặt vừa được bật cho tài khoản {username}."),
     "webcam_removed": ("Đã tắt đăng nhập bằng khuôn mặt", "Đăng nhập bằng khuôn mặt của tài khoản {username} vừa bị gỡ."),
+    "totp_enabled": ("Đã bật xác thực hai bước", "Xác thực hai bước bằng ứng dụng đã được bật cho tài khoản {username}."),
+    "totp_disabled": (
+        "Đã tắt xác thực hai bước",
+        "Xác thực hai bước bằng ứng dụng của tài khoản {username} vừa bị tắt và mọi phiên đăng nhập khác đã bị đăng xuất.",
+    ),
+    "recovery_codes_regenerated": (
+        "Đã tạo lại mã khôi phục",
+        "Bộ mã khôi phục mới vừa được tạo cho tài khoản {username}; các mã cũ không còn dùng được.",
+    ),
+    "recovery_code_used": (
+        "Một mã khôi phục đã được sử dụng",
+        "Một mã khôi phục vừa được dùng để đăng nhập vào tài khoản {username}.",
+    ),
     "account_deleted": ("Tài khoản của bạn đã bị xóa", "Tài khoản {username} vừa được xóa cùng toàn bộ dữ liệu."),
 }
 

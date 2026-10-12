@@ -8,6 +8,7 @@ import DeleteAccount from "./DeleteAccount";
 import LinkGoogle from "./LinkGoogle";
 import LoginMethods from "./LoginMethods";
 import PasswordForm from "./PasswordForm";
+import TotpMethod from "./TotpMethod";
 import { CARD, PRIMARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
 import { AuthConfig, Me, NO_CONFIG, errorText, getAuthConfig, loadMe, logout } from "../lib/auth";
@@ -73,6 +74,13 @@ export default function AccountView() {
           <LinkGoogle clientId={config.google_client_id} hasPassword={me.has_password} onDone={reload} />
         </div>
       )}
+
+      <TotpMethod
+        enabled={me.totp_enabled}
+        recoveryCodesLeft={me.recovery_codes_left}
+        hasPassword={me.has_password}
+        onDone={reload}
+      />
 
       {config.biometrics_enabled && (
         <section aria-label="Bảo mật nâng cao" className="text-left mb-4">

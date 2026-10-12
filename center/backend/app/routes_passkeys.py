@@ -8,7 +8,7 @@ registration ceremony starts, since the finishing request is bound to that accou
 import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,7 +16,7 @@ from app import passkeys as pk
 from app.audit import audit
 from app.db import get_db
 from app.deps import AuthSession, check_origin, client_ip, csrf_session, current_session, require_reauth, settings_of, too_many
-from app.methods import KEEP_ONE, passkey_items, usable_methods
+from app.methods import KEEP_ONE, MAX_PASSKEYS_PER_ACCOUNT, PASSKEY_LIMIT, passkey_items, usable_methods
 from app.models import Passkey, User, utcnow
 from app.notify import notify
 from app.schemas import (
@@ -150,6 +150,8 @@ def link_options(
     user = session.user
     _options_gate(request)
     require_reauth(request, user, body.password if body else None)
+    if len(user.passkeys) >= MAX_PASSKEYS_PER_ACCOUNT:
+        raise HTTPException(status.HTTP_409_CONFLICT, PASSKEY_LIMIT)
     handle = pk.user_handle_of(user) or pk.new_user_handle()
     options, challenge = pk.creation_options(
         settings_of(request), user_name=user.username, display_name=user.username, user_handle=handle,
@@ -157,6 +159,14 @@ def link_options(
     )  # fmt: skip
     token = pk.mint_challenge(pk.LINK, challenge, user_id=user.id, user_handle=handle)
     return _options_out(options, token)
+
+
+def _require_room(db: Session, user: User) -> None:
+    """The cap is counted in the transaction that inserts: the user row is locked first (a no-op on SQLite)."""
+    db.execute(select(User.id).where(User.id == user.id).with_for_update())
+    count = db.scalar(select(func.count()).select_from(Passkey).where(Passkey.user_id == user.id))
+    if count >= MAX_PASSKEYS_PER_ACCOUNT:
+        raise HTTPException(status.HTTP_409_CONFLICT, PASSKEY_LIMIT)
 
 
 @router.post("/me/passkeys", response_model=PasskeyList)
@@ -176,6 +186,7 @@ def add_passkey(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, REGISTRATION_FAILED) from None
     if db.scalar(select(Passkey.id).where(Passkey.credential_id == columns["credential_id"])) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, DUPLICATE)
+    _require_room(db, user)
     columns["user_handle"] = pk.user_handle_of(user) or columns["user_handle"]  # one handle per account
     user.passkeys.append(Passkey(name=(body.name or "").strip() or pk.DEFAULT_PASSKEY_NAME, **columns))
     try:

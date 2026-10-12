@@ -5,7 +5,7 @@ databases created before the auth upgrade get their new columns added here.
 Portable to SQLite and PostgreSQL.
 """
 
-from sqlalchemy import Boolean, Engine, Integer, LargeBinary, String, inspect, text
+from sqlalchemy import BigInteger, Boolean, Engine, Integer, LargeBinary, String, Text, inspect, text
 from sqlalchemy.types import TypeEngine
 
 TABLE = "users"
@@ -24,6 +24,10 @@ _COLUMNS: tuple[tuple[str, TypeEngine, tuple[str, str] | None], ...] = (
     ("biometric_2fa", Boolean(), ("0", "FALSE")),
     ("email_verified", Boolean(), ("0", "FALSE")),
     ("email_from_google", Boolean(), ("0", "FALSE")),
+    ("totp_enabled", Boolean(), ("0", "FALSE")),
+    ("totp_secret", Text(), None),
+    ("totp_pending_secret", Text(), None),
+    ("totp_last_step", BigInteger(), None),
 )
 _UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_sub"))
 

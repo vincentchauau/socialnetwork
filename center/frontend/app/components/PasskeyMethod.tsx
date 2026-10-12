@@ -6,7 +6,7 @@ import Alert from "./Alert";
 import { INPUT, LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
 import { usePasskeySupport } from "../hooks/usePasskeySupport";
-import { PasskeyItem, addPasskey, deletePasskey, myPasskeyOptions, renamePasskey } from "../lib/auth";
+import { MAX_PASSKEYS, PASSKEY_LIMIT_MESSAGE, PasskeyItem, addPasskey, deletePasskey, myPasskeyOptions, renamePasskey } from "../lib/auth";
 import { PASSKEY_UNSUPPORTED, createPasskeyCredential } from "../lib/passkey";
 
 interface Props {
@@ -102,8 +102,11 @@ export default function PasskeyMethod({ passkeys, hasPassword, onDone }: Props) 
   const [password, setPassword] = useState("");
   const { busy, error, message, run, fail } = useAction();
 
+  const full = passkeys.length >= MAX_PASSKEYS;
+
   async function add(event: FormEvent) {
     event.preventDefault();
+    if (full) return;
     if (hasPassword && !password) return fail("Hãy nhập mật khẩu để xác nhận");
     const ok = await run(async () => {
       const { options, challenge_token } = await myPasskeyOptions(hasPassword ? password : undefined);
@@ -129,17 +132,18 @@ export default function PasskeyMethod({ passkeys, hasPassword, onDone }: Props) 
       )}
       <p className="text-xs text-gray-600 mb-1">Không cần tên đăng nhập. Thiết bị tự xử lý vân tay, Face ID hoặc Windows Hello.</p>
       {!supported && <p role="note" className="text-sm text-red-600 mb-1">{PASSKEY_UNSUPPORTED}</p>}
+      {full && <p role="note" className="text-sm text-amber-800 mb-1">{PASSKEY_LIMIT_MESSAGE}</p>}
       <form onSubmit={add} aria-label="Thêm Passkey">
         <label htmlFor="passkey-new-name" className={LABEL}>Tên Passkey (không bắt buộc)</label>
-        <input id="passkey-new-name" value={name} maxLength={64} onChange={(e) => setName(e.target.value)} className={INPUT} />
+        <input id="passkey-new-name" value={name} maxLength={64} disabled={full} onChange={(e) => setName(e.target.value)} className={INPUT} />
         {hasPassword && (
           <>
             <label htmlFor="passkey-password" className={LABEL}>Nhập lại mật khẩu để xác nhận</label>
-            <input id="passkey-password" type="password" value={password} autoComplete="current-password"
+            <input id="passkey-password" type="password" value={password} autoComplete="current-password" disabled={full}
                    onChange={(e) => setPassword(e.target.value)} className={INPUT} />
           </>
         )}
-        <button type="submit" disabled={busy || !supported} className={PRIMARY_BUTTON}>
+        <button type="submit" disabled={busy || !supported || full} className={PRIMARY_BUTTON}>
           {busy ? "Đang xử lý..." : "Thêm Passkey"}
         </button>
         <Alert text={error} />

@@ -381,17 +381,34 @@ describe("Magic link page", () => {
     expect(noTokenInUrls(fetchMock, SECRET)).toBe(true);
   });
 
-  it("sends the user to /login with a note when more verification is needed", async () => {
+  it("hands a pending second factor to the verification step and finishes with the authenticator code", async () => {
+    window.history.replaceState({}, "", `/login/magic#token=${SECRET}`);
+    const fetchMock = setup(ON, (url) => {
+      if (url.endsWith("/email/login/magic")) return jsonResponse({ mfa_required: true, mfa_token: "m1", factors: ["totp"] });
+      if (url.endsWith("/login/totp")) return jsonResponse(session);
+      return undefined;
+    });
+    const user = userEvent.setup();
+    render(<MagicLoginView />);
+    await user.click(await screen.findByRole("button", { name: "Đăng nhập" }));
+    expect(await screen.findByRole("heading", { name: "Xác minh danh tính" })).toBeInTheDocument();
+    expect(goTo).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText("Mã xác thực 6 chữ số"), "123456");
+    await user.click(screen.getByRole("button", { name: "Xác minh và đăng nhập" }));
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    expect(bodyOf(fetchMock, "/login/totp")).toEqual({ mfa_token: "m1", code: "123456" });
+  });
+
+  it("goes to /login when the second-factor step is cancelled", async () => {
     window.history.replaceState({}, "", `/login/magic#token=${SECRET}`);
     setup(ON, (url) =>
-      url.endsWith("/email/login/magic") ? jsonResponse({ mfa_required: true, mfa_token: "m1" }) : undefined,
+      url.endsWith("/email/login/magic") ? jsonResponse({ mfa_required: true, mfa_token: "m1", factors: ["totp"] }) : undefined,
     );
     const user = userEvent.setup();
     render(<MagicLoginView />);
     await user.click(await screen.findByRole("button", { name: "Đăng nhập" }));
-    expect(await screen.findByText(/cần xác minh thêm/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Về trang đăng nhập" })).toHaveAttribute("href", "/login");
-    expect(goTo).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Hủy" }));
+    expect(goTo).toHaveBeenCalledWith("/login");
   });
 
   it("shows a failure state for an invalid link", async () => {

@@ -49,8 +49,8 @@ from app.routes_biometrics import (
     read_probes,
     require_biometrics,
 )
-from app.schemas import MethodsStatus, SessionOut, checked_username, normalized_email
-from app.sessions import issue_session
+from app.schemas import MethodsStatus, MfaRequired, SessionOut, checked_username, normalized_email
+from app.sessions import finish_primary_biometric_login, issue_session
 
 LOGIN_FAILED = "Biometric login failed"
 NEEDS_FACE = "Send a video with your face"
@@ -266,7 +266,7 @@ def _face_matches(request: Request, user: User, video: Upload) -> bool:
 
 def _biometric_login(
     request: Request, response: Response, db: Session, username: str, audio: Upload, video: Upload, *, method: str
-) -> SessionOut:  # fmt: skip
+) -> SessionOut | MfaRequired:  # fmt: skip
     """Voice (audio only) or webcam (face only) sign-in. Strict thresholds; every failure is the same 401."""
     ip, state, name = client_ip(request), request.app.state, username.strip().lower()
     throttles = [state.alone_throttle, state.alone_account_throttle]
@@ -284,12 +284,12 @@ def _biometric_login(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_FAILED)
     _reset(throttles, keys)
     audit.info("login ok (%s) user=%r ip=%s", method, name, ip)
-    return issue_session(response, user, settings_of(request))
+    return finish_primary_biometric_login(response, user, settings_of(request))
 
 
 def _identify_login(
     request: Request, response: Response, db: Session, upload: Upload, *, method: str
-) -> SessionOut:  # fmt: skip
+) -> SessionOut | MfaRequired:  # fmt: skip
     """Sign-in without a username (1-N), by face (webcam) or voice alone. Every failure is the same 401
     and the same work. Face and voice use separate throttle counters.
 
@@ -316,7 +316,7 @@ def _identify_login(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_FAILED)
     ip_throttle.reset(ip)
     audit.info("login ok (%s identify) user=%r ip=%s", method, user.username, ip)
-    return issue_session(response, user, settings_of(request))
+    return finish_primary_biometric_login(response, user, settings_of(request))
 
 
 def _face_or_none(request: Request, video: Upload) -> bytes | None:
@@ -335,22 +335,22 @@ def _voice_or_none(request: Request, audio: Upload) -> bytes | None:
         return None
 
 
-@methods_router.post("/login/voice", response_model=SessionOut)
+@methods_router.post("/login/voice", response_model=SessionOut | MfaRequired)
 def login_voice(
     request: Request, response: Response, username: Annotated[str | None, Form(max_length=64)] = None,
     audio: Upload = None, db: Session = Depends(get_db),
-) -> SessionOut:  # fmt: skip
+) -> SessionOut | MfaRequired:  # fmt: skip
     """With a username: 1-1 comparison. Without: 1-N identification by voice alone."""
     if username is None or not username.strip():
         return _identify_login(request, response, db, audio, method="voice")
     return _biometric_login(request, response, db, username, audio, None, method="voice")
 
 
-@methods_router.post("/login/webcam", response_model=SessionOut)
+@methods_router.post("/login/webcam", response_model=SessionOut | MfaRequired)
 def login_webcam(
     request: Request, response: Response, username: Annotated[str | None, Form(max_length=64)] = None,
     video: Upload = None, db: Session = Depends(get_db),
-) -> SessionOut:  # fmt: skip
+) -> SessionOut | MfaRequired:  # fmt: skip
     """Face only: an `audio` field, if sent, is ignored."""
     if username is None or not username.strip():
         return _identify_login(request, response, db, video, method="webcam")

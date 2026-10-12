@@ -8,6 +8,8 @@ from app.schemas import MfaRequired, SessionOut
 from app.tokens import create_mfa_token, create_refresh_token, csrf_token
 from sn_shared import COOKIE_NAME, create_token
 
+TOTP_FACTOR = "totp"
+BIOMETRIC_FACTOR = "biometric"
 REFRESH_COOKIE = "sn_refresh"
 # The refresh cookie is only sent to the auth API; this is the browser-visible path behind the gateway.
 REFRESH_PATH = "/api/center/auth"
@@ -38,12 +40,27 @@ def clear_session_cookies(response: Response, settings: Settings) -> None:
 def start_login(response: Response, user: User, settings: Settings, biometrics_available: bool) -> SessionOut | MfaRequired:
     """After the primary factor (password or Google).
 
-    Default: a session. Only an account that opted in (`biometric_2fa`) AND has samples gets an
-    MFA challenge (no cookies yet). If such an account signs in while biometrics are switched off
-    server-wide we FAIL CLOSED with 503: a factor the user asked for is never silently skipped.
+    Default: a session. An account with TOTP enabled, or one that opted in to biometrics
+    (`biometric_2fa`) AND has samples, gets an MFA challenge (no cookies yet) listing the usable
+    `factors`; any one listed factor completes the login. A biometric-only account signing in while
+    biometrics are switched off server-wide FAILS CLOSED with 503: a factor the user asked for is
+    never silently skipped. With TOTP enabled the only factor is "totp" (a biometric is not offered).
     """
+    if user.totp_enabled:
+        return totp_challenge(user)  # TOTP alone: a spoofable biometric never substitutes for it
     if user.biometric_2fa and user.has_biometrics:
         if not biometrics_available:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Biometrics are not available")
-        return MfaRequired(mfa_token=create_mfa_token(user.id, user.token_version))
+        return MfaRequired(mfa_token=create_mfa_token(user.id, user.token_version), factors=[BIOMETRIC_FACTOR])
+    return issue_session(response, user, settings)
+
+
+def totp_challenge(user: User) -> MfaRequired:
+    return MfaRequired(mfa_token=create_mfa_token(user.id, user.token_version), factors=[TOTP_FACTOR])
+
+
+def finish_primary_biometric_login(response: Response, user: User, settings: Settings) -> SessionOut | MfaRequired:
+    """Voice/webcam sign-in is a primary factor only: an account with TOTP still owes the second step."""
+    if user.totp_enabled:
+        return totp_challenge(user)
     return issue_session(response, user, settings)

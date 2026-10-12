@@ -79,7 +79,7 @@ cd center/frontend && npm install && npm run dev
 
 ## Sign-in methods (center)
 
-One `users` row per account; six methods, **each usable on its own**, all linked to that row:
+One `users` row per account; six methods, **each usable on its own**, plus an optional TOTP second step, all linked to that row:
 
 | Method | Stored in `users` | Notes |
 |---|---|---|
@@ -131,6 +131,19 @@ One `users` row per account; six methods, **each usable on its own**, all linked
   Production: set `SMTP_HOST/PORT/USER/PASSWORD/FROM`, `SMTP_STARTTLS=1` (587) or `SMTP_SSL=1` (465);
   credentials over plain SMTP to a non-local host are refused unless `SMTP_ALLOW_PLAINTEXT_AUTH=1`.
   Not done yet: step-up re-authentication for passkey-only / Google-only accounts when changing or removing the email.
+- **TOTP + recovery codes** (`app/totp.py`, `routes_totp.py`, `pyotp`): optional second step, never a sign-in method by itself
+  (it does not count toward "keep at least one method"). Off by default; turn it on in `/account` (QR drawn in the browser,
+  the secret never leaves the gateway), confirm with a first code, then save the 10 recovery codes shown once (stored only as
+  keyed HMACs, single use, 50 bits each). After password / Google / email / **voice / webcam** the account gets an `mfa_required`
+  answer (`factors: ["totp"]`) and `POST /auth/login/totp` finishes the sign-in with a code or a recovery code. Passkeys stay a
+  full factor on their own (user verification is required). With TOTP on, biometrics can NOT stand in for it. Each time step is
+  accepted once (atomic `totp_last_step`), a recovery code once (atomic UPDATE); failures are one generic 401, throttled per
+  IP (20) and per account (10) per 15 min. Enabling and disabling bump `token_version` (other sessions die) and mail a notice to a
+  verified address. Secrets are Fernet-encrypted with `DATA_KEY` (or a key derived from `JWT_SECRET` when it is empty):
+  **rotating either key makes every TOTP secret and recovery code unusable**: keep `DATA_KEY` set and stable.
+  Known limits: a thief with a stolen session on a password-less account can enrol TOTP (re-auth is a no-op there; other sessions
+  are revoked and the owner is mailed); the second-step lockout can be used to annoy an owner whose password is known;
+  accounts without a verified email get no notices. At most 10 passkeys per account (409).
 - Optional advanced setting `biometric_2fa` (off by default): after password/Google, also require a sample.
 - Sessions: `sn_token` (60 min) + `sn_refresh` (14 d), CSRF header on writes, `token_version` revocation.
 

@@ -20,6 +20,7 @@ import {
   AuthConfig,
   USERNAME_NEEDED,
   LoginResult,
+  MfaChallenge,
   loginWithGoogle,
   loginWithPasskey,
   loginWithPassword,
@@ -32,7 +33,7 @@ import { PASSKEY_UNSUPPORTED, getPasskeyCredential } from "../lib/passkey";
 
 interface Props {
   config: AuthConfig;
-  onMfa: (mfaToken: string) => void;
+  onMfa: (challenge: MfaChallenge) => void;
 }
 
 export function availableMethods(config: AuthConfig): Method[] {
@@ -87,15 +88,15 @@ export default function SignInForm({ config, onMfa }: Props) {
 
   /** Có phiên thì về trang đích, cần xác minh thêm thì chuyển sang bước đó. */
   async function signIn(action: () => Promise<LoginResult | undefined>) {
-    let mfaToken: string | null = null;
+    let challenge: MfaChallenge | null = null;
     const ok = await run(async () => {
       const result = await action();
-      if (result && result.kind === "mfa") mfaToken = result.mfaToken;
+      if (result && result.kind === "mfa") challenge = { mfaToken: result.mfaToken, factors: result.factors };
     });
     setPassword("");
     clearRecordings();
     if (!ok) return;
-    if (mfaToken) onMfa(mfaToken);
+    if (challenge) onMfa(challenge);
     else goTo(postLoginTarget());
   }
 
@@ -113,11 +114,11 @@ export default function SignInForm({ config, onMfa }: Props) {
     event.preventDefault();
     if (method === "voice") {
       if (!audio) return fail("Hãy ghi giọng nói trước khi đăng nhập");
-      return void signIn(() => withUsernameFallback(async () => void (await loginWithVoice(audio, needUsername ? username : undefined))));
+      return void signIn(() => withUsernameFallback(() => loginWithVoice(audio, needUsername ? username : undefined)));
     }
     if (method === "webcam") {
       if (!video) return fail("Hãy quay khuôn mặt trước khi đăng nhập");
-      return void signIn(() => withUsernameFallback(async () => void (await loginWithWebcam(video, needUsername ? username : undefined))));
+      return void signIn(() => withUsernameFallback(() => loginWithWebcam(video, needUsername ? username : undefined)));
     }
     if (method === "passkey") {
       if (!passkeySupported) return fail(PASSKEY_UNSUPPORTED);

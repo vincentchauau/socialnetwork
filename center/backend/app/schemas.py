@@ -82,8 +82,11 @@ class SessionOut(BaseModel):
 
 
 class MfaRequired(BaseModel):
+    """Second-factor challenge. ANY ONE of `factors` ("totp", "biometric") completes the login."""
+
     mfa_required: bool = True
     mfa_token: str
+    factors: list[str] = ["biometric"]
 
 
 class MethodsStatus(BaseModel):
@@ -96,6 +99,8 @@ class MethodsStatus(BaseModel):
     require_biometric_2fa: bool
     passkey_count: int = 0
     email_verified: bool = False
+    totp_enabled: bool = False
+    recovery_codes_left: int = 0
 
 
 class PasskeyOut(BaseModel):
@@ -191,3 +196,30 @@ class OkOut(BaseModel):
 class EmailVerifiedOut(BaseModel):
     email: str
     email_verified: bool = True
+
+
+class TotpSetupOut(BaseModel):
+    secret: str
+    otpauth_uri: str
+
+
+class TotpCodeBody(BaseModel):
+    code: str = Field(max_length=MAX_INPUT)
+    password: str | None = Field(default=None, max_length=MAX_INPUT)
+
+
+class RecoveryCodesOut(BaseModel):
+    recovery_codes: list[str]
+    csrf_token: str | None = None  # set when the session was re-issued (enable)
+
+
+class TotpLoginBody(BaseModel):
+    mfa_token: str = Field(max_length=4096)
+    code: str | None = Field(default=None, max_length=MAX_INPUT)
+    recovery_code: str | None = Field(default=None, max_length=MAX_INPUT)
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        if (self.code is None) == (self.recovery_code is None):
+            raise ValueError("Send either code or recovery_code")
+        return self

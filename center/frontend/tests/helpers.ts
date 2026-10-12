@@ -35,6 +35,8 @@ export const me: Me = {
   require_biometric_2fa: false,
   passkey_count: 0,
   passkeys: [],
+  totp_enabled: false,
+  recovery_codes_left: 0,
 };
 
 export function headerOf(init: RequestInit | undefined, name: string): string | undefined {

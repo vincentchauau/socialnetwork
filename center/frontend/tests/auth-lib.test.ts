@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, setCsrfToken } from "@sn/api";
 import * as auth from "../app/lib/auth";
 import { postLoginTarget } from "../app/lib/navigate";
-import { jsonResponse, me, mockFetch, session } from "./helpers";
+import { headerOf, jsonResponse, me, mockFetch, session } from "./helpers";
 
 beforeEach(() => {
   setCsrfToken(null);
@@ -75,12 +75,19 @@ describe("API helpers", () => {
 
   it("password login reports a pending second factor instead of a session", async () => {
     mockFetch(() => jsonResponse({ mfa_required: true, mfa_token: "tok" }));
-    expect(await auth.loginWithPassword("a", "b")).toEqual({ kind: "mfa", mfaToken: "tok" });
+    expect(await auth.loginWithPassword("a", "b")).toEqual({ kind: "mfa", mfaToken: "tok", factors: ["biometric"] });
+  });
+
+  it("keeps the factors the server lists and treats an empty list as the old biometric default", async () => {
+    mockFetch(() => jsonResponse({ mfa_required: true, mfa_token: "tok", factors: ["totp", "biometric"] }));
+    expect(await auth.loginWithPassword("a", "b")).toEqual({ kind: "mfa", mfaToken: "tok", factors: ["totp", "biometric"] });
+    mockFetch(() => jsonResponse({ mfa_required: true, mfa_token: "tok", factors: [] }));
+    expect(await auth.loginWithPassword("a", "b")).toMatchObject({ factors: ["biometric"] });
   });
 
   it("google login reports a pending second factor instead of a session", async () => {
     mockFetch(() => jsonResponse({ mfa_required: true, mfa_token: "tok" }));
-    await expect(auth.loginWithGoogle("idt")).resolves.toEqual({ kind: "mfa", mfaToken: "tok" });
+    await expect(auth.loginWithGoogle("idt")).resolves.toEqual({ kind: "mfa", mfaToken: "tok", factors: ["biometric"] });
   });
 
   it("the second-factor call sends the mfa token and the recording to the biometric route", async () => {
@@ -243,5 +250,74 @@ describe("new-username notice storage", () => {
     expect(auth.takeNewUsername()).toBeNull();
     set.mockRestore();
     get.mockRestore();
+  });
+});
+
+describe("TOTP helpers", () => {
+  const bodyOf = (fn: ReturnType<typeof mockFetch>) => JSON.parse(String(fn.mock.calls[0][1].body));
+
+  it("login sends the code or the recovery code, never both", async () => {
+    let fn = mockFetch(() => jsonResponse(session));
+    await auth.loginWithTotp("tok", { code: "123456" });
+    expect(fn.mock.calls[0][0]).toBe("/api/center/auth/login/totp");
+    expect(bodyOf(fn)).toEqual({ mfa_token: "tok", code: "123456" });
+    fn = mockFetch(() => jsonResponse(session));
+    await auth.loginWithTotp("tok", { recoveryCode: "abcd-1234" });
+    expect(bodyOf(fn)).toEqual({ mfa_token: "tok", recovery_code: "abcd-1234" });
+  });
+
+  it("setup, enable, disable and regenerate use the reauth password like the other sensitive calls", async () => {
+    const fn = mockFetch((url, init) =>
+      init.method === "DELETE" ? jsonResponse(null, 204) : jsonResponse({ secret: "S", otpauth_uri: "u", recovery_codes: ["a"] }),
+    );
+    await auth.totpSetup("pw");
+    await auth.totpEnable("123456", "pw");
+    await auth.totpRegenerateRecoveryCodes("123456", "pw");
+    await auth.totpDisable("abc", "pw");
+    const sent = fn.mock.calls.filter(([url]) => !url.endsWith("/auth/me")).map(([url, init]) => [url, init.method, JSON.parse(String(init.body))]);
+    expect(sent).toEqual([
+      ["/api/center/auth/totp/setup", "POST", { password: "pw" }],
+      ["/api/center/auth/totp/enable", "POST", { code: "123456", password: "pw" }],
+      ["/api/center/auth/totp/recovery-codes", "POST", { code: "123456", password: "pw" }],
+      ["/api/center/auth/totp", "DELETE", { code: "abc", password: "pw" }],
+    ]);
+  });
+
+  it("disabling refreshes /auth/me so the next write carries the re-issued CSRF token", async () => {
+    setCsrfToken("old-csrf");
+    const fn = mockFetch((url, init) => {
+      if (init.method === "DELETE") return jsonResponse(null, 204);
+      if (url.endsWith("/auth/me")) return jsonResponse({ ...me, csrf_token: "new-csrf" });
+      return jsonResponse({});
+    });
+    await auth.totpDisable("123456", "pw");
+    await auth.logout();
+    const logoutCall = fn.mock.calls.find(([url]) => url.endsWith("/auth/logout"))!;
+    expect(headerOf(logoutCall[1], "X-CSRF-Token")).toBe("new-csrf");
+    expect(headerOf(fn.mock.calls[0][1], "X-CSRF-Token")).toBe("old-csrf");
+  });
+
+  it("enabling stores the returned CSRF token and re-fetches /auth/me before the next write", async () => {
+    setCsrfToken("old-csrf");
+    const fn = mockFetch((url) => {
+      if (url.endsWith("/totp/enable")) return jsonResponse({ recovery_codes: ["a"], csrf_token: "enabled-csrf" });
+      if (url.endsWith("/auth/me")) return jsonResponse({ ...me, csrf_token: "me-csrf" });
+      return jsonResponse({});
+    });
+    await auth.totpEnable("123456", "pw");
+    expect(fn.mock.calls.some(([url]) => url.endsWith("/auth/me"))).toBe(true);
+    await auth.logout();
+    const logoutCall = fn.mock.calls.find(([url]) => url.endsWith("/auth/logout"))!;
+    expect(headerOf(logoutCall[1], "X-CSRF-Token")).toBe("me-csrf");
+  });
+
+  it("voice and webcam sign-in report a pending second factor", async () => {
+    mockFetch(() => jsonResponse({ mfa_required: true, mfa_token: "tok", factors: ["totp"] }));
+    expect(await auth.loginWithVoice(new Blob(["a"]))).toEqual({ kind: "mfa", mfaToken: "tok", factors: ["totp"] });
+    expect(await auth.loginWithWebcam(new Blob(["v"]))).toEqual({ kind: "mfa", mfaToken: "tok", factors: ["totp"] });
+  });
+
+  it("maps the passkey limit 409 to the Vietnamese text", () => {
+    expect(auth.errorText(new ApiError(409, "Passkey limit reached"))).toBe("Tối đa 10 Passkey cho mỗi tài khoản");
   });
 });

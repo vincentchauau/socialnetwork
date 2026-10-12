@@ -6,6 +6,8 @@ from app.models import User
 from app.schemas import MethodsStatus, PasskeyOut
 
 KEEP_ONE = "Keep at least one sign-in method"
+PASSKEY_LIMIT = "Passkey limit reached"
+MAX_PASSKEYS_PER_ACCOUNT = 10
 GOOGLE_IN_USE = "That Google account is already linked to an account"
 
 
@@ -24,6 +26,8 @@ def methods_status(user: User) -> MethodsStatus:
         require_biometric_2fa=user.biometric_2fa,
         passkey_count=len(user.passkeys),
         email_verified=has_verified_email(user),
+        totp_enabled=user.totp_enabled,
+        recovery_codes_left=sum(1 for c in user.recovery_codes if c.used_at is None),
     )
 
 

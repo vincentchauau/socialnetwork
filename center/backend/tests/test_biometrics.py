@@ -129,6 +129,7 @@ def test_enroll_stores_encrypted_templates_and_reports_state(bio_client):
     assert response.json() == {
         "has_password": True, "google_linked": False, "voice_login": True, "webcam_login": True,
         "has_audio": True, "has_face": True, "require_biometric_2fa": False, "passkey_count": 0, "email_verified": False,
+        "totp_enabled": False, "recovery_codes_left": 0,
     }  # fmt: skip
     me = bio_client.get("/auth/me").json()
     assert (me["has_audio"], me["has_face"]) == (True, True)
@@ -236,7 +237,7 @@ def test_enrolled_account_can_log_in_with_password_when_biometrics_are_switched_
 def test_password_login_returns_an_mfa_challenge_without_cookies(enrolled_2fa):
     response = enrolled_2fa.post("/auth/login", json=CREDS)
     body = response.json()
-    assert set(body) == {"mfa_required", "mfa_token"} and body["mfa_required"] is True
+    assert set(body) == {"mfa_required", "mfa_token", "factors"} and body["factors"] == ["biometric"] and body["mfa_required"] is True
     assert "set-cookie" not in response.headers
     assert enrolled_2fa.get("/auth/me").status_code == 401
 

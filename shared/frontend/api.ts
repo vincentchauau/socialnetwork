@@ -18,6 +18,7 @@ const NO_REFRESH_PATHS = new Set([
   "/api/center/auth/login/biometric",
   "/api/center/auth/login/voice",
   "/api/center/auth/login/webcam",
+  "/api/center/auth/login/totp",
   "/api/center/auth/register/combined",
   "/api/center/auth/register",
   "/api/center/auth/google",
