@@ -6,7 +6,7 @@ import { User, loadSession } from "@sn/api";
 import { APPS } from "./apps";
 import Alert from "./components/Alert";
 import { CARD, PRIMARY_BUTTON } from "./components/ui";
-import { errorText, logout as signOut } from "./lib/auth";
+import { errorText, logout as signOut, takeNewUsername } from "./lib/auth";
 
 type Session =
   | { status: "loading" }
@@ -19,6 +19,9 @@ const APP_CARD = "block border rounded p-4 text-left hover:bg-gray-50 focus:outl
 export default function HomePage() {
   const [session, setSession] = useState<Session>({ status: "loading" });
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [newUsername, setNewUsername] = useState<string | null>(null);
+
+  useEffect(() => setNewUsername(takeNewUsername()), []); // chỉ hiện một lần
 
   useEffect(() => {
     loadSession()
@@ -60,6 +63,11 @@ export default function HomePage() {
   return (
     <main className={`${CARD} text-center`}>
       <h1 className="text-2xl font-bold mb-4">Xin chào, {session.user.username}</h1>
+      {newUsername && (
+        <p role="status" className="text-sm bg-blue-50 border border-blue-200 rounded p-2 mb-4">
+          Tên đăng nhập của bạn là <strong>{newUsername}</strong>. Hãy ghi nhớ nếu sau này bạn thêm mật khẩu hoặc giọng nói.
+        </p>
+      )}
       <nav aria-label="Ứng dụng" className="flex flex-col gap-2 mb-4">
         {APPS.map((app) => (
           <a key={app.href} href={app.href} className={APP_CARD}>

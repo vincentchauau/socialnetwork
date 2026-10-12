@@ -34,6 +34,9 @@ export function availableMethods(config: AuthConfig): Method[] {
   return methods;
 }
 
+const WEBCAM_HINT =
+  "Để trống: hệ thống tự nhận ra khuôn mặt và giọng nói của bạn. Nhập tên nếu muốn đối chiếu đúng tài khoản.";
+
 /** Đăng nhập bằng MỘT cách: mật khẩu, Google, giọng nói hoặc webcam. */
 export default function SignInForm({ config, onMfa }: Props) {
   const [method, setMethod] = useState<Method>("password");
@@ -80,7 +83,7 @@ export default function SignInForm({ config, onMfa }: Props) {
     }
     if (method === "webcam") {
       if (!video) return fail("Hãy quay webcam trước khi đăng nhập");
-      return void signIn(async () => void (await loginWithWebcam(username, video)));
+      return void signIn(async () => void (await loginWithWebcam(video, username)));
     }
     void signIn(() => loginWithPassword(username, password));
   }
@@ -99,7 +102,12 @@ export default function SignInForm({ config, onMfa }: Props) {
           </div>
         ) : (
           <form onSubmit={submit} aria-label="Đăng nhập">
-            <UsernameField value={username} onChange={setUsername} />
+            <UsernameField
+              value={username}
+              onChange={setUsername}
+              required={method !== "webcam"}
+              optionalHint={WEBCAM_HINT}
+            />
             {method === "password" && <PasswordField value={password} onChange={setPassword} isRegister={false} />}
             {method !== "password" && <BiometricWarning />}
             {method === "voice" && <AudioRecord key={recordingKey} disabled={busy} onRecorded={setAudio} />}

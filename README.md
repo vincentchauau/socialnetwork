@@ -91,6 +91,16 @@ One `users` row per account; four methods, **each usable on its own**, all linke
 - **Register** with any one or several methods at once (`POST /auth/register/combined`, all-or-nothing),
   then link the rest in `/account`. Linking/removing needs the password again when the account has one,
   and at least one method must always remain (409 otherwise).
+- **Webcam needs no username** (like Face ID): `POST /auth/login/webcam` without `username` identifies the
+  account itself (1-N): best face match must be within `FACE_THRESHOLD_ALONE` (0.45) and beat the runner-up by
+  `FACE_IDENTIFY_MARGIN` (0.08), then the voice in the same clip must match too. Every failure is the same 401;
+  throttled per IP (5 / 15 min), globally, and per identified account. Cost is O(N) per attempt, so above
+  5000 webcam accounts the username is required again. A face already registered by another account is
+  refused at registration (409), which also reveals that a face is registered. Voice sign-in still needs the name.
+- The username is optional at registration only when the chosen methods are within {Google, webcam}; a
+  generated one (`user-xxxxxx`, or derived from the Google email) is permanent: there is no rename feature.
+- Measured with the real models (public test photos): same person, different photo 0.357; different people 0.844;
+  about 3 s per clip (first clip ~8 s while models load).
 - Voice and webcam are only available when `BIOMETRICS_ENABLED=1` (image built with `WITH_BIOMETRICS=1`,
   `DATA_KEY` set). They have **no liveness check**: anyone with a recording of the owner can pass.
 - Optional advanced setting `biometric_2fa` (off by default): after password/Google, also require a sample.

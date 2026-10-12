@@ -29,6 +29,13 @@ class FakeBiometrics:
             raise BiometricError("no face")
         return b"F:" + raw[:16]
 
+    def face_distance(self, stored: bytes, probe: bytes) -> float:
+        """Faces tagged b'f<number>-...' have distance |a-b|; other faces: 0 if equal, else 9."""
+        a, b = _face_value(stored), _face_value(probe)
+        if a is not None and b is not None:
+            return abs(a - b)
+        return 0.0 if stored == probe else 9.0
+
     def audio_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool:
         self.strict_calls.append(strict)
         return stored == probe
@@ -36,6 +43,15 @@ class FakeBiometrics:
     def face_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool:
         self.strict_calls.append(strict)
         return stored == probe
+
+
+def _face_value(embedding: bytes) -> float | None:
+    if not embedding.startswith(b"F:f"):
+        return None
+    try:
+        return float(embedding[3:].split(b"-", 1)[0])
+    except ValueError:
+        return None
 
 
 def fake_google_verifier(token: str) -> GoogleIdentity:

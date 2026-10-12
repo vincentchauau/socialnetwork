@@ -13,12 +13,17 @@ import UsernameField from "./UsernameField";
 import VideoRecord from "./VideoRecord";
 import { PRIMARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
-import { AuthConfig, PASSWORD_MESSAGE, isPasswordValid, registerCombined } from "../lib/auth";
+import { AuthConfig, PASSWORD_MESSAGE, isPasswordValid, registerCombined, rememberNewUsername } from "../lib/auth";
 import { goTo, postLoginTarget } from "../lib/navigate";
 
 type Chosen = Record<Method, boolean>;
 
 const DEFAULT_CHOSEN: Chosen = { password: true, google: false, voice: false, webcam: false };
+
+const OPTIONAL_HINT = "Không bắt buộc nếu chỉ dùng Google/Webcam: hệ thống sẽ tự tạo tên (ví dụ user-7f3a2c).";
+
+/** Tên đăng nhập chỉ có thể bỏ trống khi mọi cách đã chọn đều tự nhận ra tài khoản (Google, webcam). */
+const isUsernameRequired = (chosen: Chosen) => chosen.password || chosen.voice;
 
 /** Đăng ký bằng một hoặc nhiều cách cùng lúc; cách còn thiếu bổ sung sau ở trang Tài khoản. */
 export default function RegisterForm({ config }: { config: AuthConfig }) {
@@ -48,14 +53,17 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
     if (chosen.google && !googleToken) return fail("Hãy chọn tài khoản Google trước khi đăng ký");
     if (chosen.voice && !audio) return fail("Hãy ghi giọng nói trước khi đăng ký");
     if (chosen.webcam && !video) return fail("Hãy quay webcam trước khi đăng ký");
+    if (isUsernameRequired(chosen) && !username.trim()) return fail("Hãy nhập tên đăng nhập");
+    let created: string | undefined;
     const ok = await run(async () => {
-      await registerCombined({
+      const session = await registerCombined({
         username,
         password: chosen.password ? password : undefined,
         googleIdToken: chosen.google ? googleToken : undefined,
         voiceAudio: chosen.voice ? audio : undefined,
         webcamVideo: chosen.webcam ? video : undefined,
       });
+      created = session.username;
     });
     // Bản ghi đã dùng (hoặc lỗi) không được giữ lại.
     setAudio(undefined);
@@ -63,12 +71,13 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
     setRecordingKey((key) => key + 1);
     if (!ok) return;
     setPassword("");
+    if (!username.trim() && created) rememberNewUsername(created);
     goTo(postLoginTarget());
   }
 
   return (
     <form onSubmit={submit} aria-label="Đăng ký">
-      <UsernameField value={username} onChange={setUsername} />
+      <UsernameField value={username} onChange={setUsername} required={isUsernameRequired(chosen)} optionalHint={OPTIONAL_HINT} />
       <fieldset className="mb-3 border rounded p-2" disabled={busy}>
         <legend className="text-sm font-medium px-1">Chọn các cách đăng ký trước, bổ sung cách còn thiếu sau</legend>
         {availableMethods(config).map((method) => (

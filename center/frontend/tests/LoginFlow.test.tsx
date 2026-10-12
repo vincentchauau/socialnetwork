@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import LoginFlow from "../app/components/LoginFlow";
+import { takeNewUsername } from "../app/lib/auth";
 import { jsonResponse, mockFetch, session } from "./helpers";
 
 const goTo = vi.hoisted(() => vi.fn());
@@ -74,6 +75,7 @@ const openRegister = (user: User) => user.click(screen.getByRole("button", { nam
 const tab = (name: string) => screen.getByRole("tab", { name });
 
 beforeEach(() => {
+  window.sessionStorage.clear();
   goTo.mockReset();
   window.history.pushState({}, "", "/login");
 });
@@ -236,21 +238,70 @@ describe("LoginFlow voice, webcam and Google sign-in", () => {
     expect(form.has("password")).toBe(false);
   });
 
-  it("signs in with the webcam: username + one video clip", async () => {
+  it("signs in with the webcam without a username: only the video is sent", async () => {
     const fetchMock = setup({ config: BIO });
     const user = userEvent.setup();
     render(<LoginFlow />);
     await user.click(await screen.findByRole("tab", { name: "Webcam" }));
-    await typeName(user);
+    const field = screen.getByLabelText("Tên đăng nhập (không bắt buộc)");
+    expect(field).not.toBeRequired();
+    expect(screen.getByText(/Để trống: hệ thống tự nhận ra khuôn mặt và giọng nói của bạn/)).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent(/chưa có kiểm tra người thật/);
+    expect(screen.getByRole("button", { name: "Đăng nhập" })).toBeEnabled(); // no username needed
     await submit(user);
     expect(await screen.findByRole("alert")).toHaveTextContent("Hãy quay webcam");
     await user.click(screen.getByRole("button", { name: "fake webcam" }));
+    await user.type(field, "   ");
     await submit(user);
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
     const form = formOf(fetchMock, "/login/webcam");
-    expect(form.get("username")).toBe("ann");
+    expect(form.has("username")).toBe(false);
     expect(form.get("video")).toBeInstanceOf(Blob);
     expect(form.has("password")).toBe(false);
+  });
+
+  it("sends the trimmed username on webcam sign-in when one is typed", async () => {
+    const fetchMock = setup({ config: BIO });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await user.click(await screen.findByRole("tab", { name: "Webcam" }));
+    await user.type(screen.getByLabelText("Tên đăng nhập (không bắt buộc)"), " ann ");
+    await user.click(screen.getByRole("button", { name: "fake webcam" }));
+    await submit(user);
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    expect(formOf(fetchMock, "/login/webcam").get("username")).toBe("ann");
+  });
+
+  it("keeps the username required for voice and password sign-in", async () => {
+    const fetchMock = setup({ config: BIO });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await user.click(await screen.findByRole("tab", { name: "Giọng nói" }));
+    expect(screen.getByLabelText("Tên đăng nhập")).toBeRequired();
+    await user.click(screen.getByRole("button", { name: "fake voice" }));
+    await submit(user); // blocked by the browser validation: no request
+    expect(callTo(fetchMock, "/login/voice")).toBeUndefined();
+    await user.click(tab("Mật khẩu"));
+    expect(screen.getByLabelText("Tên đăng nhập")).toBeRequired();
+  });
+
+  it.each([
+    [409, "This face is already registered"],
+    [422, "Enter your username"],
+    [429, "Thử quá nhiều lần, hãy thử lại sau"],
+    [401, "Biometric login failed"],
+  ])("shows the error for webcam sign-in %i", async (status, text) => {
+    setup({
+      config: BIO,
+      extra: (url) => (url.endsWith("/login/webcam") ? jsonResponse({ detail: text }, status) : undefined),
+    });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await user.click(await screen.findByRole("tab", { name: "Webcam" }));
+    await user.click(screen.getByRole("button", { name: "fake webcam" }));
+    await submit(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent(text);
+    expect(goTo).not.toHaveBeenCalled();
   });
 
   it("shows the server error when a biometric sign-in fails and clears the recording", async () => {
@@ -387,6 +438,60 @@ describe("LoginFlow register (multi-select)", () => {
   it("hides unconfigured methods", async () => {
     await register();
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+  });
+
+  it("makes the username optional only for Google/webcam methods", async () => {
+    const { user } = await register(ALL);
+    const field = () => screen.getByLabelText(/^Tên đăng nhập/);
+    expect(field()).toBeRequired();
+    expect(field()).toHaveAttribute("aria-required", "true");
+    await user.click(box("Webcam"));
+    expect(field()).toBeRequired(); // webcam + password
+    await user.click(box("Mật khẩu"));
+    expect(field()).not.toBeRequired();
+    expect(field()).toHaveAttribute("aria-required", "false");
+    expect(screen.getByLabelText("Tên đăng nhập (không bắt buộc)")).toBeInTheDocument();
+    expect(screen.getByText(/Không bắt buộc nếu chỉ dùng Google\/Webcam/)).toBeInTheDocument();
+    await user.click(box("Google"));
+    expect(field()).not.toBeRequired();
+    await user.click(box("Webcam"));
+    expect(field()).not.toBeRequired(); // Google only
+    await user.click(box("Giọng nói"));
+    expect(field()).toBeRequired();
+    expect(screen.getByLabelText("Tên đăng nhập")).toHaveAttribute("aria-required", "true");
+  });
+
+  it("registers with the webcam only, omits a blank username and keeps the notice once", async () => {
+    const generated = { ...session, username: "user-7f3a2c" };
+    const { fetchMock, user } = await register(BIO);
+    fetchMock.mockImplementation(async () => jsonResponse(generated, 201));
+    await user.click(box("Webcam"));
+    await user.click(box("Mật khẩu"));
+    await user.click(screen.getByRole("button", { name: "fake webcam" }));
+    await submit(user, "Đăng ký");
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    expect([...formOf(fetchMock, "/register/combined").keys()]).toEqual(["webcam_video"]);
+    expect(takeNewUsername()).toBe("user-7f3a2c");
+    expect(takeNewUsername()).toBeNull();
+  });
+
+  it("does not keep a notice when the user typed the username", async () => {
+    const { user } = await register(BIO);
+    await user.click(box("Webcam"));
+    await user.click(box("Mật khẩu"));
+    await user.type(screen.getByLabelText("Tên đăng nhập (không bắt buộc)"), "ann");
+    await user.click(screen.getByRole("button", { name: "fake webcam" }));
+    await submit(user, "Đăng ký");
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    expect(takeNewUsername()).toBeNull();
+  });
+
+  it("blocks a blank username when a password is chosen", async () => {
+    const { fetchMock, user } = await register();
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Tên đăng nhập"), "   ");
+    await submit(user, "Đăng ký");
+    expect(callTo(fetchMock, "/register/combined")).toBeUndefined();
   });
 
   it("registers with a password only via the combined route", async () => {
@@ -532,6 +637,8 @@ describe("LoginFlow register (multi-select)", () => {
 
   it.each([
     [409, "Username already taken"],
+    [409, "This face is already registered"],
+    [422, "Choose a username"],
     [422, "Webcam sign-in needs both your face and your voice"],
     [400, "Voice or face sample is unusable, record again"],
     [401, "Invalid Google token"],

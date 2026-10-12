@@ -159,6 +159,19 @@ describe("AccountView", () => {
     vi.restoreAllMocks();
   });
 
+  it("tells webcam accounts that no username is needed", async () => {
+    setupAccount({ webcam_login: true });
+    render(<AccountView />);
+    expect(await screen.findByText("Đăng nhập webcam không cần tên đăng nhập")).toBeInTheDocument();
+  });
+
+  it("hides the webcam username line when webcam is off", async () => {
+    setupAccount({ webcam_login: false });
+    render(<AccountView />);
+    await screen.findByRole("heading", { name: /Xin chào/ });
+    expect(screen.queryByText(/không cần tên đăng nhập/)).not.toBeInTheDocument();
+  });
+
   it("lists the four sign-in methods with their state", async () => {
     setupAccount({ has_password: true, google_linked: true, email: "b@example.com", voice_login: true, webcam_login: false });
     render(<AccountView />);

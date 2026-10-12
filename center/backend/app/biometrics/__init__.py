@@ -44,6 +44,7 @@ def engine_guard(embed: Callable[..., T]) -> Callable[..., T]:
 class Biometrics(Protocol):
     def audio_embedding(self, raw: bytes) -> bytes: ...
     def face_embedding(self, raw: bytes) -> bytes: ...
+    def face_distance(self, stored: bytes, probe: bytes) -> float: ...
     def audio_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool: ...
     def face_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool: ...
 
@@ -84,3 +85,11 @@ class RealBiometrics:
             return False
         limit = self._s.face_threshold_alone if strict else self._s.face_threshold
         return float(np.linalg.norm(template - sample)) <= limit
+
+    def face_distance(self, stored: bytes, probe: bytes) -> float:
+        import numpy as np
+
+        template, sample = np.frombuffer(stored, np.float32), np.frombuffer(probe, np.float32)
+        if template.shape != sample.shape:
+            return float("inf")
+        return float(np.linalg.norm(template - sample))

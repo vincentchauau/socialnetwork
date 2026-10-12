@@ -112,7 +112,7 @@ describe("API helpers", () => {
   it("voice and webcam sign-in send only the username and their own clip", async () => {
     const fetchMock = mockFetch(() => jsonResponse(session));
     await auth.loginWithVoice("ann", new Blob(["a"]));
-    await auth.loginWithWebcam("ann", new Blob(["v"]));
+    await auth.loginWithWebcam(new Blob(["v"]), "ann");
     const [[url1, init1], [url2, init2]] = fetchMock.mock.calls;
     expect(url1).toBe("/api/center/auth/login/voice");
     expect(url2).toBe("/api/center/auth/login/webcam");
@@ -224,5 +224,23 @@ describe("loadMe", () => {
     expect(await auth.loadMe()).toBeNull();
     mockFetch(() => jsonResponse({ detail: "boom" }, 500));
     await expect(auth.loadMe()).rejects.toThrow("boom");
+  });
+});
+
+describe("new-username notice storage", () => {
+  it("stores a username once and clears it on read", () => {
+    window.sessionStorage.clear();
+    auth.rememberNewUsername("user-1a2b3c");
+    expect(auth.takeNewUsername()).toBe("user-1a2b3c");
+    expect(auth.takeNewUsername()).toBeNull();
+  });
+
+  it("never throws when storage is blocked", () => {
+    const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    expect(() => auth.rememberNewUsername("x")).not.toThrow();
+    expect(auth.takeNewUsername()).toBeNull();
+    set.mockRestore();
+    get.mockRestore();
   });
 });

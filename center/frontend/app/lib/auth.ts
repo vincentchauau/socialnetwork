@@ -111,11 +111,33 @@ export const loginWithVoice = (username: string, audio: Blob) =>
   apiForm<Session>(`${CENTER_API}/auth/login/voice`, biometricForm({ username }, audio));
 
 /** Sign in with ONE webcam clip (face and voice together). */
-export const loginWithWebcam = (username: string, video: Blob) =>
-  apiForm<Session>(`${CENTER_API}/auth/login/webcam`, biometricForm({ username }, undefined, video));
+export const loginWithWebcam = (video: Blob, username?: string) =>
+  apiForm<Session>(`${CENTER_API}/auth/login/webcam`, biometricForm({ username: username?.trim() || undefined }, undefined, video));
+
+const NEW_USERNAME_KEY = "center.newUsername";
+
+/** Remember an auto-generated username for a one-time notice (best effort: storage may be blocked). */
+export function rememberNewUsername(username: string): void {
+  try {
+    window.sessionStorage.setItem(NEW_USERNAME_KEY, username);
+  } catch {
+    /* the notice is optional */
+  }
+}
+
+/** Read and clear the one-time notice; always plain text. */
+export function takeNewUsername(): string | null {
+  try {
+    const value = window.sessionStorage.getItem(NEW_USERNAME_KEY);
+    window.sessionStorage.removeItem(NEW_USERNAME_KEY);
+    return value;
+  } catch {
+    return null;
+  }
+}
 
 export interface CombinedRegistration {
-  username: string;
+  username?: string;
   password?: string;
   googleIdToken?: string;
   voiceAudio?: Blob;
@@ -126,7 +148,8 @@ export interface CombinedRegistration {
 export async function registerCombined(input: CombinedRegistration): Promise<Session> {
   assertBlobSizes(input.voiceAudio, input.webcamVideo);
   const form = new FormData();
-  form.append("username", input.username);
+  const username = input.username?.trim();
+  if (username) form.append("username", username);
   if (input.password !== undefined) form.append("password", input.password);
   if (input.googleIdToken) form.append("google_id_token", input.googleIdToken);
   if (input.voiceAudio) form.append("voice_audio", input.voiceAudio, "voice.webm");
