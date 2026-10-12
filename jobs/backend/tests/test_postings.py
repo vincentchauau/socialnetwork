@@ -130,10 +130,10 @@ def test_update_tags_normalised(client):
     assert cleared.json()["tags"] == []
 
 
-def test_update_by_non_owner_forbidden(client):
+def test_update_by_non_owner_not_found(client):
     job = post_job(client)
     response = client.patch(f"/jobs/{job['id']}", json={"title": "Hacked"}, headers=BOB)
-    assert response.status_code == 403
+    assert response.status_code == 404
     assert client.get(f"/jobs/{job['id']}", headers=ALICE).json()["title"] == "Backend Engineer"
 
 
@@ -185,9 +185,9 @@ def test_delete_by_owner_removes_applications_and_saves(client):
     assert client.get("/me/saved", headers=BOB).json() == []
 
 
-def test_delete_by_non_owner_forbidden(client):
+def test_delete_by_non_owner_not_found(client):
     job = post_job(client)
-    assert client.delete(f"/jobs/{job['id']}", headers=BOB).status_code == 403
+    assert client.delete(f"/jobs/{job['id']}", headers=BOB).status_code == 404
     assert client.delete("/jobs/77", headers=BOB).status_code == 404
     assert client.delete(f"/jobs/{job['id']}").status_code == 401
 

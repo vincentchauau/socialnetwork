@@ -27,7 +27,13 @@ def get_certificate(
     course = visible_course(db, course_id, user)
     enrollment = require_enrollment(db, course.id, user.user_id)
     if enrollment.certificate_code is None or enrollment.completed_at is None:
-        if not compute_progress(db, course, user.user_id).completed:
+        progress = compute_progress(db, course, user.user_id)
+        if progress.quizzes_total == 0:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This course has no quiz, so it does not issue certificates",
+            )
+        if not progress.completed:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 "Finish every lesson and pass every quiz to earn the certificate",

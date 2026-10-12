@@ -1,13 +1,16 @@
 """Order business logic: checkout, payment, status changes. Raises HTTPException."""
 
+from datetime import datetime, timedelta
+
 from fastapi import HTTPException, status
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.constants import (
     BUYER_TARGETS,
     CURRENCY,
+    MAX_OPEN_PENDING_ORDERS,
     SELLER_TARGETS,
     STATUS_CANCELLED,
     STATUS_PAID,
@@ -128,6 +131,13 @@ def checkout(db: Session, user: TokenPayload, key: str | None) -> tuple[Order, b
     replay = _remembered_order(db, user.user_id, SCOPE_CHECKOUT, key)
     if replay is not None:
         return replay, False
+    open_orders = db.scalar(
+        select(func.count(Order.id)).where(
+            Order.buyer_id == user.user_id, Order.status == STATUS_PENDING
+        )
+    )
+    if (open_orders or 0) >= MAX_OPEN_PENDING_ORDERS:
+        raise conflict("Too many unpaid orders, pay or cancel one first")
     lines = _claim_cart(db, user.user_id)
     order = Order(
         buyer_id=user.user_id,
@@ -203,7 +213,58 @@ def _role_targets(order: Order, user_id: int) -> frozenset[str]:
     return SELLER_TARGETS  # involved_order already proved the user is a seller on it
 
 
-def change_status(db: Session, user: TokenPayload, order_id: int, target: str) -> Order:
+def _restock(db: Session, order: Order) -> None:
+    for item in order.items:  # restock exactly what checkout took
+        db.execute(
+            update(Product)
+            .where(Product.id == item.product_id)
+            .values(stock=Product.stock + item.quantity)
+            .execution_options(synchronize_session=False)
+        )
+
+
+def _refund_or_rollback(db: Session, order: Order, provider: PaymentProvider) -> None:
+    """Refund a paid order; on failure undo the whole cancellation (status and stock)."""
+    try:
+        if order.payment_reference is None:
+            raise PaymentError("missing payment reference")
+        provider.refund(order.payment_reference)
+    except PaymentError:
+        db.rollback()
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Refund failed, order unchanged") from None
+
+
+def expire_stale_orders(db: Session, now: datetime, ttl: timedelta) -> int:
+    """Cancel pending orders older than ttl and restore their stock, atomically per order.
+
+    Called lazily from request paths (no background worker). Returns how many expired.
+    """
+    stale = db.scalars(
+        select(Order).where(Order.status == STATUS_PENDING, Order.created_at < now - ttl)
+    ).all()
+    expired = 0
+    for order in stale:
+        claimed = db.execute(
+            update(Order)
+            .where(Order.id == order.id, Order.status == STATUS_PENDING)
+            .values(status=STATUS_CANCELLED, updated_at=utcnow())
+            .execution_options(synchronize_session=False)
+        )
+        if claimed.rowcount == 1:  # lost races mean someone else paid or cancelled it
+            _restock(db, order)
+            expired += 1
+    if stale:
+        db.commit()
+    return expired
+
+
+def change_status(
+    db: Session, user: TokenPayload, order_id: int, target: str, provider: PaymentProvider
+) -> Order:
+    """Sellers may only ship (paid -> shipped); only the buyer cancels or confirms delivery.
+
+    A multi-seller order has a single shared status, not one per seller.
+    """
     order = involved_order(db, order_id, user.user_id)
     if target not in _role_targets(order, user.user_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You may not set that status")
@@ -219,13 +280,9 @@ def change_status(db: Session, user: TokenPayload, order_id: int, target: str) -
     if changed.rowcount != 1:
         raise conflict("Order was changed by someone else, please reload")
     if target == STATUS_CANCELLED:
-        for item in order.items:  # restock exactly what checkout took
-            db.execute(
-                update(Product)
-                .where(Product.id == item.product_id)
-                .values(stock=Product.stock + item.quantity)
-                .execution_options(synchronize_session=False)
-            )
+        _restock(db, order)
+        if current == STATUS_PAID:
+            _refund_or_rollback(db, order, provider)
     db.commit()
     db.refresh(order)
     return order

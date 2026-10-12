@@ -19,14 +19,16 @@ class App:
     volume: bool = False  # persistent /data mount (uploads)
     websocket: bool = False
     needs_origin: bool = False  # backend checks the WebSocket Origin
-    max_body: str = ""  # nginx client_max_body_size override for the API location
-    streaming: bool = False  # large uploads / range streaming: no request buffering
+    upload_path: str = ""  # backend path that receives uploads (gets auth_request + limits)
+    max_body: str = ""  # client_max_body_size for the upload path
+    stream: bool = False  # serves large ranged responses: no response buffering
+    tmp_mb: int = 0  # size cap for the backend's tmpfs /tmp (multipart spool)
 
 
 APPS: tuple[App, ...] = (
     App("chat", "Chat", "Talk in rooms in real time", websocket=True, needs_origin=True),
-    App("photos", "Photos", "Share and like photos", volume=True, max_body="6m"),
-    App("watch", "Watch", "Upload and watch videos", volume=True, max_body="110m", streaming=True),
+    App("photos", "Photos", "Share and like photos", volume=True, upload_path="/photos", max_body="6m", tmp_mb=128),
+    App("watch", "Watch", "Upload and watch videos", volume=True, upload_path="/videos", max_body="110m", stream=True, tmp_mb=512),
     App("werewolf", "Werewolf", "Play the social-deduction game", websocket=True, needs_origin=True),
     App("market", "Market", "Buy and sell products"),
     App("learning", "Learning", "Take and teach skill courses"),
@@ -60,6 +62,8 @@ def compose() -> str:
         ]
         if app.volume:
             backend += ["    volumes:", f"      - {app.slug}-data:/data"]
+        if app.tmp_mb:
+            backend += ["    tmpfs:", f"      - /tmp:size={app.tmp_mb}m"]
         frontend = [
             f"  {app.slug}-frontend:",
             "    <<: *hardening",
@@ -141,17 +145,25 @@ volumes:
 """
 
 
+def upload_location(app: App) -> str:
+    """Exact-match location for the upload route: authenticate BEFORE the body is read."""
+    return f"""    location = /api/{app.slug}{app.upload_path} {{
+        auth_request /_auth;                  # 401 before any upload bytes are accepted
+        client_max_body_size {app.max_body};
+        client_body_timeout 60s;
+        limit_req zone=upload burst=10 nodelay;
+        limit_req_status 429;
+        limit_conn upload_conn 3;
+        proxy_request_buffering off;          # stream the body to the backend
+        proxy_pass http://{app.slug}-backend:8000{app.upload_path};
+{PROXY_HEADERS.rstrip(chr(10))}
+    }}"""
+
+
 def api_location(app: App) -> str:
     lines = [f"    location /api/{app.slug}/ {{"]
-    if app.max_body:
-        lines.append(f"        client_max_body_size {app.max_body};")
-    if app.streaming:
-        lines += [
-            "        proxy_request_buffering off;  # stream uploads to the backend",
-            "        proxy_buffering off;          # stream video ranges back",
-            "        proxy_read_timeout 1h;",
-            "        proxy_send_timeout 1h;",
-        ]
+    if app.stream:
+        lines.append("        proxy_buffering off;  # stream video ranges back to the client")
     if app.websocket:
         lines += [
             "        proxy_http_version 1.1;",
@@ -162,7 +174,10 @@ def api_location(app: App) -> str:
     lines.append(f"        proxy_pass http://{app.slug}-backend:8000/;")
     lines.append(PROXY_HEADERS.rstrip("\n"))
     lines.append("    }")
-    return "\n".join(lines)
+    block = "\n".join(lines)
+    if app.upload_path:
+        return upload_location(app) + "\n\n" + block
+    return block
 
 
 def frontend_location(app: App) -> str:
@@ -186,16 +201,38 @@ map $http_upgrade $connection_upgrade {{
 
 # Brute-force guard for credential endpoints (the backends also throttle).
 limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/m;
+# Upload routes: few requests and few parallel connections per address. Only POSTs are
+# counted (an empty key is not limited), so browsing the same path stays unthrottled.
+map $request_method $upload_key {{
+    POST    $binary_remote_addr;
+    default "";
+}}
+limit_req_zone $upload_key zone=upload:10m rate=60r/m;
+limit_conn_zone $upload_key zone=upload_conn:10m;
+# Everything else: a generous per-address ceiling against floods and expensive searches.
+limit_req_zone $binary_remote_addr zone=api:10m rate=50r/s;
 
 server {{
     listen 80;
     server_name _;
     server_tokens off;
     client_max_body_size 1m;
+    limit_req zone=api burst=100 nodelay;
+    limit_req_status 429;
 
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Internal subrequest used by `auth_request`: valid cookie -> 200, otherwise 401.
+    location = /_auth {{
+        internal;
+        proxy_pass http://center-backend:8000/auth/me;
+        client_max_body_size 0;               # the subrequest carries no body; do not 413 the upload
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Host $host;
+    }}
 
     # --- center: the prefix is stripped before reaching the service ---
     location /api/center/auth/ {{

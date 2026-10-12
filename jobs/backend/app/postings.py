@@ -10,6 +10,7 @@ from app.models import Application, Posting, SavedJob, pack_tags
 from app.queries import CURSOR_PATTERN, SearchParams, search_postings
 from app.schemas import (
     LOCATION_MAX,
+    SALARY_MAX_VALUE,
     TAG_MAX,
     TAG_PATTERN,
     EmploymentType,
@@ -62,7 +63,7 @@ def list_postings(
     location: Annotated[str | None, Query(max_length=LOCATION_MAX)] = None,
     remote: bool | None = None,
     type: EmploymentType | None = None,
-    min_salary: Annotated[int | None, Query(ge=0)] = None,
+    min_salary: Annotated[int | None, Query(ge=0, le=SALARY_MAX_VALUE)] = None,
     tag: Annotated[str | None, Query(max_length=TAG_MAX, pattern=TAG_PATTERN)] = None,
     cursor: Annotated[str | None, Query(pattern=CURSOR_PATTERN)] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,

@@ -1,6 +1,6 @@
 import re
 
-_RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
+_RANGE_PATTERN = re.compile(r"^bytes=(\d{0,18})-(\d{0,18})$")
 
 
 class RangeNotSatisfiableError(Exception):

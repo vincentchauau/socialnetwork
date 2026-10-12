@@ -1,10 +1,14 @@
+import os
+from datetime import datetime, timedelta
+from typing import Callable
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.grading import InvalidAnswers, grade, validate_answers
-from app.models import Course, Lesson, Option, Question, Quiz, QuizAttempt
+from app.models import Course, Lesson, Option, Question, Quiz, QuizAttempt, utcnow
 from app.quiz_schemas import (
     AttemptIn,
     AttemptOut,
@@ -27,8 +31,41 @@ from sn_shared.security import TokenPayload
 
 router = APIRouter()
 
+Clock = Callable[[], datetime]
+
 FIRST_POSITION = 1
+MAX_ATTEMPTS_ENV = "QUIZ_MAX_ATTEMPTS"
+DEFAULT_MAX_ATTEMPTS = 5
+ATTEMPT_WINDOW_HOURS = 24
 QUIZ_NOT_FOUND = "Quiz not found"
+
+
+def get_clock() -> Clock:
+    """Injectable time source (overridden in tests)."""
+    return utcnow
+
+
+def max_attempts() -> int:
+    try:
+        return max(int(os.environ.get(MAX_ATTEMPTS_ENV, DEFAULT_MAX_ATTEMPTS)), 1)
+    except ValueError:
+        return DEFAULT_MAX_ATTEMPTS
+
+
+def _recent_attempts(db: Session, quiz: Quiz, user_id: int, now: datetime) -> int:
+    since = now - timedelta(hours=ATTEMPT_WINDOW_HOURS)
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(QuizAttempt)
+            .where(
+                QuizAttempt.quiz_id == quiz.id,
+                QuizAttempt.user_id == user_id,
+                QuizAttempt.created_at > since,
+            )
+        )
+        or 0
+    )
 
 
 def _build_questions(body: QuizIn) -> list[Question]:
@@ -184,16 +221,31 @@ def submit_attempt(
     body: AttemptIn,
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
+    clock: Clock = Depends(get_clock),
 ) -> AttemptOut:
     quiz, course = _load_quiz(db, quiz_id, user)
+    if course.owner_id == user.user_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Course owners cannot take their own quiz")
     require_enrollment(db, course.id, user.user_id)
+    now = clock()
+    used = _recent_attempts(db, quiz, user.user_id, now)
+    limit = max_attempts()
+    if used >= limit:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Attempt limit reached ({limit} per {ATTEMPT_WINDOW_HOURS} hours). Try again later.",
+        )
     try:
         chosen = validate_answers(quiz.questions, body.answers)
     except InvalidAnswers as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from None
     score, results = grade(quiz.questions, chosen)
     attempt = QuizAttempt(
-        quiz_id=quiz.id, user_id=user.user_id, score_percent=score, passed=score >= quiz.pass_percent
+        quiz_id=quiz.id,
+        user_id=user.user_id,
+        score_percent=score,
+        passed=score >= quiz.pass_percent,
+        created_at=now,
     )
     db.add(attempt)
     db.commit()
@@ -205,5 +257,7 @@ def submit_attempt(
         pass_percent=quiz.pass_percent,
         best_score=best if best is not None else score,
         best_passed=passed,
-        results=results,
+        attempts_remaining=max(limit - used - 1, 0),
+        # Feedback only on a pass, so failing attempts cannot be used to probe answers.
+        results=results if attempt.passed else None,
     )

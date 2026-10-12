@@ -31,6 +31,7 @@ export interface YouView {
 }
 
 export interface GameState {
+  version: number;
   phase: Phase;
   day: number;
   host_id: number;
@@ -104,6 +105,11 @@ const ACTION_LABELS: Record<PendingAction, string> = {
 
 export const roleLabel = (role: Role | null): string => (role ? ROLE_LABELS[role] : "Unknown");
 export const roleHint = (role: Role | null): string => (role ? ROLE_HINTS[role] : "");
+/** Keep the newer of two snapshots: broadcasts can arrive out of order, so older versions are dropped. */
+export function newerState(current: GameState | null, incoming: GameState): GameState {
+  return current !== null && incoming.version < current.version ? current : incoming;
+}
+
 export const phaseLabel = (phase: Phase): string => PHASE_LABELS[phase];
 export const actionLabel = (action: PendingAction): string => ACTION_LABELS[action];
 

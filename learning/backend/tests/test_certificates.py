@@ -22,7 +22,7 @@ def test_certificate_flow(client: TestClient, alice, bob) -> None:
     cert_url = f"{base}/certificate"
 
     assert client.get(cert_url).status_code == 401
-    assert client.get(cert_url, headers=bob).status_code == 403
+    assert client.get(cert_url, headers=bob).status_code == 404
     client.post(f"{base}/enroll", headers=bob)
     assert client.get(cert_url, headers=bob).status_code == 409
 
@@ -65,8 +65,22 @@ def test_certificate_removed_with_course(client: TestClient, alice, bob) -> None
     course = make_course(client, alice)
     base = f"/courses/{course['id']}"
     lesson = make_lesson(client, alice, course["id"])
+    quiz = make_quiz(client, alice, course["id"], lesson["id"])
     client.post(f"{base}/enroll", headers=bob)
     client.put(f"{base}/lessons/{lesson['id']}/complete", headers=bob)
+    learner_quiz = client.get(f"/quizzes/{quiz['id']}", headers=bob).json()
+    client.post(f"/quizzes/{quiz['id']}/attempts", json=_answers(learner_quiz, True), headers=bob)
     code = client.get(f"{base}/certificate", headers=bob).json()["code"]
     client.delete(base, headers=alice)
     assert client.get(f"/certificates/{code}").status_code == 404
+
+
+def test_certificate_refused_for_course_without_quizzes(client: TestClient, alice, bob) -> None:
+    course = make_course(client, alice)
+    base = f"/courses/{course['id']}"
+    lesson = make_lesson(client, alice, course["id"])
+    client.post(f"{base}/enroll", headers=bob)
+    client.put(f"{base}/lessons/{lesson['id']}/complete", headers=bob)
+    response = client.get(f"{base}/certificate", headers=bob)
+    assert response.status_code == 409
+    assert "quiz" in response.json()["detail"].lower()

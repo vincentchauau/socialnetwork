@@ -35,6 +35,8 @@ def enroll(
     db: Session = Depends(get_db),
 ) -> EnrollmentOut:
     course = _published_course(db, course_id, user)
+    if course.owner_id == user.user_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot enrol in your own course")
     enrollment = find_enrollment(db, course.id, user.user_id)
     if enrollment is None:
         enrollment = Enrollment(course_id=course.id, user_id=user.user_id, username=user.username)

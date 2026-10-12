@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ApiError, User, apiFetch } from "@sn/api";
 import AuthGate from "../../AuthGate";
-import { ChatLine, GameState, appendChat, parseServerEvent } from "../../game";
+import { ChatLine, GameState, appendChat, newerState, parseServerEvent } from "../../game";
 import RoomBoard from "../../RoomBoard";
 
 const API = "/api/werewolf";
@@ -38,7 +38,7 @@ function Room({ roomId, user }: { roomId: string; user: User }) {
     apiFetch<{ state: GameState }>(`${API}/rooms/${roomId}`)
       .then((room) => {
         if (cancelled) return;
-        setGame(room.state);
+        setGame((current) => newerState(current, room.state));
         setLoad({ status: "ready" });
       })
       .catch((error: unknown) => {
@@ -69,7 +69,7 @@ function Room({ roomId, user }: { roomId: string; user: User }) {
         const data = parseServerEvent(event.data);
         if (data === null) return;
         if (data.type === "state") {
-          setGame(data.state);
+          setGame((current) => newerState(current, data.state));
           setNotice(null);
         } else if (data.type === "chat") {
           lineKey.current += 1;
@@ -158,8 +158,8 @@ function Room({ roomId, user }: { roomId: string; user: User }) {
       onVote={(target) => send({ type: "vote", target })}
       onChat={(content) => send({ type: "chat", content })}
       onAdvance={() => send({ type: "advance" })}
-      onStart={() => void post("start", (state) => state && setGame(state))}
-      onJoin={() => void post("join", (state) => state && setGame(state))}
+      onStart={() => void post("start", (state) => state && setGame((cur) => newerState(cur, state)))}
+      onJoin={() => void post("join", (state) => state && setGame((cur) => newerState(cur, state)))}
       onLeave={() => void post("leave", () => router.push("/"))}
     />
   );

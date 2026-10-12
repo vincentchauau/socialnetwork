@@ -29,14 +29,15 @@ from app.schemas import (
     VideoOut,
     VideoPage,
 )
-from app.storage import UploadError, iter_file, remove_file, save_upload
+from app.storage import UploadError, iter_file, remove_file, save_upload, stored_bytes
 from sn_shared.deps import get_current_user
 from sn_shared.security import TokenPayload
 
 router = APIRouter()
 
 LIKE_ESCAPE = "!"
-VideoId = Annotated[int, PathParam(ge=1)]
+MAX_INT64 = 2**63 - 1
+VideoId = Annotated[int, PathParam(ge=1, le=MAX_INT64)]
 
 
 def get_video_or_404(db: Session, video_id: int) -> Video:
@@ -81,6 +82,18 @@ def _record_view(db: Session, user_id: int, video: Video) -> None:
     db.refresh(video)
 
 
+def _enforce_quota(request: Request, db: Session, user_id: int) -> int:
+    """Refuse the upload if the user is at a limit; return the byte budget left for this file."""
+    state = request.app.state
+    names = list(db.scalars(select(Video.file_name).where(Video.owner_id == user_id)))
+    if len(names) >= state.max_videos_per_user:
+        raise HTTPException(409, f"Video limit reached ({state.max_videos_per_user} per user); delete a video first")
+    remaining = state.max_user_bytes - stored_bytes(state.upload_dir, names)
+    if remaining <= 0:
+        raise HTTPException(409, "Storage quota exceeded; delete a video first")
+    return min(remaining, state.max_video_bytes)
+
+
 @router.post("/videos", response_model=VideoOut, status_code=status.HTTP_201_CREATED)
 def upload_video(
     request: Request,
@@ -100,9 +113,12 @@ def upload_video(
     clean_tags = normalize_tags(tags)
 
     upload_dir: Path = request.app.state.upload_dir
+    max_bytes = _enforce_quota(request, db, user.user_id)
     try:
-        stored = save_upload(file.file, upload_dir, request.app.state.max_video_bytes)
+        stored = save_upload(file.file, upload_dir, max_bytes)
     except UploadError as error:
+        if error.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE and max_bytes < request.app.state.max_video_bytes:
+            raise HTTPException(409, "Storage quota exceeded; delete a video first") from None
         raise HTTPException(error.status_code, error.detail) from None
     video = Video(
         owner_id=user.user_id,
@@ -125,7 +141,7 @@ def upload_video(
 
 @router.get("/videos", response_model=VideoPage)
 def list_videos(
-    cursor: Annotated[int | None, Query(ge=1)] = None,
+    cursor: Annotated[int | None, Query(ge=1, le=MAX_INT64)] = None,
     limit: Annotated[int, Query(ge=1, le=PAGE_MAX_LIMIT)] = PAGE_DEFAULT_LIMIT,
     q: Annotated[str | None, Query(max_length=QUERY_MAX)] = None,
     tag: Annotated[str | None, Query(max_length=TAG_MAX_LEN)] = None,

@@ -18,4 +18,4 @@ HEALTHCHECK --interval=15s --timeout=3s --retries=5   CMD python -c "import urll
 
 # Only the gateway can reach this port (compose network), so trusting its
 # X-Forwarded-For is safe and gives rate limiting the real client address.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--ws-max-size", "16384", "--proxy-headers", "--forwarded-allow-ips", "*"]

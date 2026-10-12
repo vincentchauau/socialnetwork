@@ -294,10 +294,45 @@ def test_vote_can_be_changed_before_phase_ends():
     assert dict(game.votes)[1] == 3 and len(game.votes) == 1
 
 
-def test_force_advance_vote_tallies_partial_votes():
+def test_force_advance_vote_single_vote_lynches_nobody():
     game = cast_vote(running(phase=Phase.VOTE), 1, 2)
     game = force_advance(game, 1)
-    assert 2 not in alive_ids(game)
+    assert alive_ids(game) == set(ROLES) and game.events[-1].kind == "no_lynch"
+
+
+def test_force_advance_vote_without_strict_majority_lynches_nobody():
+    # 7 living players: 3 of 7 is a plurality but not a majority
+    game = vote_all(running(phase=Phase.VOTE), {1: 3, 2: 3, 4: 3, 5: 2})
+    assert alive_ids(force_advance(game, 1)) == set(ROLES)
+
+
+def test_force_advance_vote_with_strict_majority_lynches():
+    game = vote_all(running(phase=Phase.VOTE), {1: 3, 2: 3, 4: 3, 5: 3})
+    assert 3 not in alive_ids(force_advance(game, 1))
+
+
+def test_force_advance_night_requires_wolf_majority():
+    roles = {**ROLES, 8: Role.WEREWOLF, 9: Role.VILLAGER, 10: Role.VILLAGER, 11: Role.VILLAGER,
+             12: Role.VILLAGER}
+    one_of_three = force_advance(submit_action(running(roles), 4, 1), 1)
+    assert 1 in alive_ids(one_of_three)
+    two_of_three = submit_action(submit_action(running(roles), 4, 1), 7, 1)
+    assert 1 not in alive_ids(force_advance(two_of_three, 1))
+
+
+def test_force_advance_night_ignores_actions_of_dead_role_holders():
+    game = running()
+    game = game.with_player(replace(game.find(6), alive=False))  # the doctor
+    game = replace(game, doctor_target=1, wolf_votes=((4, 1), (7, 1)))
+    resolved = force_advance(game, 1)
+    assert 1 not in alive_ids(resolved) and resolved.last_doctor_target is None
+
+
+def test_force_advance_night_ignores_wolf_votes_of_dead_wolves():
+    game = running()
+    game = game.with_player(replace(game.find(7), alive=False))
+    game = replace(game, wolf_votes=((7, 1),))
+    assert alive_ids(force_advance(game, 1)) == alive_ids(game)
 
 
 def test_force_advance_rules():

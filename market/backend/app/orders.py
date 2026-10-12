@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app import order_service
 from app.constants import PAGE_DEFAULT_LIMIT, PAGE_MAX_LIMIT
-from app.deps import IdempotencyKey, get_db, get_payment_provider
+from app.deps import IdempotencyKey, expire_stale, get_db, get_payment_provider
 from app.models import Order, OrderItem
 from app.payments import PaymentProvider
 from app.schemas import OrderOut, OrderPage, StatusIn
@@ -31,7 +31,12 @@ def _order_page(db: Session, query: Select[Any], user_id: int, cursor: int | Non
     )
 
 
-@router.post("/orders", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/orders",
+    response_model=OrderOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(expire_stale)],
+)
 def create_order(
     response: Response,
     idempotency_key: IdempotencyKey = None,
@@ -44,7 +49,7 @@ def create_order(
     return order_service.order_view(order, user.user_id)
 
 
-@router.get("/orders", response_model=OrderPage)
+@router.get("/orders", response_model=OrderPage, dependencies=[Depends(expire_stale)])
 def list_orders(
     cursor: Cursor = None,
     limit: Limit = PAGE_DEFAULT_LIMIT,
@@ -54,7 +59,7 @@ def list_orders(
     return _order_page(db, select(Order).where(Order.buyer_id == user.user_id), user.user_id, cursor, limit)
 
 
-@router.get("/sales", response_model=OrderPage)
+@router.get("/sales", response_model=OrderPage, dependencies=[Depends(expire_stale)])
 def list_sales(
     cursor: Cursor = None,
     limit: Limit = PAGE_DEFAULT_LIMIT,
@@ -65,7 +70,7 @@ def list_sales(
     return _order_page(db, select(Order).where(Order.id.in_(sold)), user.user_id, cursor, limit)
 
 
-@router.get("/orders/{order_id}", response_model=OrderOut)
+@router.get("/orders/{order_id}", response_model=OrderOut, dependencies=[Depends(expire_stale)])
 def get_order(
     order_id: OrderId,
     user: TokenPayload = Depends(get_current_user),
@@ -75,7 +80,9 @@ def get_order(
     return order_service.order_view(order, user.user_id)
 
 
-@router.post("/orders/{order_id}/pay", response_model=OrderOut)
+@router.post(
+    "/orders/{order_id}/pay", response_model=OrderOut, dependencies=[Depends(expire_stale)]
+)
 def pay_order(
     order_id: OrderId,
     idempotency_key: IdempotencyKey = None,
@@ -87,12 +94,15 @@ def pay_order(
     return order_service.order_view(order, user.user_id)
 
 
-@router.patch("/orders/{order_id}/status", response_model=OrderOut)
+@router.patch(
+    "/orders/{order_id}/status", response_model=OrderOut, dependencies=[Depends(expire_stale)]
+)
 def update_order_status(
     order_id: OrderId,
     body: StatusIn,
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
+    provider: PaymentProvider = Depends(get_payment_provider),
 ) -> OrderOut:
-    order = order_service.change_status(db, user, order_id, body.status)
+    order = order_service.change_status(db, user, order_id, body.status, provider)
     return order_service.order_view(order, user.user_id)

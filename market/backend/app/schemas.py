@@ -16,7 +16,7 @@ from app.constants import (
     REVIEW_TEXT_MAX,
 )
 
-ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
+ALLOWED_URL_SCHEMES = frozenset({"https"})
 RATING_MIN = 1
 RATING_MAX = 5
 RATING_DECIMALS = 2
@@ -32,7 +32,7 @@ OrderStatus = Literal["pending_payment", "paid", "shipped", "delivered", "cancel
 
 
 def validate_http_url(value: str) -> str:
-    """Only absolute http(s) URLs with a host; no whitespace or control characters."""
+    """Only absolute https URLs with a host; no whitespace or control characters."""
     if any(char.isspace() or ord(char) < 32 for char in value):
         raise ValueError("URL must not contain whitespace")
     try:
@@ -41,7 +41,7 @@ def validate_http_url(value: str) -> str:
     except ValueError as error:
         raise ValueError("Invalid URL") from error
     if parts.scheme not in ALLOWED_URL_SCHEMES or not host:
-        raise ValueError("URL must start with http:// or https://")
+        raise ValueError("URL must start with https://")
     return value
 
 

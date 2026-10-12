@@ -68,6 +68,14 @@ function OrderDetail({ id, user }: { id: number; user: User }) {
           Cancel order
         </button>
       )}
+      {isBuyer && data.status === "shipped" && (
+        <button
+          disabled={busy}
+          onClick={() => void act("/status", { method: "PATCH", body: JSON.stringify({ status: "delivered" }) })}
+        >
+          {busy ? "Working…" : "Confirm delivery"}
+        </button>
+      )}
       {isBuyer && data.status === "delivered" && (
         <p className="muted">Delivered. You can review items from their product pages.</p>
       )}

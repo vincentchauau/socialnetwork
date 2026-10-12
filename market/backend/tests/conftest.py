@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -22,6 +23,30 @@ class DecliningProvider:
     def charge(self, order_id: int, amount_cents: int, currency: str) -> PaymentResult:
         raise PaymentError("declined")
 
+    def refund(self, reference: str) -> None:
+        raise PaymentError("declined")
+
+
+class RefundFailingProvider:
+    def charge(self, order_id: int, amount_cents: int, currency: str) -> PaymentResult:
+        return PaymentResult(reference="fake_ok")
+
+    def refund(self, reference: str) -> None:
+        raise PaymentError("refund failed")
+
+
+class ManualClock:
+    """Real time plus an adjustable offset, so created_at defaults stay comparable."""
+
+    def __init__(self) -> None:
+        self.offset = timedelta(0)
+
+    def __call__(self) -> datetime:
+        return datetime.now(timezone.utc) + self.offset
+
+    def advance(self, **kwargs: float) -> None:
+        self.offset += timedelta(**kwargs)
+
 
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
@@ -31,6 +56,23 @@ def env(monkeypatch):
 @pytest.fixture
 def client():
     with TestClient(create_app("sqlite://")) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def clock():
+    return ManualClock()
+
+
+@pytest.fixture
+def clock_client(clock):
+    with TestClient(create_app("sqlite://", clock=clock, order_ttl_minutes=15)) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def refund_failing_client():
+    with TestClient(create_app("sqlite://", payment_provider=RefundFailingProvider())) as test_client:
         yield test_client
 
 
@@ -84,4 +126,4 @@ def set_status(client: TestClient, order_id: int, status: str, who):
 def deliver(client: TestClient, order_id: int, seller=SELLER, buyer=BUYER) -> None:
     assert client.post(f"/orders/{order_id}/pay", headers=auth(buyer)).status_code == 200
     assert set_status(client, order_id, "shipped", seller).status_code == 200
-    assert set_status(client, order_id, "delivered", seller).status_code == 200
+    assert set_status(client, order_id, "delivered", buyer).status_code == 200

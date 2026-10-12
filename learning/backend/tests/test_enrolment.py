@@ -36,7 +36,7 @@ def test_unenroll_clears_progress_and_is_idempotent(client: TestClient, alice, b
     assert client.delete(f"{base}/enroll", headers=bob).status_code == 204
     assert client.delete(f"{base}/enroll", headers=bob).status_code == 204
     assert client.delete(f"{base}/enroll").status_code == 401
-    assert client.get(f"{base}/progress", headers=bob).status_code == 403
+    assert client.get(f"{base}/progress", headers=bob).status_code == 404
     client.post(f"{base}/enroll", headers=bob)
     assert client.get(f"{base}/progress", headers=bob).json()["percent"] == 0
     assert client.get(f"{base}/lessons/{lessons[0]['id']}", headers=bob).json()["completed"] is False
@@ -62,9 +62,9 @@ def test_complete_requires_enrolment(client: TestClient, alice, bob) -> None:
     course, lessons = _course_with_lessons(client, alice)
     url = f"/courses/{course['id']}/lessons/{lessons[0]['id']}/complete"
     assert client.put(url).status_code == 401
-    assert client.put(url, headers=bob).status_code == 403
-    assert client.delete(url, headers=bob).status_code == 403
-    assert client.put(f"/courses/{course['id']}/lessons/999/complete", headers=bob).status_code in (403, 404)
+    assert client.put(url, headers=bob).status_code == 404
+    assert client.delete(url, headers=bob).status_code == 404
+    assert client.put(f"/courses/{course['id']}/lessons/999/complete", headers=bob).status_code in (404,)
 
 
 def test_complete_and_uncomplete(client: TestClient, alice, bob) -> None:
@@ -94,7 +94,7 @@ def test_progress_endpoint(client: TestClient, alice, bob) -> None:
     course, lessons = _course_with_lessons(client, alice, 2)
     base = f"/courses/{course['id']}"
     assert client.get(f"{base}/progress").status_code == 401
-    assert client.get(f"{base}/progress", headers=bob).status_code == 403
+    assert client.get(f"{base}/progress", headers=bob).status_code == 404
     client.post(f"{base}/enroll", headers=bob)
     for lesson in lessons:
         client.put(f"{base}/lessons/{lesson['id']}/complete", headers=bob)
@@ -113,3 +113,9 @@ def test_progress_ignores_deleted_lessons(client: TestClient, alice, bob) -> Non
     progress = client.get(f"{base}/progress", headers=bob).json()
     assert progress["total_lessons"] == 1
     assert progress["percent"] == 0
+
+
+def test_owner_cannot_enroll_in_own_course(client: TestClient, alice) -> None:
+    course, _ = _course_with_lessons(client, alice)
+    assert client.post(f"/courses/{course['id']}/enroll", headers=alice).status_code == 403
+    assert client.get(f"/courses/{course['id']}", headers=alice).json()["enrolment_count"] == 0

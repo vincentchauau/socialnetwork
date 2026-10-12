@@ -65,6 +65,7 @@ def test_client_cannot_spoof_seller(client):
         {"stock": 1.5},
         {"image_url": "javascript:alert(1)"},
         {"image_url": "ftp://example.com/a.png"},
+        {"image_url": "http://example.com/a.png"},
         {"image_url": "https://"},
         {"image_url": "https://exa mple.com/a.png"},
         {"image_url": "https://example.com/" + "a" * 500},

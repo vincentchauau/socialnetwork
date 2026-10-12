@@ -16,7 +16,6 @@ from app.engine import (
     GameError,
     submit_action,
 )
-from app.hub import MessageRateLimiter
 from app.schemas import (
     ROOM_PATTERN,
     ActionMsg,
@@ -43,6 +42,8 @@ def allowed_origins() -> set[str]:
 
 
 def _parse(raw: str) -> ActionMsg | VoteMsg | ChatMsg | AdvanceMsg | None:
+    if len(raw) > MAX_FRAME_CHARS:  # never hand an oversized frame to the JSON parser
+        return None
     try:
         return client_message_adapter.validate_python(json.loads(raw))
     except (ValueError, ValidationError):
@@ -104,7 +105,9 @@ async def game_socket(websocket: WebSocket, room_id: str) -> None:
         return await _refuse(websocket)
 
     hub = app.state.hub
-    limiter = MessageRateLimiter(RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS)
+    if hub.is_full():
+        return await websocket.close(code=status.WS_1013_TRY_AGAIN_LATER)
+    limiter = hub.limiter_for(user.user_id, RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS)
     await hub.join(room_id, websocket, user.user_id)
     try:
         await hub.send_state(room_id, websocket, game, user.user_id)

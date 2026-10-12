@@ -12,6 +12,7 @@ from app.schemas import (
     LessonPatch,
 )
 from app.services import (
+    NOT_FOUND_LESSON,
     best_scores,
     completed_lesson_ids,
     find_enrollment,
@@ -27,7 +28,6 @@ from sn_shared.security import TokenPayload
 router = APIRouter()
 
 FIRST_POSITION = 1
-LOCKED = "Enrol in this course to view its lessons"
 
 
 def _renumber(course: Course) -> None:
@@ -119,7 +119,7 @@ def get_lesson(
 ) -> LessonOut:
     course = visible_course(db, course_id, user)
     if course.owner_id != user.user_id and find_enrollment(db, course.id, user.user_id) is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, LOCKED)
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND_LESSON)
     return _lesson_out(db, course, find_lesson(course, lesson_id), user)
 
 

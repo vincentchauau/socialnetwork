@@ -71,7 +71,7 @@ export default function CoursePage() {
                   <a href="/login">Sign in</a> to enrol.
                 </p>
               )}
-              {signedIn && course.published && (
+              {signedIn && course.published && !course.is_owner && (
                 <button
                   type="button"
                   className={course.enrolled ? "secondary" : undefined}

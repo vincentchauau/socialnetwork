@@ -13,7 +13,7 @@ from app.constants import (
     SEARCH_MAX,
     USERNAME_MAX,
 )
-from app.deps import get_db
+from app.deps import expire_stale, get_db
 from app.models import CartItem, Product, Review, utcnow
 from app.schemas import ProductIn, ProductOut, ProductPage, RATING_DECIMALS
 from sn_shared.deps import get_current_user
@@ -81,7 +81,7 @@ def _page(db: Session, query: Select[Any], cursor: int | None, limit: int) -> Pr
     return ProductPage(items=[to_product_out(*row) for row in page], next_cursor=next_cursor)
 
 
-@router.get("/products", response_model=ProductPage)
+@router.get("/products", response_model=ProductPage, dependencies=[Depends(expire_stale)])
 def list_products(
     q: Annotated[str | None, Query(max_length=SEARCH_MAX)] = None,
     category: Annotated[str | None, Query(max_length=CATEGORY_MAX)] = None,
@@ -113,7 +113,7 @@ def list_products(
     return _page(db, query, cursor, limit)
 
 
-@router.get("/me/products", response_model=ProductPage)
+@router.get("/me/products", response_model=ProductPage, dependencies=[Depends(expire_stale)])
 def my_products(
     cursor: Annotated[int | None, Query(ge=1)] = None,
     limit: Annotated[int, Query(ge=1, le=PAGE_MAX_LIMIT)] = PAGE_DEFAULT_LIMIT,
@@ -123,7 +123,9 @@ def my_products(
     return _page(db, active_product_query().where(Product.seller_id == user.user_id), cursor, limit)
 
 
-@router.get("/products/{product_id}", response_model=ProductOut)
+@router.get(
+    "/products/{product_id}", response_model=ProductOut, dependencies=[Depends(expire_stale)]
+)
 def get_product(
     product_id: ProductId,
     _user: TokenPayload = Depends(get_current_user),

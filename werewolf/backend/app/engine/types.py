@@ -72,6 +72,7 @@ class Game:
     votes: Pairs = ()
     events: tuple[Event, ...] = ()
     winner: Winner | None = None
+    version: int = 0  # bumped by the store on every change; lets clients drop stale broadcasts
 
     def find(self, user_id: int) -> Player | None:
         return next((p for p in self.players if p.user_id == user_id), None)

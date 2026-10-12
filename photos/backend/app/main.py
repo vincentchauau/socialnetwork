@@ -2,15 +2,15 @@ import logging
 import os
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Path, Query, Response, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Path, Query, Request, Response, UploadFile, status
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import queries
 from app.db import Base, get_db, make_engine
-from app.images import MAX_UPLOAD_BYTES, InvalidImageError, process_image
+from app.images import MAX_UPLOAD_BYTES, ImageBusyError, InvalidImageError, process_image
 from app.models import Comment, Like, Photo
 from app.schemas import CAPTION_MAX, CommentIn, CommentOut, LikeState, PhotoOut, PhotoPage
 from app.storage import PhotoStorage
@@ -27,8 +27,14 @@ USERNAME_MAX = 64
 IMAGE_CACHE_CONTROL = "private, max-age=86400, immutable"
 
 Limit = Annotated[int, Query(ge=1, le=FEED_MAX_LIMIT)]
-Cursor = Annotated[int | None, Query(ge=1)]
-PhotoId = Annotated[int, Path(ge=1)]
+MAX_INT64 = 2**63 - 1
+DEFAULT_MAX_PHOTOS_PER_USER = 500
+# Multipart framing and the caption field on top of the file itself.
+MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+Cursor = Annotated[int | None, Query(ge=1, le=MAX_INT64)]
+PhotoId = Annotated[int, Path(ge=1, le=MAX_INT64)]
+CommentId = Annotated[int, Path(ge=1, le=MAX_INT64)]
 CurrentUser = Annotated[TokenPayload, Depends(get_current_user)]
 Db = Annotated[Session, Depends(get_db)]
 
@@ -71,6 +77,20 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
     storage = PhotoStorage.from_env()
     app.state.storage = storage
+    app.state.max_photos_per_user = int(
+        os.environ.get("MAX_PHOTOS_PER_USER", DEFAULT_MAX_PHOTOS_PER_USER)
+    )
+
+    @app.middleware("http")
+    async def require_upload_length(request: Request, call_next) -> Response:
+        # Chunked bodies carry no Content-Length and would bypass size checks.
+        if request.method == "POST" and request.url.path == "/photos":
+            declared = request.headers.get("content-length", "")
+            if not declared.isdigit():
+                return JSONResponse({"detail": "Content-Length header is required"}, status_code=411)
+            if int(declared) > MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES:
+                return JSONResponse({"detail": "The file is larger than 5 MB"}, status_code=413)
+        return await call_next(request)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -78,15 +98,24 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.post("/photos", response_model=PhotoOut, status_code=status.HTTP_201_CREATED)
     def upload(
+        request: Request,
         user: CurrentUser,
         db: Db,
         file: Annotated[UploadFile, File()],
         caption: Annotated[str | None, Form(max_length=CAPTION_MAX)] = None,
     ) -> PhotoOut:
+        limit = request.app.state.max_photos_per_user
+        owned = db.scalar(select(func.count()).select_from(Photo).where(Photo.user_id == user.user_id)) or 0
+        if owned >= limit:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, f"Photo limit reached ({limit} per user); delete a photo first"
+            )
         try:
             processed = process_image(_read_upload(file))
         except InvalidImageError as error:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from None
+        except ImageBusyError as error:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(error)) from None
         image_name, thumb_name = storage.save(processed.data, processed.thumb_data, processed.extension)
         photo = Photo(
             user_id=user.user_id,
@@ -192,7 +221,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         return comment
 
     @app.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
-    def delete_comment(comment_id: Annotated[int, Path(ge=1)], user: CurrentUser, db: Db) -> Response:
+    def delete_comment(comment_id: CommentId, user: CurrentUser, db: Db) -> Response:
         comment = db.get(Comment, comment_id)
         if comment is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Comment not found")

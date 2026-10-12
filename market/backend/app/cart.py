@@ -1,12 +1,12 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.constants import CURRENCY
-from app.deps import get_db
+from app.constants import CURRENCY, MAX_CART_PRODUCTS
+from app.deps import expire_stale, get_db
 from app.models import CartItem, Product
 from app.schemas import CartItemIn, CartLineOut, CartOut
 from sn_shared.deps import get_current_user
@@ -50,6 +50,11 @@ def _set_quantity(db: Session, user_id: int, product_id: int, quantity: int) -> 
         select(CartItem).where(CartItem.user_id == user_id, CartItem.product_id == product_id)
     )
     if item is None:
+        distinct = db.scalar(select(func.count(CartItem.id)).where(CartItem.user_id == user_id))
+        if (distinct or 0) >= MAX_CART_PRODUCTS:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, f"A cart can hold at most {MAX_CART_PRODUCTS} products"
+            )
         db.add(CartItem(user_id=user_id, product_id=product_id, quantity=quantity))
     else:
         item.quantity = quantity
@@ -63,7 +68,9 @@ def get_cart(
     return build_cart(db, user.user_id)
 
 
-@router.put("/cart/items/{product_id}", response_model=CartOut)
+@router.put(
+    "/cart/items/{product_id}", response_model=CartOut, dependencies=[Depends(expire_stale)]
+)
 def put_cart_item(
     product_id: ProductId,
     body: CartItemIn,

@@ -24,5 +24,6 @@ def get_visible_posting(db: Session, posting_id: int, user: TokenPayload) -> Pos
 
 def require_owner(posting: Posting, user: TokenPayload) -> Posting:
     if posting.owner_id != user.user_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the employer can do that")
+        # 404, not 403: do not reveal that the resource exists to non-owners
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     return posting

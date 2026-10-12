@@ -79,8 +79,12 @@ cd center/frontend && npm install && npm run dev
 
 ## Security notes
 
-- Uploads (photos 5 MB, videos 100 MB) are verified by content, stored under random names on a
-  volume, and capped by nginx per route. Payments in `market` are a stub: no card data is handled.
+- Uploads (photos 5 MB, videos 100 MB) are authenticated by nginx (`auth_request`) BEFORE the body is
+  accepted, rate-limited per address (POST only), verified by content, stored under random names on a
+  volume, and limited per user (photos 500; videos 20 and 1 GB). `/tmp` of those backends is a capped tmpfs.
+- Quiz answers are only revealed after a passing attempt (5 attempts per day); certificates need a passed quiz.
+- `market`: pending orders expire after 15 min and restock; only the buyer confirms delivery; paid
+  cancellations refund through the payment provider. Payments are a stub: no card data is handled.
 - Login is throttled per (address, username) and per address; register per address. nginx also
   rate-limits `/api/center/auth/`. Backends run with `--proxy-headers` so they see the real client.
 - The chat socket requires a valid cookie **and** an allowed `Origin`, caps frame size (8 KB) and rate
@@ -97,5 +101,7 @@ cd center/frontend && npm install && npm run dev
   then add HSTS and a CSP (Next.js inline scripts need nonces).
 - `db.py` / `utcnow` are duplicated in `center` and `chat`; fold them into `sn_shared` when a third service needs them.
 - No frontend tests and no CI yet.
+- The watch per-user byte quota is not atomic under concurrent uploads (can overshoot briefly).
+- A multi-seller `market` order has one shared status (any involved seller can mark it shipped).
 - `werewolf` keeps rooms in memory (lost on restart) and omits the old "Ma" faction; `market` has no shipping address.
 - No email verification, password reset or refresh tokens.

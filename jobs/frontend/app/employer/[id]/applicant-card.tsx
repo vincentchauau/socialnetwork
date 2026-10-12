@@ -15,6 +15,15 @@ import {
   label,
 } from "../../lib";
 
+/** Mirrors the backend transition map; hired and rejected are terminal. */
+const NEXT_STATUSES: Record<ApplicationStatus, ApplicationStatus[]> = {
+  submitted: ["reviewing", "shortlisted", "rejected"],
+  reviewing: ["shortlisted", "rejected", "hired"],
+  shortlisted: ["hired", "rejected"],
+  hired: [],
+  rejected: [],
+};
+
 /** One applicant: their text (rendered as text only), a status selector and a private note. */
 export function ApplicantCard({
   applicant,
@@ -87,7 +96,9 @@ export function ApplicantCard({
       <div className="row wrap">
         <Field label="Status" grow>
           <select value={status} onChange={(e) => setStatus(e.target.value as ApplicationStatus)}>
-            {APPLICATION_STATUSES.map((value) => (
+            {APPLICATION_STATUSES.filter(
+              (value) => value === applicant.status || NEXT_STATUSES[applicant.status].includes(value),
+            ).map((value) => (
               <option key={value} value={value}>{label(value)}</option>
             ))}
           </select>

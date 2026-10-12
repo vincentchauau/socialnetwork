@@ -91,9 +91,13 @@ def _night_complete(game: Game) -> bool:
     return not (game.living(Role.DOCTOR) and game.doctor_target is None)
 
 
-def _wolf_victim(game: Game) -> int | None:
-    counts = Counter(t for _, t in game.wolf_votes if t is not None)
-    return _unique_leader(counts)
+def _wolf_victim(game: Game, forced: bool = False) -> int | None:
+    wolves = {w.user_id for w in game.living(Role.WEREWOLF)}
+    counts = Counter(t for v, t in game.wolf_votes if t is not None and v in wolves)
+    leader = _unique_leader(counts)
+    if forced and (leader is None or counts[leader] * 2 <= len(wolves)):
+        return None  # a forced night needs the wolves' strict majority, not a lone vote
+    return leader
 
 
 def _unique_leader(counts: Counter[int]) -> int | None:
@@ -105,15 +109,18 @@ def _unique_leader(counts: Counter[int]) -> int | None:
     return ranked[0][0]
 
 
-def resolve_night(game: Game) -> Game:
+def resolve_night(game: Game, forced: bool = False) -> Game:
+    """End the night. `forced` (host override) applies only what living role holders submitted."""
     if game.phase is not Phase.NIGHT:
         raise GameError("It is not night")
+    seer_target = game.seer_target if game.living(Role.SEER) else None
+    doctor_target = game.doctor_target if game.living(Role.DOCTOR) else None
     results = game.seer_results
-    if game.seer_target is not None:
-        inspected = game.find(game.seer_target)
+    if seer_target is not None:
+        inspected = game.find(seer_target)
         if inspected is not None:
             results += ((inspected.user_id, inspected.role is Role.WEREWOLF),)
-    victim_id = _wolf_victim(game)
+    victim_id = _wolf_victim(game, forced)
     resolved = replace(
         game,
         phase=Phase.DAY,
@@ -121,11 +128,11 @@ def resolve_night(game: Game) -> Game:
         votes=(),
         seer_target=None,
         doctor_target=None,
-        last_doctor_target=game.doctor_target,
+        last_doctor_target=doctor_target,
         seer_results=results,
     )
     victim = None if victim_id is None else game.find(victim_id)
-    if victim is None or victim_id == game.doctor_target:
+    if victim is None or victim_id == doctor_target:
         return check_win(resolved.with_event(Event(game.day, "peaceful_night")))
     resolved = resolved.with_player(replace(victim, alive=False))
     event = Event(game.day, "night_death", victim.user_id, victim.role.value if victim.role else None)
@@ -154,11 +161,15 @@ def _vote_complete(game: Game) -> bool:
     return all(p.user_id in voted for p in game.living())
 
 
-def resolve_vote(game: Game) -> Game:
+def resolve_vote(game: Game, forced: bool = False) -> Game:
+    """Tally the vote. A forced tally (host override) lynches only on a strict majority of the living."""
     if game.phase is not Phase.VOTE:
         raise GameError("It is not the voting phase")
-    counts = Counter(t for _, t in game.votes if t is not None)
+    living = {p.user_id for p in game.living()}
+    counts = Counter(t for v, t in game.votes if t is not None and v in living)
     target_id = _unique_leader(counts)
+    if forced and target_id is not None and counts[target_id] * 2 <= len(living):
+        target_id = None
     target = None if target_id is None else game.find(target_id)
     if target is None:
         resolved = game.with_event(Event(game.day, "no_lynch"))
@@ -182,11 +193,11 @@ def force_advance(game: Game, requester_id: int) -> Game:
     """Host control: end the current phase now, counting only what has been submitted."""
     _require_host(game, requester_id)
     if game.phase is Phase.NIGHT:
-        return resolve_night(game)
+        return resolve_night(game, forced=True)
     if game.phase is Phase.DAY:
         return end_discussion(game, requester_id)
     if game.phase is Phase.VOTE:
-        return resolve_vote(game)
+        return resolve_vote(game, forced=True)
     raise GameError("There is nothing to advance")
 
 

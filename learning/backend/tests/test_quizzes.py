@@ -64,8 +64,8 @@ def test_learner_view_requires_enrolment(client: TestClient, setup) -> None:
     carol = auth_cookie(3, "carol")
     quiz_id = setup["quiz"]["id"]
     assert client.get(f"/quizzes/{quiz_id}").status_code == 401
-    assert client.get(f"/quizzes/{quiz_id}", headers=carol).status_code == 403
-    assert client.post(f"/quizzes/{quiz_id}/attempts", json={"answers": []}, headers=carol).status_code == 403
+    assert client.get(f"/quizzes/{quiz_id}", headers=carol).status_code == 404
+    assert client.post(f"/quizzes/{quiz_id}/attempts", json={"answers": []}, headers=carol).status_code == 404
     assert client.get("/quizzes/999", headers=carol).status_code == 404
 
 
@@ -83,6 +83,7 @@ def test_attempt_all_correct(client: TestClient, bob, setup) -> None:
     assert result["best_score"] == 100
     assert all(r["correct"] for r in result["results"])
     assert result["results"][0]["explanation"] == "Basic maths"
+    assert result["attempts_remaining"] == 4
 
 
 def test_attempt_partial_and_best_kept(client: TestClient, bob, setup) -> None:
@@ -91,7 +92,6 @@ def test_attempt_partial_and_best_kept(client: TestClient, bob, setup) -> None:
     wrong_multi = client.post(url, json=_answers(quiz, [["4"], ["2"]]), headers=bob).json()
     assert wrong_multi["score_percent"] == 50
     assert wrong_multi["passed"] is False
-    assert [r["correct"] for r in wrong_multi["results"]] == [True, False]
     best = client.post(url, json=_answers(quiz, [["4"], ["2", "3"]]), headers=bob).json()
     worse = client.post(url, json=_answers(quiz, [["3"], ["4"]]), headers=bob).json()
     assert worse["score_percent"] == 0
@@ -107,7 +107,7 @@ def test_attempt_unanswered_counts_wrong(client: TestClient, bob, setup) -> None
     quiz_id = setup["quiz"]["id"]
     result = client.post(f"/quizzes/{quiz_id}/attempts", json={"answers": []}, headers=bob).json()
     assert result["score_percent"] == 0
-    assert len(result["results"]) == 2
+    assert result["results"] is None
 
 
 def test_attempt_validation(client: TestClient, bob, setup) -> None:
@@ -130,7 +130,7 @@ def test_attempt_validation(client: TestClient, bob, setup) -> None:
     assert client.post(url, json={"answers": []}).status_code == 401
 
 
-def test_owner_cannot_attempt_unenrolled(client: TestClient, alice, setup) -> None:
+def test_owner_cannot_attempt_own_quiz(client: TestClient, alice, setup) -> None:
     url = f"/quizzes/{setup['quiz']['id']}/attempts"
     assert client.post(url, json={"answers": []}, headers=alice).status_code == 403
 
@@ -192,3 +192,45 @@ def test_quiz_too_many_questions(client: TestClient, alice, setup) -> None:
     question = quiz_body()["questions"][0]
     url = f"/courses/{setup['course']['id']}/lessons/{setup['lesson']['id']}/quiz"
     assert client.put(url, json=quiz_body(questions=[question] * 31), headers=alice).status_code == 422
+
+
+def test_failed_attempt_leaks_no_answers(client: TestClient, bob, setup) -> None:
+    quiz = client.get(f"/quizzes/{setup['quiz']['id']}", headers=bob).json()
+    response = client.post(
+        f"/quizzes/{quiz['id']}/attempts", json=_answers(quiz, [["4"], ["2"]]), headers=bob
+    )
+    body = response.json()
+    assert body["passed"] is False
+    assert body["results"] is None
+    assert body["attempts_remaining"] == 4
+    assert "Basic maths" not in response.text and "prime" not in response.text
+
+
+def test_attempts_limited_per_rolling_day(client: TestClient, bob, setup) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.quizzes import get_clock
+
+    now = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    current = {"t": now}
+    client.app.dependency_overrides[get_clock] = lambda: (lambda: current["t"])
+    try:
+        quiz = client.get(f"/quizzes/{setup['quiz']['id']}", headers=bob).json()
+        url = f"/quizzes/{quiz['id']}/attempts"
+        wrong = _answers(quiz, [["3"], ["4"]])
+        for remaining in (4, 3, 2, 1, 0):
+            assert client.post(url, json=wrong, headers=bob).json()["attempts_remaining"] == remaining
+        blocked = client.post(url, json=_answers(quiz, [["4"], ["2", "3"]]), headers=bob)
+        assert blocked.status_code == 429
+        current["t"] = now + timedelta(hours=24, seconds=1)
+        assert client.post(url, json=wrong, headers=bob).status_code == 201
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_attempt_limit_is_configurable(client: TestClient, bob, setup, monkeypatch) -> None:
+    monkeypatch.setenv("QUIZ_MAX_ATTEMPTS", "1")
+    quiz = client.get(f"/quizzes/{setup['quiz']['id']}", headers=bob).json()
+    url = f"/quizzes/{quiz['id']}/attempts"
+    assert client.post(url, json={"answers": []}, headers=bob).json()["attempts_remaining"] == 0
+    assert client.post(url, json={"answers": []}, headers=bob).status_code == 429

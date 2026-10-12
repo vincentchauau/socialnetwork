@@ -14,10 +14,14 @@ def _faction_winner(role: Role) -> Winner:
     return Winner.WOLVES if role is Role.WEREWOLF else Winner.VILLAGE
 
 
-def save_result(factory: sessionmaker, room_id: str, game: Game) -> None:
-    """Store a finished game (winner, roles, players). Never raises into the game loop."""
+def save_result(factory: sessionmaker, room_id: str, game: Game) -> bool:
+    """Store a finished game (winner, roles, players). Never raises into the game loop.
+
+    Returns True when the result is stored (or there is nothing to store), False when the write
+    failed, so the caller can retry later.
+    """
     if game.winner is None:
-        return
+        return True
     try:
         with factory() as session:
             players = [
@@ -35,6 +39,8 @@ def save_result(factory: sessionmaker, room_id: str, game: Game) -> None:
             session.commit()
     except Exception:
         logger.exception("Could not save result for room %s", room_id)
+        return False
+    return True
 
 
 def list_history(session: Session, user_id: int, limit: int) -> list[HistoryEntry]:

@@ -61,7 +61,7 @@ def test_content_requires_enrolment(client: TestClient, alice, bob) -> None:
     lesson = make_lesson(client, alice, course["id"], content="LESSON TEXT")
     url = f"/courses/{course['id']}/lessons/{lesson['id']}"
     assert client.get(url).status_code == 401
-    assert client.get(url, headers=bob).status_code == 403
+    assert client.get(url, headers=bob).status_code == 404
     assert client.get(url, headers=alice).json()["content"] == "LESSON TEXT"
     client.post(f"/courses/{course['id']}/enroll", headers=bob)
     seen = client.get(url, headers=bob).json()

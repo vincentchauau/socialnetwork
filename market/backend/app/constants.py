@@ -33,6 +33,14 @@ TRANSITIONS: dict[str, frozenset[str]] = {
     STATUS_DELIVERED: frozenset(),
     STATUS_CANCELLED: frozenset(),
 }
-# who may request which target status through PATCH /orders/{id}/status
-BUYER_TARGETS = frozenset({STATUS_CANCELLED})
-SELLER_TARGETS = frozenset({STATUS_SHIPPED, STATUS_DELIVERED})
+# who may request which target status through PATCH /orders/{id}/status.
+# An order has ONE shared status even when it contains items from several sellers:
+# any involved seller may mark it shipped (paid -> shipped), and only the buyer can
+# confirm delivery, so no seller can unlock reviews for the whole order.
+BUYER_TARGETS = frozenset({STATUS_CANCELLED, STATUS_DELIVERED})
+SELLER_TARGETS = frozenset({STATUS_SHIPPED})
+
+# Unpaid orders hold stock, so they expire and each buyer may hold only a few.
+DEFAULT_ORDER_TTL_MINUTES = 15
+MAX_OPEN_PENDING_ORDERS = 5
+MAX_CART_PRODUCTS = 50

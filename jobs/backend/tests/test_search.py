@@ -49,7 +49,8 @@ def test_filters(client):
 
 
 def test_invalid_filters_rejected(client):
-    for query in ["type=bogus", "limit=0", "limit=51", "min_salary=-1", "q=" + "x" * 101,
+    for query in ["type=bogus", "limit=0", "limit=51", "min_salary=-1", "min_salary=99999999999999999999",
+                  "min_salary=10000000001","q=" + "x" * 101,
                   "cursor=garbage", "tag=<b>", "remote=maybe"]:
         assert client.get(f"/jobs?{query}", headers=ALICE).status_code == 422, query
 

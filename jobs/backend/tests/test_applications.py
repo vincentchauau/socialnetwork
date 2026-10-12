@@ -110,8 +110,8 @@ def test_employer_lists_applicants_only_for_own_posting(client):
 
     assert response.status_code == 200
     assert response.json()[0]["applicant_username"] == "bob"
-    assert client.get(f"/jobs/{job['id']}/applications", headers=CAROL).status_code == 403
-    assert client.get(f"/jobs/{job['id']}/applications", headers=BOB).status_code == 403
+    assert client.get(f"/jobs/{job['id']}/applications", headers=CAROL).status_code == 404
+    assert client.get(f"/jobs/{job['id']}/applications", headers=BOB).status_code == 404
     assert client.get(f"/jobs/{job['id']}/applications").status_code == 401
     assert client.get("/jobs/999/applications", headers=ALICE).status_code == 404
 
@@ -160,10 +160,62 @@ def test_only_the_employer_may_change_status(client):
     job = post_job(client)
     application = apply(client, job["id"]).json()
     url = f"/applications/{application['id']}"
-    assert client.patch(url, json={"status": "hired"}, headers=BOB).status_code == 403
-    assert client.patch(url, json={"status": "hired"}, headers=CAROL).status_code == 403
-    assert client.patch(url, json={"status": "hired"}).status_code == 401
+    assert client.patch(url, json={"status": "reviewing"}, headers=BOB).status_code == 404
+    assert client.patch(url, json={"status": "reviewing"}, headers=CAROL).status_code == 404
+    assert client.patch(url, json={"status": "reviewing"}).status_code == 401
     assert client.patch("/applications/999", json={"status": "hired"}, headers=ALICE).status_code == 404
+
+
+@pytest.mark.parametrize(
+    "path,target",
+    [
+        (["reviewing"], "submitted"),
+        (["rejected"], "reviewing"),
+        (["rejected"], "hired"),
+        (["reviewing", "hired"], "rejected"),
+        (["reviewing", "hired"], "shortlisted"),
+        ([], "hired"),
+        (["shortlisted"], "submitted"),
+        (["shortlisted"], "reviewing"),
+        (["reviewing", "hired"], "submitted"),
+    ],
+)
+def test_invalid_status_transition_is_409(client, path, target):
+    job = post_job(client)
+    application = apply(client, job["id"]).json()
+    url = f"/applications/{application['id']}"
+    for step in path:
+        assert client.patch(url, json={"status": step}, headers=ALICE).status_code == 200
+    response = client.patch(url, json={"status": target}, headers=ALICE)
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ["reviewing", "shortlisted", "hired"],
+        ["shortlisted", "rejected"],
+        ["rejected"],
+        ["reviewing", "hired"],
+    ],
+)
+def test_valid_status_transitions(client, path):
+    job = post_job(client)
+    application = apply(client, job["id"]).json()
+    url = f"/applications/{application['id']}"
+    for step in path:
+        assert client.patch(url, json={"status": step}, headers=ALICE).status_code == 200
+
+
+def test_same_status_allows_note_only_update(client):
+    job = post_job(client)
+    application = apply(client, job["id"]).json()
+    url = f"/applications/{application['id']}"
+    client.patch(url, json={"status": "reviewing"}, headers=ALICE)
+    client.patch(url, json={"status": "hired"}, headers=ALICE)
+    response = client.patch(url, json={"status": "hired", "note": "start monday"}, headers=ALICE)
+    assert response.status_code == 200
+    assert response.json()["note"] == "start monday"
 
 
 def test_employer_can_review_applications_of_closed_posting(client):
@@ -190,7 +242,9 @@ def test_applicant_can_withdraw_until_hired(client):
 def test_cannot_withdraw_once_hired(client):
     job = post_job(client)
     application = apply(client, job["id"]).json()
-    client.patch(f"/applications/{application['id']}", json={"status": "hired"}, headers=ALICE)
+    url = f"/applications/{application['id']}"
+    client.patch(url, json={"status": "reviewing"}, headers=ALICE)
+    client.patch(url, json={"status": "hired"}, headers=ALICE)
     assert client.delete(f"/applications/{application['id']}", headers=BOB).status_code == 409
 
 

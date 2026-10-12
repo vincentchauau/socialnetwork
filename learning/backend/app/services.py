@@ -59,7 +59,8 @@ def find_enrollment(db: Session, course_id: int, user_id: int) -> Enrollment | N
 def require_enrollment(db: Session, course_id: int, user_id: int) -> Enrollment:
     enrollment = find_enrollment(db, course_id, user_id)
     if enrollment is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_ENROLLED)
+        # 404, not 403: do not confirm that the course or its content exists.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_ENROLLED)
     return enrollment
 
 

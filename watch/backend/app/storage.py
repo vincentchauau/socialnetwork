@@ -1,11 +1,23 @@
+import logging
 import secrets
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Iterator
 
+logger = logging.getLogger(__name__)
+
 CHUNK_SIZE = 1024 * 1024
 MP4_BRAND_OFFSET = 4
 MP4_BRAND = b"ftyp"
+MP4_MAJOR_BRAND_OFFSET = 8
+MP4_MAJOR_BRAND_LEN = 4
+MP4_MAJOR_BRANDS = frozenset(
+    {
+        b"isom", b"iso2", b"iso3", b"iso4", b"iso5", b"iso6", b"mp41", b"mp42",
+        b"avc1", b"M4V ", b"M4VH", b"M4VP", b"dash", b"mmp4", b"f4v ", b"f4vh", b"MSNV", b"qt  ",
+    }
+)
 WEBM_MAGIC = b"\x1a\x45\xdf\xa3"
 HEADER_BYTES = 12
 NAME_BYTES = 16
@@ -29,7 +41,8 @@ class StoredFile:
 def sniff_video_type(head: bytes) -> str | None:
     """MP4 or WebM judged by magic bytes only; the client's name and type are ignored."""
     if head[MP4_BRAND_OFFSET : MP4_BRAND_OFFSET + len(MP4_BRAND)] == MP4_BRAND:
-        return "video/mp4"
+        major = head[MP4_MAJOR_BRAND_OFFSET : MP4_MAJOR_BRAND_OFFSET + MP4_MAJOR_BRAND_LEN]
+        return "video/mp4" if major in MP4_MAJOR_BRANDS else None
     if head.startswith(WEBM_MAGIC):
         return "video/webm"
     return None
@@ -64,7 +77,22 @@ def save_upload(source: BinaryIO, upload_dir: Path, max_bytes: int) -> StoredFil
 
 
 def remove_file(upload_dir: Path, name: str) -> None:
-    (upload_dir / name).unlink(missing_ok=True)
+    """Best effort: a file that cannot be removed is logged, never raised."""
+    try:
+        (upload_dir / name).unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Could not delete stored video %s", name, exc_info=True)
+
+
+def stored_bytes(upload_dir: Path, names: Iterable[str]) -> int:
+    """Total on-disk size of the named files; missing files count as zero."""
+    total = 0
+    for name in names:
+        try:
+            total += (upload_dir / name).stat().st_size
+        except OSError:
+            continue
+    return total
 
 
 def iter_file(path: Path, start: int, end: int) -> Iterator[bytes]:

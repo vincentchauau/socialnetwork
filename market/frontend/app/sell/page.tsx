@@ -29,8 +29,8 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = { name: "", description: "", price: "", stock: "1", imageUrl: "", category: "other" };
 const SELLER_NEXT: Partial<Record<OrderStatus, { target: OrderStatus; label: string }>> = {
+  // Sellers only ship; the buyer confirms delivery. A multi-seller order shares one status.
   paid: { target: "shipped", label: "Mark shipped" },
-  shipped: { target: "delivered", label: "Mark delivered" },
 };
 const fieldStyle = { font: "inherit", padding: 8 } as const;
 

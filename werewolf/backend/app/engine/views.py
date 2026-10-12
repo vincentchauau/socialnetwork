@@ -84,6 +84,7 @@ def view_for(game: Game, user_id: int) -> dict[str, Any]:
     """The state as `user_id` is allowed to see it. Non-members get names only."""
     viewer = game.member(user_id)
     view: dict[str, Any] = {
+        "version": game.version,
         "phase": game.phase.value,
         "day": game.day,
         "host_id": game.host_id,

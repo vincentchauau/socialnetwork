@@ -112,4 +112,6 @@ class AttemptOut(BaseModel):
     pass_percent: int
     best_score: int
     best_passed: bool
-    results: list[QuestionResult]
+    attempts_remaining: int
+    # Per-question feedback is revealed only for a passing attempt.
+    results: list[QuestionResult] | None = None

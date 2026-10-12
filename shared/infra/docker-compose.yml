@@ -77,6 +77,8 @@ services:
         condition: service_healthy
     volumes:
       - photos-data:/data
+    tmpfs:
+      - /tmp:size=128m
 
   photos-frontend:
     <<: *hardening
@@ -97,6 +99,8 @@ services:
         condition: service_healthy
     volumes:
       - watch-data:/data
+    tmpfs:
+      - /tmp:size=512m
 
   watch-frontend:
     <<: *hardening

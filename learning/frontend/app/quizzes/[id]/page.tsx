@@ -28,7 +28,8 @@ interface Result {
   passed: boolean;
   pass_percent: number;
   best_score: number;
-  results: { question_id: number; correct: boolean; explanation: string }[];
+  attempts_remaining: number;
+  results: { question_id: number; correct: boolean; explanation: string }[] | null;
 }
 
 type Picks = Record<number, number[]>;
@@ -76,13 +77,20 @@ function QuizForm({ quiz, courseId }: { quiz: Quiz; courseId: string | null }) {
   }
 
   if (result) {
-    const byQuestion = new Map(result.results.map((item) => [item.question_id, item]));
+    const byQuestion = new Map((result.results ?? []).map((item) => [item.question_id, item]));
     return (
       <div className="stack">
         <p role="status" className={result.passed ? "ok" : "error"}>
           You scored {result.score_percent}% — {result.passed ? "passed" : "not passed"} (pass mark{" "}
-          {result.pass_percent}%). Best score: {result.best_score}%.
+          {result.pass_percent}%). Best score: {result.best_score}%. Attempts remaining today:{" "}
+          {result.attempts_remaining}.
         </p>
+        {result.results === null && (
+          <p className="muted">
+            Answers and explanations are revealed once you pass. Review the lesson and try again.
+          </p>
+        )}
+        {result.results !== null && (
         <ol className="list">
           {quiz.questions.map((question) => {
             const item = byQuestion.get(question.id);
@@ -95,10 +103,13 @@ function QuizForm({ quiz, courseId }: { quiz: Quiz; courseId: string | null }) {
             );
           })}
         </ol>
+        )}
         <div className="row wrap">
-          <button type="button" onClick={retry}>
-            Try again
-          </button>
+          {result.attempts_remaining > 0 && (
+            <button type="button" onClick={retry}>
+              Try again
+            </button>
+          )}
           {courseId && (
             <Link className="linkbtn secondary" href={`/courses/${courseId}`}>
               Back to course

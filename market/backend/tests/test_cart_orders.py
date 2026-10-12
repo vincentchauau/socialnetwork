@@ -239,10 +239,12 @@ def test_status_machine_and_roles(client):
     assert set_status(client, oid, "shipped", BUYER).status_code == 403  # buyer cannot ship
     assert set_status(client, oid, "cancelled", SELLER).status_code == 403  # seller cannot cancel
     assert set_status(client, oid, "shipped", SELLER2).status_code == 404  # not involved
-    assert set_status(client, oid, "delivered", SELLER).status_code == 409  # skip not allowed
+    assert set_status(client, oid, "delivered", SELLER).status_code == 403  # sellers never deliver
+    assert set_status(client, oid, "delivered", BUYER).status_code == 409  # skip not allowed
     assert set_status(client, oid, "paid", SELLER).status_code == 403
     assert set_status(client, oid, "shipped", SELLER).json()["status"] == "shipped"
-    assert set_status(client, oid, "delivered", SELLER).json()["status"] == "delivered"
+    assert set_status(client, oid, "delivered", SELLER).status_code == 403
+    assert set_status(client, oid, "delivered", BUYER).json()["status"] == "delivered"
     assert set_status(client, oid, "shipped", SELLER).status_code == 409
     bad = client.patch(f"/orders/{oid}/status", json={"status": "bogus"}, headers=auth(SELLER))
     assert bad.status_code == 422

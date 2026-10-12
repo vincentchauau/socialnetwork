@@ -18,6 +18,15 @@ from sn_shared.security import TokenPayload
 
 router = APIRouter()
 
+# Employer-driven status transitions; hired and rejected are terminal.
+ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
+    "submitted": frozenset({"reviewing", "shortlisted", "rejected"}),
+    "reviewing": frozenset({"shortlisted", "rejected", "hired"}),
+    "shortlisted": frozenset({"hired", "rejected"}),
+    "hired": frozenset(),
+    "rejected": frozenset(),
+}
+
 
 def _get_application(db: Session, application_id: int) -> Application:
     application = db.get(Application, application_id)
@@ -118,6 +127,13 @@ def update_application(
 ) -> ApplicantOut:
     application = _get_application(db, application_id)
     require_owner(get_posting(db, application.posting_id), user)
+    if body.status != application.status and (
+        body.status not in ALLOWED_TRANSITIONS.get(application.status, frozenset())
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Cannot move an application from {application.status} to {body.status}",
+        )
     application.status = body.status
     if body.note is not None:
         application.employer_note = body.note
