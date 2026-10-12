@@ -258,7 +258,7 @@ server {{
     # --- center: the prefix is stripped before reaching the service ---
     # Biometric sign-in / enrolment carry webcam recordings (up to 15 MB), so they get a larger
     # body limit than the rest of the API. Same POST-only rate limit as credential endpoints.
-    location ~ ^/api/center/auth/(login/biometric|login/biometric-only|me/biometrics)$ {{
+    location ~ ^/api/center/auth/(login/(biometric|voice|webcam)|register/(voice|webcam|combined)|me/(voice|webcam))$ {{
         client_max_body_size 16m;
         client_body_timeout 60s;
         limit_req zone=auth burst=20 nodelay;

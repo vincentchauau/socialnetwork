@@ -19,6 +19,8 @@ _COLUMNS: tuple[tuple[str, TypeEngine, tuple[str, str] | None], ...] = (
     ("audio_embedding", LargeBinary(), None),
     ("face_embedding", LargeBinary(), None),
     ("biometric_login", Boolean(), ("0", "FALSE")),
+    ("voice_login", Boolean(), ("0", "FALSE")),
+    ("webcam_login", Boolean(), ("0", "FALSE")),
     ("biometric_2fa", Boolean(), ("0", "FALSE")),
 )
 _UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_sub"))
@@ -47,6 +49,13 @@ def ensure_columns(engine: Engine) -> list[str]:
             if name not in existing:
                 conn.execute(text(_column_ddl(engine, name, type_, default)))
                 added.append(name)
+        if "webcam_login" in added and "biometric_login" in {*existing, *added}:
+            # Old passwordless mode needed face + voice = the webcam method. Runs once, when the column
+            # is created: re-running it later would resurrect a webcam login the user switched off.
+            true = "TRUE" if engine.dialect.name == "postgresql" else "1"
+            conn.execute(
+                text(f"UPDATE {TABLE} SET webcam_login = {true} WHERE biometric_login AND NOT webcam_login")
+            )
         for index_name, column in _UNIQUE_INDEXES:
             conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {TABLE} ({column})"))
     return added

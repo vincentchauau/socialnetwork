@@ -29,9 +29,9 @@ def files(audio=None, video=None):
 
 
 def enroll(client, session, audio=VOICE, video=FACE, data=None):
-    return client.post(
-        "/auth/me/biometrics", data=data or PW, files=files(audio, video), headers=csrf(session)
-    )
+    """Link the webcam method (face + voice) or, without a video, the voice method."""
+    route = "/auth/me/webcam" if video is not None else "/auth/me/voice"
+    return client.post(route, data=PW if data is None else data, files=files(audio, video), headers=csrf(session))
 
 
 @pytest.fixture
@@ -72,13 +72,17 @@ def test_disabled_by_default_every_route_is_503(client):
     session = register(client)
     attempts = [
         client.post("/auth/login/biometric", data={"mfa_token": "x"}),
-        client.post("/auth/login/biometric-only", data={"username": "alice"}),
-        client.post("/auth/me/biometrics", data=PW, headers=csrf(session)),
-        client.put("/auth/me/biometric-login", data={"enabled": "true", **PW}, headers=csrf(session)),
+        client.post("/auth/login/voice", data={"username": "alice"}),
+        client.post("/auth/login/webcam", data={"username": "alice"}),
+        client.post("/auth/register/voice", data={"username": "alice"}),
+        client.post("/auth/register/webcam", data={"username": "alice"}),
+        client.post("/auth/me/voice", data=PW, headers=csrf(session)),
+        client.post("/auth/me/webcam", data=PW, headers=csrf(session)),
         client.put("/auth/me/biometric-2fa", data={"enabled": "true", **PW}, headers=csrf(session)),
-        client.request("DELETE", "/auth/me/biometrics", data=PW, headers=csrf(session)),
+        client.request("DELETE", "/auth/me/voice", data=PW, headers=csrf(session)),
+        client.request("DELETE", "/auth/me/webcam", data=PW, headers=csrf(session)),
     ]
-    assert [r.status_code for r in attempts] == [503] * 6
+    assert [r.status_code for r in attempts] == [503] * 10
     assert attempts[0].json() == {"detail": "Biometrics are not available"}
     assert client.get("/auth/config").json()["biometrics_enabled"] is False
 
@@ -116,8 +120,8 @@ def test_enroll_stores_encrypted_templates_and_reports_state(bio_client):
     session = register(bio_client)
     response = enroll(bio_client, session)
     assert response.json() == {
-        "has_audio": True, "has_face": True, "biometric_login": False, "require_biometric_2fa": False,
-        "passwordless_ready": True,
+        "has_password": True, "google_linked": False, "voice_login": False, "webcam_login": True,
+        "has_audio": True, "has_face": True, "require_biometric_2fa": False,
     }  # fmt: skip
     me = bio_client.get("/auth/me").json()
     assert (me["has_audio"], me["has_face"]) == (True, True)
@@ -127,30 +131,12 @@ def test_enroll_stores_encrypted_templates_and_reports_state(bio_client):
         assert bio_client.app.state.cipher.decrypt(user.audio_embedding) == b"A:alice-voice-samp"
 
 
-def test_enroll_voice_is_taken_from_the_video_when_no_audio_is_sent(bio_client):
-    session = register(bio_client)
-    response = enroll(bio_client, session, audio=None)
-    assert response.json()["has_audio"] is True and response.json()["has_face"] is True
-
-
-def test_enroll_with_a_silent_video_yields_face_only(bio_client):
-    session = register(bio_client)
-    response = enroll(bio_client, session, audio=None, video=("v.webm", b"silent-video"))
-    assert (response.json()["has_audio"], response.json()["has_face"]) == (False, True)
-
-
-def test_enroll_only_replaces_the_samples_that_were_sent(bio_client):
-    session = register(bio_client)
-    enroll(bio_client, session)
-    state = enroll(bio_client, session, audio=("v2.webm", b"another-voice"), video=None).json()
-    assert state["has_face"] is True and state["has_audio"] is True
-
-
 def test_enroll_rules(bio_client):
     session = register(bio_client)
-    assert bio_client.post("/auth/me/biometrics", data=PW, files=files(VOICE)).status_code == 403  # csrf
+    assert bio_client.post("/auth/me/voice", data=PW, files=files(VOICE)).status_code == 403  # csrf
     assert enroll(bio_client, session, data={"password": "wrong-password"}).status_code == 403
     assert enroll(bio_client, session, audio=None, video=None).status_code == 422
+    assert enroll(bio_client, session, audio=None).status_code == 200
     assert enroll(bio_client, session, audio=("a.webm", b"bad-audio"), video=None).status_code == 400
     big = ("a.webm", b"x" * 3_000_001)
     assert enroll(bio_client, session, audio=big, video=None).status_code == 413
@@ -169,45 +155,14 @@ def test_unavailable_engine_is_503_without_details(bio_client):
     assert "ffmpeg" not in response.text
 
 
-def test_biometric_login_opt_in_needs_both_samples(bio_client):
-    session = register(bio_client)
-    on = {"enabled": "true", **PW}
-    assert bio_client.put("/auth/me/biometric-login", data=on, headers=csrf(session)).status_code == 422
-    enroll(bio_client, session, audio=None, video=("v.webm", b"silent-video"))
-    assert bio_client.put("/auth/me/biometric-login", data=on, headers=csrf(session)).status_code == 422
-    enroll(bio_client, session)
-    assert bio_client.put("/auth/me/biometric-login", data={"enabled": "true"}, headers=csrf(session)).status_code == 403
-    ok = bio_client.put("/auth/me/biometric-login", data=on, headers=csrf(session))
-    assert ok.json()["biometric_login"] is True
-    assert bio_client.get("/auth/me").json()["biometric_login"] is True
-
-
-def test_delete_biometrics_clears_everything_and_switches_off_both_toggles(bio_client):
-    session = register(bio_client)
-    enroll(bio_client, session)
-    bio_client.put("/auth/me/biometric-login", data={"enabled": "true", **PW}, headers=csrf(session))
-    set_2fa(bio_client, session)
-    assert bio_client.request("DELETE", "/auth/me/biometrics", headers=csrf(session)).status_code == 403
-    response = bio_client.request("DELETE", "/auth/me/biometrics", data=PW, headers=csrf(session))
-    assert response.json() == {
-        "has_audio": False, "has_face": False, "biometric_login": False, "require_biometric_2fa": False,
-        "passwordless_ready": False,
-    }  # fmt: skip
-    me = bio_client.get("/auth/me").json()
-    assert (me["biometric_login"], me["require_biometric_2fa"]) == (False, False)
-    bio_client.cookies.clear()
-    assert bio_client.post("/auth/login", json=CREDS).status_code == 200
-
-
 def test_second_factor_opt_in_needs_an_enrolled_sample_and_the_password(bio_client):
     session = register(bio_client)
     assert set_2fa(bio_client, session).status_code == 422  # nothing enrolled
-    enroll(bio_client, session, audio=None, video=("v.webm", b"silent-video"))  # one factor is enough
+    enroll(bio_client, session, audio=VOICE, video=None)  # one factor is enough
     assert bio_client.put("/auth/me/biometric-2fa", data={"enabled": "true"}, headers=csrf(session)).status_code == 403
     assert bio_client.put("/auth/me/biometric-2fa", data={"enabled": "true", **PW}).status_code == 403  # csrf
     ok = set_2fa(bio_client, session)
     assert ok.status_code == 200 and ok.json()["require_biometric_2fa"] is True
-    assert ok.json()["biometric_login"] is False  # independent toggles
     assert bio_client.get("/auth/me").json()["require_biometric_2fa"] is True
 
 
@@ -259,23 +214,13 @@ def test_enrolled_account_can_log_in_with_password_when_biometrics_are_switched_
     register(client)  # `client` runs with BIOMETRICS_ENABLED unset
     with client.app.state.session_factory() as db:
         user = db.scalar(select(User))
-        user.audio_embedding, user.face_embedding, user.biometric_login = b"x", b"y", True
+        user.audio_embedding, user.face_embedding, user.webcam_login = b"x", b"y", True
         db.commit()
     client.cookies.clear()
     assert client.get("/auth/config").json()["biometrics_enabled"] is False
     response = client.post("/auth/login", json=CREDS)
     assert response.status_code == 200 and "mfa_required" not in response.json()
     assert client.get("/auth/me").json()["has_audio"] is True
-
-
-def test_enroll_response_says_passwordless_needs_both_samples(bio_client):
-    session = register(bio_client)
-    one = enroll(bio_client, session, audio=None, video=("v.webm", b"silent-video")).json()
-    assert one["passwordless_ready"] is False
-    assert bio_client.get("/auth/me").json()["passwordless_ready"] is False
-    both = enroll(bio_client, session).json()
-    assert both["passwordless_ready"] is True
-    assert bio_client.get("/auth/me").json()["passwordless_ready"] is True
 
 
 # --- second factor (opt-in) ---------------------------------------------------------------------
@@ -458,12 +403,6 @@ def test_second_factor_flag_without_samples_does_not_block_login(client):
     assert client.post("/auth/login", json=CREDS).status_code == 200
 
 
-def test_openapi_documents_the_second_factor_routes(bio_client):
-    spec = bio_client.get("/openapi.json").text
-    assert '"/auth/login/biometric"' in spec and '"/auth/me/biometric-2fa"' in spec
-    assert "/auth/login/biometric-only" in spec and "MfaRequired" in spec
-
-
 def test_body_limit_covers_the_second_factor_path():
     from app.bodylimit import BIOMETRIC_MAX_BYTES, DEFAULT_MAX_BYTES, limit_for
 
@@ -471,92 +410,7 @@ def test_body_limit_covers_the_second_factor_path():
     assert limit_for("/auth/login/biometric", False) == DEFAULT_MAX_BYTES
 
 
-# --- biometric-only login ----------------------------------------------------------------------
-
-
-def opt_in(client, session):
-    client.put("/auth/me/biometric-login", data={"enabled": "true", **PW}, headers=csrf(session))
-
-
-def alone(client, username="alice", audio=VOICE, video=FACE):
-    return client.post("/auth/login/biometric-only", data={"username": username}, files=files(audio, video))
-
-
-def test_biometric_only_login_for_opted_in_accounts(bio_client):
-    session = register(bio_client)
-    enroll(bio_client, session)
-    opt_in(bio_client, session)
-    bio_client.cookies.clear()
-
-    response = alone(bio_client, "ALICE")
-
-    assert response.status_code == 200 and response.json()["username"] == "alice"
-    assert bio_client.get("/auth/me").status_code == 200
-    assert True in bio_client.app.state.biometrics.strict_calls  # strict thresholds were used
-
-
-def test_biometric_only_every_failure_is_the_same_401(bio_client):
-    register(bio_client, {"username": "nobio", "password": "s3cret-pass"})
-    session = register(bio_client)
-    enroll(bio_client, session)  # enrolled but NOT opted in
-    bio_client.cookies.clear()
-    bad = [
-        alone(bio_client, "ghost"),  # unknown user
-        alone(bio_client, "nobio"),  # no biometrics
-        alone(bio_client, "alice"),  # not opted in, even with the right samples
-    ]
-    assert {(r.status_code, r.text) for r in bad} == {(401, '{"detail":"Biometric login failed"}')}
-
-
-def test_biometric_only_rejects_wrong_or_partial_samples(bio_client):
-    session = register(bio_client)
-    enroll(bio_client, session)
-    opt_in(bio_client, session)
-    bio_client.cookies.clear()
-    for audio, video in (
-        (("a.webm", b"other-voice"), FACE),
-        (VOICE, ("v.webm", b"other-face")),
-        (VOICE, None),
-        (None, FACE),
-    ):
-        assert alone(bio_client, audio=audio, video=video).status_code == 401
-        state = bio_client.app.state  # stay under the lockout so each case is judged on its samples
-        for throttle, key in ((state.alone_throttle, "testclient|alice"), (state.alone_account_throttle, "alice")):
-            throttle.reset(key)
-
-
-def test_biometric_only_is_locked_after_three_tries(bio_client):
-    session = register(bio_client)
-    enroll(bio_client, session)
-    opt_in(bio_client, session)
-    bio_client.cookies.clear()
-    wrong = ("a.webm", b"other-voice")
-    codes = [alone(bio_client, audio=wrong).status_code for _ in range(5)]
-    assert codes == [401, 401, 401, 429, 429]
-    assert alone(bio_client).status_code == 429
-
-
-def test_biometric_only_account_wide_lock_across_addresses(bio_client):
-    session = register(bio_client)
-    enroll(bio_client, session)
-    opt_in(bio_client, session)
-    bio_client.cookies.clear()
-    codes = []
-    for index in range(14):
-        attacker = TestClient(bio_client.app, client=(f"198.51.100.{index}", 5000))
-        codes.append(alone(attacker, audio=("a.webm", b"other-voice")).status_code)
-    assert codes[0] == 401 and codes[-1] == 429
-    assert alone(TestClient(bio_client.app, client=("203.0.113.77", 1))).status_code == 429
-
-
 # --- concurrency cap --------------------------------------------------------------------------
-
-
-def alone_after_opt_in(client):
-    session = client.post("/auth/login", json=CREDS).json()
-    opt_in(client, session)
-    client.cookies.clear()
-    return alone(client)
 
 
 def test_only_two_biometric_jobs_run_at_once(enrolled):
@@ -568,7 +422,7 @@ def test_only_two_biometric_jobs_run_at_once(enrolled):
 
     rb.SLOT_WAIT_SECONDS = 0.05
     try:
-        response = alone_after_opt_in(enrolled)
+        response = enrolled.post("/auth/login/webcam", data={"username": "alice"}, files=files(VOICE, FACE))
     finally:
         rb.SLOT_WAIT_SECONDS = 5
         slots.release()

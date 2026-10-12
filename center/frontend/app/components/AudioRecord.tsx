@@ -24,7 +24,7 @@ export default function AudioRecord({ disabled, onRecorded }: Props) {
         disabled={disabled || isRecording}
       >
         <span aria-hidden="true">{isRecording ? "■ " : "🎤 "}</span>
-        {isRecording ? "Đang ghi (5 giây)..." : "Ghi giọng nói (không bắt buộc)"}
+        {isRecording ? "Đang ghi (5 giây)..." : "Ghi giọng nói"}
       </button>
       <p role="status" aria-live="polite" className="sr-only">
         {isRecording ? "Đang ghi âm trong 5 giây" : previewUrl ? "Đã ghi xong giọng nói" : ""}

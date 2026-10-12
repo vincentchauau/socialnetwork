@@ -29,13 +29,20 @@ class User(Base):
     token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     audio_embedding: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     face_embedding: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # Legacy flag (old passwordless mode): kept, since a column cannot be dropped portably; unused.
     biometric_login: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    voice_login: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    webcam_login: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Opt-in second factor after password/Google; OFF unless the user turns it on.
     biometric_2fa: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     @property
     def has_password(self) -> bool:
         return self.password_hash != NO_PASSWORD
+
+    @property
+    def google_linked(self) -> bool:
+        return self.google_sub is not None
 
     @property
     def has_biometrics(self) -> bool:

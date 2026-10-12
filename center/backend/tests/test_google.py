@@ -202,10 +202,10 @@ def test_unlink_clears_google_sub_and_email_and_password_login_still_works(googl
     assert google_login(google_client, "sub-5|alice.real@example.com").json()["username"] != "alice"
 
 
-def test_google_only_account_cannot_unlink_before_setting_a_password(google_client):
+def test_google_only_account_cannot_unlink_its_only_method(google_client):
     session = google_login(google_client).json()
     response = google_client.request("DELETE", "/auth/me/google", headers=csrf(session))
-    assert response.status_code == 409 and response.json() == {"detail": "Set a password first"}
+    assert response.status_code == 409 and response.json() == {"detail": "Keep at least one sign-in method"}
     assert google_client.get("/auth/me").json()["google_linked"] is True
 
 

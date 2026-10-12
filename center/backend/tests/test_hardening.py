@@ -95,12 +95,12 @@ def test_chunked_body_without_content_length_is_413(client):
 
 def test_biometric_routes_allow_big_uploads_only_when_enabled(client, bio_client):  # client first: env flag is set later
     payload = {"audio": ("a.webm", b"x" * 100_000)}  # over the 64 KB default
-    assert client.post("/auth/me/biometrics", files=payload).status_code == 413
+    assert client.post("/auth/me/voice", files=payload).status_code == 413
     session = register(bio_client)
-    response = bio_client.post("/auth/me/biometrics", data={"password": CREDS["password"]}, files=payload, headers=csrf(session))
+    response = bio_client.post("/auth/me/voice", data={"password": CREDS["password"]}, files=payload, headers=csrf(session))
     assert response.status_code == 200
     huge = {"audio": ("a.webm", b"x" * (16 * 1024 * 1024 + 10))}
-    assert bio_client.post("/auth/me/biometrics", files=huge, headers=csrf(session)).status_code == 413
+    assert bio_client.post("/auth/me/voice", files=huge, headers=csrf(session)).status_code == 413
 
 
 def test_validation_errors_use_the_detail_envelope(client):
@@ -161,12 +161,12 @@ def test_audit_log_never_contains_google_tokens_or_embeddings(bio_client, caplog
     bio_client.post("/auth/google", json={"id_token": "bad-token-value"})
     session = bio_client.post("/auth/google", json={"id_token": "sub-77|zed@example.com"}).json()
     bio_client.post(
-        "/auth/me/biometrics",
+        "/auth/me/voice",
         files={"audio": ("a.webm", b"very-secret-audio-bytes")},
         headers=csrf(session),
     )
     text = "\n".join(record.getMessage() for record in caplog.records)
-    assert "google register" in text and "biometrics enrolled" in text and "google token rejected" in text
+    assert "google register" in text and "voice sign-in enabled" in text and "google token rejected" in text
     for secret in ("bad-token-value", "sub-77|zed", "very-secret-audio", "A:very-secret"):
         assert secret not in text
 

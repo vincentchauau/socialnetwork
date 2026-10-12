@@ -7,7 +7,16 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 DEFAULT_MAX_BYTES = 64 * 1024
 BIOMETRIC_MAX_BYTES = 16 * 1024 * 1024
-BIOMETRIC_PATHS = ("/auth/login/biometric", "/auth/login/biometric-only", "/auth/me/biometrics")
+BIOMETRIC_PATHS = (
+    "/auth/login/voice",
+    "/auth/login/webcam",
+    "/auth/login/biometric",
+    "/auth/register/voice",
+    "/auth/register/webcam",
+    "/auth/register/combined",
+    "/auth/me/voice",
+    "/auth/me/webcam",
+)
 
 
 class BodyTooLarge(Exception):

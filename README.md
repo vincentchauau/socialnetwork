@@ -77,6 +77,25 @@ cd center/frontend && npm install && npm run dev
    `docker compose ... exec postgres psql -U postgres -c "CREATE DATABASE <app>"`.
 5. Protect routes with `Depends(get_current_user)` from `sn_shared.deps`.
 
+## Sign-in methods (center)
+
+One `users` row per account; four methods, **each usable on its own**, all linked to that row:
+
+| Method | Stored in `users` | Notes |
+|---|---|---|
+| Password | `password_hash` (scrypt; `!` = none) | policy: 8-128 chars, not common, not the username |
+| Google | `google_sub`, `email` | ID token verified server side; needs `GOOGLE_CLIENT_ID` |
+| Voice | `audio_embedding` (Fernet), `voice_login` | one audio clip; strict threshold |
+| Webcam | `face_embedding`, `audio_embedding`, `webcam_login` | one clip: face AND voice must both match |
+
+- **Register** with any one or several methods at once (`POST /auth/register/combined`, all-or-nothing),
+  then link the rest in `/account`. Linking/removing needs the password again when the account has one,
+  and at least one method must always remain (409 otherwise).
+- Voice and webcam are only available when `BIOMETRICS_ENABLED=1` (image built with `WITH_BIOMETRICS=1`,
+  `DATA_KEY` set). They have **no liveness check**: anyone with a recording of the owner can pass.
+- Optional advanced setting `biometric_2fa` (off by default): after password/Google, also require a sample.
+- Sessions: `sn_token` (60 min) + `sn_refresh` (14 d), CSRF header on writes, `token_version` revocation.
+
 ## Security notes
 
 - Uploads (photos 5 MB, videos 100 MB) are authenticated by nginx (`auth_request`) BEFORE the body is

@@ -1,17 +1,17 @@
-"""Voice + face: opt-in second factor, opt-in passwordless login, and enrollment management."""
+"""Shared voice/face helpers (probes, template matching, throttles) and the opt-in second factor."""
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.audit import audit
 from app.biometrics import BiometricError, BiometricUnavailable
 from app.db import get_db
 from app.deps import AuthSession, biometrics_available, check_origin, client_ip, csrf_session, require_reauth, settings_of, too_many
+from app.methods import methods_status
 from app.models import User
-from app.schemas import BiometricStatus, SessionOut
+from app.schemas import MethodsStatus, SessionOut
 from app.sessions import issue_session
 from app.tokens import decode_typed
 from sn_shared.security import AuthError
@@ -19,7 +19,6 @@ from sn_shared.security import AuthError
 UNAVAILABLE = "Biometrics are not available"
 BIOMETRIC_FAILED = "Biometric verification failed"
 BAD_MFA = "Invalid or expired login session"
-BIO_ONLY_FAILED = "Biometric login failed"
 BUSY = "Server is busy, try again later"
 MAX_AUDIO_BYTES = 3_000_000
 MAX_VIDEO_BYTES = 15_000_000
@@ -27,6 +26,7 @@ SLOT_WAIT_SECONDS = 5
 
 Upload = Annotated[UploadFile | None, File()]
 Text = Annotated[str | None, Form()]
+BAD_SAMPLE = "Voice or face sample is unusable, record again"
 
 
 def require_biometrics(request: Request) -> None:
@@ -66,7 +66,7 @@ def read_probes(request: Request, audio: Upload, video: Upload) -> tuple[bytes |
             voice = _voice_from_video(engine, video_raw)
         return voice, face
     except BiometricError:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Voice or face sample is unusable, record again") from None
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, BAD_SAMPLE) from None
     except BiometricUnavailable as exc:
         audit.error("biometrics unavailable: %s", exc)  # detail stays on the server
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, UNAVAILABLE) from None
@@ -84,9 +84,12 @@ def _voice_from_video(engine, video_raw: bytes | None) -> bytes | None:
         return None
 
 
-def factors_match(request: Request, user: User, audio: Upload, video: Upload, strict: bool = False) -> bool:
-    """True only if EVERY enrolled factor matches. Any processing error is a plain failure."""
-    if not user.has_biometrics:
+def factors_match(
+    request: Request, user: User, audio: Upload, video: Upload, strict: bool = False, required: tuple[str, ...] | None = None
+) -> bool:
+    """MFA (required=None): every ENROLLED factor must match. Login: every factor in `required` must be
+    enrolled AND match. Any processing error is a plain failure."""
+    if required is None and not user.has_biometrics:
         return True
     engine, cipher = request.app.state.biometrics, request.app.state.cipher
     try:
@@ -94,11 +97,15 @@ def factors_match(request: Request, user: User, audio: Upload, video: Upload, st
     except HTTPException as exc:
         audit.warning("biometric login error user=%r status=%s", user.username, exc.status_code)
         return False
-    for stored, probe, matches in (
-        (user.audio_embedding, voice, engine.audio_matches),
-        (user.face_embedding, face, engine.face_matches),
+    for name, stored, probe, matches in (
+        ("voice", user.audio_embedding, voice, engine.audio_matches),
+        ("face", user.face_embedding, face, engine.face_matches),
     ):
+        if required is not None and name not in required:
+            continue
         if not stored:
+            if required is not None:
+                return False
             continue
         template = cipher.decrypt(stored)
         if probe is None or template is None or not matches(template, probe, strict):
@@ -148,105 +155,14 @@ def login_biometric(
     return issue_session(response, user, settings_of(request))
 
 
-@router.post("/login/biometric-only", response_model=SessionOut)
-def login_biometric_only(
-    request: Request,
-    response: Response,
-    username: Annotated[str, Form(max_length=64)],
-    audio: Upload = None,
-    video: Upload = None,
-    db: Session = Depends(get_db),
-) -> SessionOut:
-    """Passwordless login for accounts that opted in: both samples, strict thresholds, one 401 for all failures."""
-    ip, state, name = client_ip(request), request.app.state, username.strip().lower()
-    throttles = [state.alone_throttle, state.alone_account_throttle]
-    keys = [f"{ip}|{name}", name]
-    _count_attempts(throttles, keys, name, ip)
-    user = db.scalar(select(User).where(User.username == name))
-    if (
-        user is None
-        or not user.biometric_login
-        or not (user.audio_embedding and user.face_embedding)
-        or not factors_match(request, user, audio, video, strict=True)
-    ):
-        audit.warning("biometric-only login failed user=%r ip=%s", name, ip)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BIO_ONLY_FAILED)
-    _reset(throttles, keys)
-    audit.info("login ok (biometric only) user=%r ip=%s", name, ip)
-    return issue_session(response, user, settings_of(request))
-
-
-def _status(user: User) -> BiometricStatus:
-    return BiometricStatus(
-        has_audio=bool(user.audio_embedding),
-        has_face=bool(user.face_embedding),
-        biometric_login=user.biometric_login,
-        require_biometric_2fa=user.biometric_2fa,
-        passwordless_ready=bool(user.audio_embedding and user.face_embedding),
-    )
-
-
-@router.post("/me/biometrics", response_model=BiometricStatus)
-def enroll(
-    request: Request,
-    password: Text = None,
-    audio: Upload = None,
-    video: Upload = None,
-    session: AuthSession = Depends(csrf_session),
-    db: Session = Depends(get_db),
-) -> BiometricStatus:
-    """Add or replace the voice and/or face template (only the samples you send are replaced).
-
-    One factor can be enrolled now and the other later, but passwordless login needs both.
-    """
-    user, throttle = session.user, request.app.state.enroll_throttle
-    if throttle.is_blocked(str(user.id)):
-        raise too_many()
-    require_reauth(request, user, password)
-    throttle.record(str(user.id))  # expensive: every call counts
-    voice, face = read_probes(request, audio, video)
-    if voice is None and face is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Send at least one audio or video recording")
-    cipher = request.app.state.cipher
-    if voice is not None:
-        user.audio_embedding = cipher.encrypt(voice)
-    if face is not None:
-        user.face_embedding = cipher.encrypt(face)
-    db.commit()
-    audit.info(
-        "biometrics enrolled user=%r ip=%s audio=%s face=%s",
-        user.username, client_ip(request), voice is not None, face is not None,
-    )  # fmt: skip
-    return _status(user)
-
-
-@router.put("/me/biometric-login", response_model=BiometricStatus)
-def set_biometric_login(
-    request: Request,
-    enabled: Annotated[bool, Form()],
-    password: Text = None,
-    session: AuthSession = Depends(csrf_session),
-    db: Session = Depends(get_db),
-) -> BiometricStatus:
-    user = session.user
-    require_reauth(request, user, password)
-    if enabled and not (user.audio_embedding and user.face_embedding):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Enroll both voice and face first")
-    user.biometric_login = enabled
-    db.commit()
-    audit.info("biometric-only login %s user=%r ip=%s", "enabled" if enabled else "disabled",
-               user.username, client_ip(request))  # fmt: skip
-    return _status(user)
-
-
-@router.put("/me/biometric-2fa", response_model=BiometricStatus)
+@router.put("/me/biometric-2fa", response_model=MethodsStatus)
 def set_biometric_2fa(
     request: Request,
     enabled: Annotated[bool, Form()],
     password: Text = None,
     session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
-) -> BiometricStatus:
+) -> MethodsStatus:
     """Opt in/out of voice/face after password or Google sign-in. Needs one sample to turn on; off is always allowed."""
     user = session.user
     require_reauth(request, user, password)
@@ -256,22 +172,4 @@ def set_biometric_2fa(
     db.commit()
     audit.info("biometric 2fa %s user=%r ip=%s", "enabled" if enabled else "disabled",
                user.username, client_ip(request))  # fmt: skip
-    return _status(user)
-
-
-@router.delete("/me/biometrics", response_model=BiometricStatus)
-def delete_biometrics(
-    request: Request,
-    password: Text = None,
-    session: AuthSession = Depends(csrf_session),
-    db: Session = Depends(get_db),
-) -> BiometricStatus:
-    user = session.user
-    require_reauth(request, user, password)
-    user.audio_embedding = None
-    user.face_embedding = None
-    user.biometric_login = False
-    user.biometric_2fa = False  # no samples left to verify: never leave a factor that cannot be met
-    db.commit()
-    audit.info("biometrics deleted user=%r ip=%s", user.username, client_ip(request))
-    return _status(user)
+    return methods_status(user)

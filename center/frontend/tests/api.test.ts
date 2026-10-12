@@ -81,7 +81,10 @@ describe("refresh and retry", () => {
 
   it.each([
     "/api/center/auth/login",
-    "/api/center/auth/login/biometric-only",
+    "/api/center/auth/login/biometric",
+    "/api/center/auth/login/voice",
+    "/api/center/auth/login/webcam",
+    "/api/center/auth/register/combined",
     "/api/center/auth/register",
     "/api/center/auth/google",
     "/api/center/auth/logout",

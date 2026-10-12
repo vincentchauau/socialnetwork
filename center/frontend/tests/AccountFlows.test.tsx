@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,17 +11,15 @@ vi.mock("../app/lib/navigate", async (original) => ({
   goTo,
 }));
 
-// The real recorders need camera hardware; this stand-in "records" instantly.
-vi.mock("../app/components/BiometricCapture", () => ({
-  default: ({ onVideo, onAudio }: { onVideo: (b: Blob) => void; onAudio: (b: Blob) => void }) => (
-    <div>
-      <button type="button" onClick={() => onVideo(new Blob(["v"]))}>
-        fake video
-      </button>
-      <button type="button" onClick={() => onAudio(new Blob(["a"]))}>
-        fake audio
-      </button>
-    </div>
+// The real recorders need hardware; these stand-ins "record" instantly.
+vi.mock("../app/components/AudioRecord", () => ({
+  default: ({ onRecorded }: { onRecorded: (b: Blob) => void }) => (
+    <button type="button" onClick={() => onRecorded(new Blob(["a"]))}>fake voice</button>
+  ),
+}));
+vi.mock("../app/components/VideoRecord", () => ({
+  default: ({ onRecorded }: { onRecorded: (b: Blob) => void }) => (
+    <button type="button" onClick={() => onRecorded(new Blob(["v"]))}>fake webcam</button>
   ),
 }));
 
@@ -72,7 +70,8 @@ describe("AccountView", () => {
     render(<AccountView />);
     expect(await screen.findByRole("heading", { name: "Xin chào, <b>bob</b>" })).toBeInTheDocument();
     expect(screen.getByText(/b@example.com/)).toBeInTheDocument();
-    expect(screen.queryByRole("form", { name: "Thêm giọng nói hoặc khuôn mặt" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Đăng nhập bằng giọng nói" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Bảo mật nâng cao" })).not.toBeInTheDocument();
   });
 
   it("changes the password, validates input, and stores the new csrf token", async () => {
@@ -149,64 +148,6 @@ describe("AccountView", () => {
     expect(goTo).not.toHaveBeenCalled();
   });
 
-  it("enrolls biometrics, toggles biometric login and removes them", async () => {
-    const fetchMock = setupAccount({ has_audio: true, has_face: true });
-    const user = userEvent.setup();
-    render(<AccountView />);
-    const enroll = await screen.findByRole("form", { name: "Thêm giọng nói hoặc khuôn mặt" });
-
-    await user.type(enroll.querySelector('input[type="password"]') as HTMLInputElement, "pw-pass-1");
-    await user.click(screen.getByRole("button", { name: "Lưu dữ liệu sinh trắc" }));
-    expect(await screen.findByText(/Hãy quay khuôn mặt/)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "fake video" }));
-    await user.click(screen.getByRole("button", { name: "Lưu dữ liệu sinh trắc" }));
-    expect(await screen.findByText(/Đã lưu\./)).toBeInTheDocument();
-
-    const toggle = screen.getByRole("form", { name: "Đăng nhập không cần mật khẩu bằng giọng nói + khuôn mặt" });
-    expect(toggle).toHaveTextContent(/đang TẮT/);
-    await user.type(toggle.querySelector('input[type="password"]') as HTMLInputElement, "pw-pass-1");
-    await user.click(screen.getByRole("button", { name: "Bật đăng nhập không mật khẩu" }));
-    await waitFor(() => {
-      const put = fetchMock.mock.calls.find(([, init]) => init.method === "PUT");
-      expect((put?.[1].body as FormData).get("enabled")).toBe("true");
-    });
-
-    const remove = screen.getByRole("form", { name: "Xóa giọng nói và khuôn mặt" });
-    await user.type(remove.querySelector('input[type="password"]') as HTMLInputElement, "pw-pass-1");
-    await user.click(screen.getByRole("button", { name: "Xóa dữ liệu giọng nói và khuôn mặt" }));
-    await waitFor(() =>
-      expect(fetchMock.mock.calls.some(([url, init]) => url.endsWith("/me/biometrics") && init.method === "DELETE")).toBe(true),
-    );
-  });
-
-  it("describes biometrics as an optional passwordless method, not an extra step", async () => {
-    setupAccount({ has_audio: true, has_face: true });
-    render(<AccountView />);
-    const enroll = await screen.findByRole("form", { name: "Thêm giọng nói hoặc khuôn mặt" });
-    expect(enroll).toHaveTextContent(/hai tùy chọn bên dưới đều tắt mặc định/);
-    expect(enroll).toHaveTextContent(/mật khẩu hoặc Google vẫn vào thẳng/);
-    expect(enroll).toHaveTextContent(/cả giọng nói và khuôn mặt/);
-    expect(screen.getByRole("form", { name: "Đăng nhập không cần mật khẩu bằng giọng nói + khuôn mặt" })).toHaveTextContent(
-      /mật khẩu vẫn đăng nhập bình thường/,
-    );
-  });
-
-  it("tells the user a single enrolled factor is not enough for passwordless sign-in", async () => {
-    setupAccount({}, CONFIG, (url, init) =>
-      url.endsWith("/me/biometrics") && init.method === "POST"
-        ? jsonResponse({ has_audio: false, has_face: true, biometric_login: false, passwordless_ready: false })
-        : undefined,
-    );
-    const user = userEvent.setup();
-    render(<AccountView />);
-    await screen.findByRole("form", { name: "Thêm giọng nói hoặc khuôn mặt" });
-    await user.type(document.querySelector("#enroll-password") as HTMLInputElement, "pw-pass-1");
-    await user.click(screen.getByRole("button", { name: "fake video" }));
-    await user.click(screen.getByRole("button", { name: "Lưu dữ liệu sinh trắc" }));
-    expect(await screen.findByText(/hãy quay bổ sung phần còn thiếu/)).toBeInTheDocument();
-  });
-
   it("links a Google account when configured and not yet linked", async () => {
     setupAccount({}, { google_client_id: "cid", biometrics_enabled: false });
     vi.spyOn(document.head, "appendChild").mockImplementation((node) => {
@@ -219,23 +160,119 @@ describe("AccountView", () => {
   });
 
   it("lists the four sign-in methods with their state", async () => {
-    setupAccount({ has_password: true, google_linked: true, email: "b@example.com", has_audio: true, has_face: false });
+    setupAccount({ has_password: true, google_linked: true, email: "b@example.com", voice_login: true, webcam_login: false });
     render(<AccountView />);
     const card = await screen.findByRole("region", { name: "Các cách đăng nhập" });
     expect(card).toHaveTextContent("Mật khẩu: đã đặt");
     expect(card).toHaveTextContent("Google: đã liên kết với b@example.com");
-    expect(card).toHaveTextContent("Giọng nói: đã lưu");
-    expect(card).toHaveTextContent("Khuôn mặt: chưa lưu");
+    expect(card).toHaveTextContent("Giọng nói: đã bật");
+    expect(card).toHaveTextContent("Webcam: chưa bật");
+    expect(screen.getByRole("button", { name: "Hủy giọng nói" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hủy webcam" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Thay giọng nói" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lưu webcam" })).toBeInTheDocument();
+    expect(screen.getAllByRole("note")).toHaveLength(3); // voice + webcam liveness warnings and the 2FA warning
   });
 
-  it("offers to set a password and to add the missing samples", async () => {
-    setupAccount({ has_password: false, has_audio: false, has_face: false });
+  it("offers to set a password when there is none", async () => {
+    setupAccount({ has_password: false });
     render(<AccountView />);
     const card = await screen.findByRole("region", { name: "Các cách đăng nhập" });
     expect(card).toHaveTextContent("Mật khẩu: chưa đặt");
     expect(screen.getByRole("link", { name: "Đặt mật khẩu" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Thêm giọng nói" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Thêm khuôn mặt" })).toBeInTheDocument();
+  });
+
+  it("adds voice with password re-auth", async () => {
+    const fetchMock = setupAccount();
+    const user = userEvent.setup();
+    render(<AccountView />);
+    const form = await screen.findByRole("form", { name: "Đăng nhập bằng giọng nói" });
+    await user.click(screen.getByRole("button", { name: "Lưu giọng nói" }));
+    expect(await screen.findByText("Hãy ghi giọng nói trước khi lưu")).toBeInTheDocument();
+    await user.click(within(form).getByRole("button", { name: "fake voice" }));
+    await user.click(screen.getByRole("button", { name: "Lưu giọng nói" }));
+    expect(await screen.findByText("Hãy nhập mật khẩu để xác nhận")).toBeInTheDocument();
+    await user.type(form.querySelector("#voice-password") as HTMLInputElement, "pw-pass-1");
+    await user.click(screen.getByRole("button", { name: "Lưu giọng nói" }));
+    expect(await screen.findByText("Đã lưu giọng nói.")).toBeInTheDocument();
+    const call = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/me/voice") && init.method === "POST");
+    const body = call?.[1].body as FormData;
+    expect(body.get("password")).toBe("pw-pass-1");
+    expect(body.get("audio")).toBeInstanceOf(Blob);
+  });
+
+  it("adds a webcam clip without a password when the account has none", async () => {
+    const fetchMock = setupAccount({ has_password: false, google_linked: true });
+    const user = userEvent.setup();
+    render(<AccountView />);
+    const form = await screen.findByRole("form", { name: "Đăng nhập bằng webcam" });
+    expect(form.querySelector("#webcam-password")).toBeNull();
+    await user.click(within(form).getByRole("button", { name: "fake webcam" }));
+    await user.click(screen.getByRole("button", { name: "Lưu webcam" }));
+    expect(await screen.findByText("Đã lưu webcam.")).toBeInTheDocument();
+    const call = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/me/webcam") && init.method === "POST");
+    const body = call?.[1].body as FormData;
+    expect(body.has("password")).toBe(false);
+    expect(body.get("video")).toBeInstanceOf(Blob);
+  });
+
+  it("replaces an enabled webcam method", async () => {
+    const fetchMock = setupAccount({ webcam_login: true, has_face: true, has_audio: true });
+    const user = userEvent.setup();
+    render(<AccountView />);
+    const form = await screen.findByRole("form", { name: "Đăng nhập bằng webcam" });
+    await user.click(within(form).getByRole("button", { name: "fake webcam" }));
+    await user.type(form.querySelector("#webcam-password") as HTMLInputElement, "pw-pass-1");
+    await user.click(screen.getByRole("button", { name: "Thay webcam" }));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url, init]) => url.endsWith("/me/webcam") && init.method === "POST")).toBe(true),
+    );
+  });
+
+  it("removes voice only after the password is entered", async () => {
+    const fetchMock = setupAccount({ voice_login: true, webcam_login: true, has_password: true });
+    const user = userEvent.setup();
+    render(<AccountView />);
+    const voice = await screen.findByRole("form", { name: "Đăng nhập bằng giọng nói" });
+    await user.click(within(voice).getByRole("button", { name: "Hủy giọng nói" }));
+    expect(await screen.findByText("Hãy nhập mật khẩu để xác nhận")).toBeInTheDocument();
+    await user.type(voice.querySelector("#voice-password") as HTMLInputElement, "pw-pass-1");
+    await user.click(within(voice).getByRole("button", { name: "Hủy giọng nói" }));
+    await waitFor(() => {
+      const del = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/me/voice") && init.method === "DELETE");
+      expect((del?.[1].body as FormData).get("password")).toBe("pw-pass-1");
+    });
+  });
+
+  it("removes webcam without a password on a Google-only account", async () => {
+    const fetchMock = setupAccount({ webcam_login: true, has_password: false, google_linked: true });
+    const user = userEvent.setup();
+    render(<AccountView />);
+    await user.click(await screen.findByRole("button", { name: "Hủy webcam" }));
+    await waitFor(() => {
+      const del = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/me/webcam") && init.method === "DELETE");
+      expect((del?.[1].body as FormData).has("password")).toBe(false);
+    });
+  });
+
+  it("shows the server message when removing the last sign-in method", async () => {
+    setupAccount({ voice_login: true, has_password: false }, CONFIG, (url, init) =>
+      url.endsWith("/me/voice") && init.method === "DELETE"
+        ? jsonResponse({ detail: "Keep at least one sign-in method" }, 409)
+        : undefined,
+    );
+    const user = userEvent.setup();
+    render(<AccountView />);
+    await user.click(await screen.findByRole("button", { name: "Hủy giọng nói" }));
+    expect(await screen.findByText("Keep at least one sign-in method")).toBeInTheDocument();
+  });
+
+  it("hides voice and webcam methods when biometrics are not configured", async () => {
+    setupAccount({}, { google_client_id: null, biometrics_enabled: false });
+    render(<AccountView />);
+    const card = await screen.findByRole("region", { name: "Các cách đăng nhập" });
+    expect(card).not.toHaveTextContent("Giọng nói");
+    expect(card).not.toHaveTextContent("Webcam");
   });
 
   it("keeps the second-factor switch off and blocked until a sample is saved", async () => {
@@ -252,6 +289,7 @@ describe("AccountView", () => {
     const user = userEvent.setup();
     render(<AccountView />);
     const form = await screen.findByRole("form", { name: SECOND_FACTOR });
+    expect(screen.getByRole("heading", { name: "Bảo mật nâng cao (tùy chọn)" })).toBeInTheDocument();
     expect(form).toHaveTextContent(/webcam/);
     await user.type(form.querySelector('input[type="password"]') as HTMLInputElement, "pw-pass-1");
     await user.click(screen.getByRole("button", { name: "Bật yêu cầu xác minh sinh trắc học" }));

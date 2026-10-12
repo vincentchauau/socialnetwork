@@ -109,35 +109,81 @@ describe("API helpers", () => {
     expect(init2.body).toBe(JSON.stringify({ password: "pw" }));
   });
 
-  it("sends biometric multipart bodies with csrf for account calls", async () => {
+  it("voice and webcam sign-in send only the username and their own clip", async () => {
+    const fetchMock = mockFetch(() => jsonResponse(session));
+    await auth.loginWithVoice("ann", new Blob(["a"]));
+    await auth.loginWithWebcam("ann", new Blob(["v"]));
+    const [[url1, init1], [url2, init2]] = fetchMock.mock.calls;
+    expect(url1).toBe("/api/center/auth/login/voice");
+    expect(url2).toBe("/api/center/auth/login/webcam");
+    const voice = init1.body as FormData;
+    const webcam = init2.body as FormData;
+    expect(voice.get("username")).toBe("ann");
+    expect(voice.get("audio")).toBeInstanceOf(File);
+    expect(voice.has("password")).toBe(false);
+    expect(webcam.get("video")).toBeInstanceOf(File);
+    expect(webcam.has("audio")).toBe(false);
+  });
+
+  it("combined registration sends only the chosen fields", async () => {
+    const fetchMock = mockFetch(() => jsonResponse(session, 201));
+    await auth.registerCombined({ username: "ann", password: "password1" });
+    await auth.registerCombined({
+      username: "ann",
+      googleIdToken: "idt",
+      voiceAudio: new Blob(["a"]),
+      webcamVideo: new Blob(["v"]),
+    });
+    const [[url, first], [, second]] = fetchMock.mock.calls;
+    expect(url).toBe("/api/center/auth/register/combined");
+    const one = first.body as FormData;
+    expect([...one.keys()].sort()).toEqual(["password", "username"]);
+    const all = second.body as FormData;
+    expect([...all.keys()].sort()).toEqual(["google_id_token", "username", "voice_audio", "webcam_video"]);
+    expect(all.get("voice_audio")).toBeInstanceOf(File);
+  });
+
+  it("rejects oversized clips before sending", async () => {
+    const fetchMock = mockFetch(() => jsonResponse(session));
+    const big = { size: auth.MAX_VIDEO_BYTES + 1 } as Blob;
+    await expect(auth.registerCombined({ username: "a", voiceAudio: big })).rejects.toThrow(/giọng nói quá lớn/);
+    await expect(auth.registerCombined({ username: "a", webcamVideo: big })).rejects.toThrow(/quay phim quá lớn/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("account voice/webcam calls use the right routes, verbs and password field", async () => {
     setCsrfToken("tok");
     const fetchMock = mockFetch(() => jsonResponse({}));
-    const audio = new Blob(["a"]);
-    await auth.loginWithBiometricsOnly("ann", audio, new Blob(["v"]));
-    await auth.enrollBiometrics("pw", audio);
-    await auth.setBiometricLogin(true, "pw");
-    await auth.deleteBiometrics();
-    const bodies = fetchMock.mock.calls.map(([, init]) => init.body as FormData);
-    expect(bodies[0].get("username")).toBe("ann");
+    await auth.saveVoice(new Blob(["a"]), "pw");
+    await auth.saveWebcam(new Blob(["v"]));
+    await auth.removeVoice("pw");
+    await auth.removeWebcam();
+    const calls = fetchMock.mock.calls;
+    expect(calls.map(([url, init]) => `${init.method} ${url}`)).toEqual([
+      "POST /api/center/auth/me/voice",
+      "POST /api/center/auth/me/webcam",
+      "DELETE /api/center/auth/me/voice",
+      "DELETE /api/center/auth/me/webcam",
+    ]);
+    const bodies = calls.map(([, init]) => init.body as FormData);
+    expect(bodies[0].get("password")).toBe("pw");
     expect(bodies[0].get("audio")).toBeInstanceOf(File);
-    expect(bodies[0].get("video")).toBeInstanceOf(File);
-    expect(bodies[1].get("password")).toBe("pw");
-    expect(bodies[2].get("enabled")).toBe("true");
-    expect(fetchMock.mock.calls[2][1].method).toBe("PUT");
+    expect(bodies[1].has("password")).toBe(false);
+    expect(bodies[1].get("video")).toBeInstanceOf(File);
+    expect(bodies[2].get("password")).toBe("pw");
     expect(bodies[3].has("password")).toBe(false);
-    expect(fetchMock.mock.calls[3][1].method).toBe("DELETE");
+    expect((calls[0][1].headers as Record<string, string>)["X-CSRF-Token"]).toBe("tok");
   });
 
   it("covers the JSON endpoints", async () => {
     const fetchMock = mockFetch((url) => (url.endsWith("/auth/me") && !fetchMock.mock.calls.at(-1)?.[1].method ? jsonResponse(me) : jsonResponse(session)));
-    await auth.registerAccount("a", "pw");
     await auth.loginWithGoogle("idt");
     await auth.changePassword("new", "old");
     await auth.linkGoogle("idt", "pw");
     await auth.getAuthConfig();
     const bodies = fetchMock.mock.calls.map(([, init]) => init.body);
-    expect(bodies[1]).toBe(JSON.stringify({ id_token: "idt" }));
-    expect(bodies[2]).toBe(JSON.stringify({ new_password: "new", current_password: "old" }));
+    expect(bodies[0]).toBe(JSON.stringify({ id_token: "idt" }));
+    expect(bodies[1]).toBe(JSON.stringify({ new_password: "new", current_password: "old" }));
   });
 
   it("google login returns the session", async () => {

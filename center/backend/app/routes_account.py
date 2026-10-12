@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.audit import audit
 from app.db import get_db
 from app.deps import AuthSession, check_origin, client_ip, csrf_session, require_reauth, settings_of
+from app.methods import GOOGLE_IN_USE, KEEP_ONE, usable_methods
 from app.models import User
 from app.passwords import hash_password, password_problem
 from app.routes_auth import me_out, verify_google_or_throttle
@@ -16,9 +17,7 @@ from app.sessions import clear_session_cookies, issue_session
 
 router = APIRouter(prefix="/auth/me", tags=["account"], dependencies=[Depends(check_origin)])
 
-NEEDS_PASSWORD = "Set a password first"
 GOOGLE_NOT_LINKED = "Google is not linked"
-GOOGLE_IN_USE = "That Google account is already linked to an account"
 
 
 @router.post("/password", response_model=SessionOut)
@@ -73,13 +72,13 @@ def unlink_google(
     session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> MeOut:
-    """Only an account that has a password may drop Google: it must keep one usable primary method."""
+    """Google may be dropped only while another sign-in method (password, voice, webcam) remains."""
     user = session.user
-    if not user.has_password:
-        raise HTTPException(status.HTTP_409_CONFLICT, NEEDS_PASSWORD)
     require_reauth(request, user, body.password if body else None)
     if user.google_sub is None:
         raise HTTPException(status.HTTP_409_CONFLICT, GOOGLE_NOT_LINKED)
+    if usable_methods(user, without="google") == 0:
+        raise HTTPException(status.HTTP_409_CONFLICT, KEEP_ONE)
     user.google_sub = None
     user.email = None
     db.commit()

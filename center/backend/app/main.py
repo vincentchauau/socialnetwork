@@ -16,6 +16,7 @@ from app.migrate import ensure_columns
 from app.routes_account import router as account_router
 from app.routes_auth import router as auth_router
 from app.routes_biometrics import router as biometrics_router
+from app.routes_methods import combined_router, methods_router
 from app.throttle import AttemptThrottle
 
 LOGIN_MAX_FAILURES_PER_IP_USER = 5  # per (client address, username)
@@ -98,6 +99,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(account_router)
     app.include_router(biometrics_router)
+    app.include_router(methods_router)
+    app.include_router(combined_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

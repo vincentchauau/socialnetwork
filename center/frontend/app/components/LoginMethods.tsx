@@ -3,6 +3,7 @@
 import { FormEvent, ReactNode, useState } from "react";
 
 import Alert from "./Alert";
+import BiometricMethod from "./BiometricMethod";
 import { INPUT, LABEL, SECONDARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
 import { AuthConfig, Me, unlinkGoogle } from "../lib/auth";
@@ -58,10 +59,9 @@ function UnlinkGoogle({ hasPassword, onDone }: { hasPassword: boolean; onDone: P
   );
 }
 
-/** Bốn cách đăng nhập của tài khoản, trạng thái và hành động liên kết/hủy từng cách. */
+/** Bốn cách đăng nhập của tài khoản; thêm/thay/hủy giọng nói và webcam ngay tại đây (luôn phải còn ít nhất một cách). */
 export default function LoginMethods({ me, config, onDone }: Props) {
   const enrol = config.biometrics_enabled;
-  const sample = (has: boolean) => (has ? "đã lưu" : "chưa lưu");
   return (
     <section aria-label="Các cách đăng nhập" className={SECTION}>
       <h2 className="font-bold mb-2">Các cách đăng nhập</h2>
@@ -73,12 +73,16 @@ export default function LoginMethods({ me, config, onDone }: Props) {
           {me.google_linked && <UnlinkGoogle hasPassword={me.has_password} onDone={onDone} />}
           {!me.google_linked && config.google_client_id && anchor("#lien-ket-google", "Liên kết Google")}
         </Row>
-        <Row name="Giọng nói" state={sample(me.has_audio)}>
-          {enrol && anchor("#giong-noi-khuon-mat", me.has_audio ? "Đổi giọng nói" : "Thêm giọng nói")}
-        </Row>
-        <Row name="Khuôn mặt" state={sample(me.has_face)}>
-          {enrol && anchor("#giong-noi-khuon-mat", me.has_face ? "Đổi khuôn mặt" : "Thêm khuôn mặt")}
-        </Row>
+        {enrol && (
+          <Row name="Giọng nói" state={me.voice_login ? "đã bật" : "chưa bật"}>
+            <BiometricMethod kind="voice" enabled={me.voice_login} hasPassword={me.has_password} onDone={onDone} />
+          </Row>
+        )}
+        {enrol && (
+          <Row name="Webcam" state={me.webcam_login ? "đã bật" : "chưa bật"}>
+            <BiometricMethod kind="webcam" enabled={me.webcam_login} hasPassword={me.has_password} onDone={onDone} />
+          </Row>
+        )}
       </ul>
     </section>
   );

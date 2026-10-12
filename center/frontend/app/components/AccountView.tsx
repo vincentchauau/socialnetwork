@@ -4,13 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import Alert from "./Alert";
 import Biometric2faToggle from "./Biometric2faToggle";
-import BiometricLoginToggle from "./BiometricLoginToggle";
 import DeleteAccount from "./DeleteAccount";
-import EnrollBiometrics from "./EnrollBiometrics";
 import LinkGoogle from "./LinkGoogle";
 import LoginMethods from "./LoginMethods";
 import PasswordForm from "./PasswordForm";
-import RemoveBiometrics from "./RemoveBiometrics";
 import { CARD, PRIMARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
 import { AuthConfig, Me, errorText, getAuthConfig, loadMe, logout } from "../lib/auth";
@@ -54,7 +51,6 @@ export default function AccountView() {
   }
 
   const { me } = state;
-  const hasBoth = me.has_audio && me.has_face;
 
   return (
     <main className={`${CARD} text-center`}>
@@ -79,19 +75,15 @@ export default function AccountView() {
       )}
 
       {config.biometrics_enabled && (
-        <>
-          <div id="giong-noi-khuon-mat">
-            <EnrollBiometrics hasPassword={me.has_password} hasAudio={me.has_audio} hasFace={me.has_face} onDone={reload} />
-          </div>
-          <BiometricLoginToggle enabled={me.biometric_login} hasPassword={me.has_password} ready={hasBoth} onDone={reload} />
+        <section aria-label="Bảo mật nâng cao" className="text-left mb-4">
+          <h2 className="font-bold mb-2">Bảo mật nâng cao (tùy chọn)</h2>
           <Biometric2faToggle
             enabled={me.require_biometric_2fa}
             hasPassword={me.has_password}
             ready={me.has_audio || me.has_face}
             onDone={reload}
           />
-          {(me.has_audio || me.has_face) && <RemoveBiometrics hasPassword={me.has_password} onDone={reload} />}
-        </>
+        </section>
       )}
 
       <section aria-label="Phiên đăng nhập" className={SECTION}>

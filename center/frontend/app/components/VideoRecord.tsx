@@ -31,7 +31,7 @@ export default function VideoRecord({ disabled, onRecorded }: Props) {
         disabled={disabled || isRecording}
       >
         <span aria-hidden="true">{isRecording ? "■ " : "📹 "}</span>
-        {isRecording ? "Đang quay (5 giây): nhìn camera và nói..." : "Quay khuôn mặt + giọng nói (không bắt buộc)"}
+        {isRecording ? "Đang quay (5 giây): nhìn camera và nói..." : "Quay khuôn mặt + giọng nói"}
       </button>
       <p role="status" aria-live="polite" className="sr-only">
         {isRecording ? "Đang quay hình và tiếng trong 5 giây" : previewUrl ? "Đã quay xong hình và tiếng" : ""}

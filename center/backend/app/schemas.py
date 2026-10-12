@@ -10,6 +10,14 @@ def _normalize_username(value: str) -> str:
     return value.strip().lower()
 
 
+def checked_username(value: str) -> str:
+    """Normalise and validate a username (raises ValueError with the user-facing hint)."""
+    value = _normalize_username(value)
+    if not HANDLE_RE.match(value):
+        raise ValueError(USERNAME_HINT)
+    return value
+
+
 class Credentials(BaseModel):
     username: str
     password: str = Field(max_length=MAX_INPUT)
@@ -17,10 +25,7 @@ class Credentials(BaseModel):
     @field_validator("username")
     @classmethod
     def valid_username(cls, value: str) -> str:
-        value = _normalize_username(value)
-        if not HANDLE_RE.match(value):
-            raise ValueError(USERNAME_HINT)
-        return value
+        return checked_username(value)
 
 
 class LoginBody(BaseModel):
@@ -62,26 +67,20 @@ class MfaRequired(BaseModel):
     mfa_token: str
 
 
-class MeOut(SessionOut):
-    email: str | None
+class MethodsStatus(BaseModel):
     has_password: bool
     google_linked: bool
+    voice_login: bool
+    webcam_login: bool
     has_audio: bool
     has_face: bool
-    biometric_login: bool
     require_biometric_2fa: bool
-    passwordless_ready: bool  # passwordless sign-in needs BOTH voice and face enrolled
+
+
+class MeOut(SessionOut, MethodsStatus):
+    email: str | None
 
 
 class AuthConfig(BaseModel):
     google_client_id: str | None
     biometrics_enabled: bool
-
-
-class BiometricStatus(BaseModel):
-    has_audio: bool
-    has_face: bool
-    biometric_login: bool
-    require_biometric_2fa: bool
-    passwordless_ready: bool
-

@@ -11,26 +11,37 @@ vi.mock("../app/lib/navigate", async (original) => ({
   goTo,
 }));
 
-// Thiết bị thật cần camera; bản giả này "quay" tức thì.
+// Thiết bị thật cần micro/camera; các bản giả này "ghi" tức thì.
+vi.mock("../app/components/AudioRecord", () => ({
+  default: ({ onRecorded }: { onRecorded: (b: Blob) => void }) => (
+    <button type="button" onClick={() => onRecorded(new Blob(["a"]))}>fake voice</button>
+  ),
+}));
+vi.mock("../app/components/VideoRecord", () => ({
+  default: ({ onRecorded }: { onRecorded: (b: Blob) => void }) => (
+    <button type="button" onClick={() => onRecorded(new Blob(["v"]))}>fake webcam</button>
+  ),
+}));
 vi.mock("../app/components/BiometricCapture", () => ({
   default: ({ onVideo, onAudio }: { onVideo: (b: Blob) => void; onAudio: (b: Blob) => void }) => (
     <div>
-      <button type="button" onClick={() => onVideo(new Blob(["v"]))}>
-        fake video
-      </button>
-      <button type="button" onClick={() => onAudio(new Blob(["a"]))}>
-        fake audio
-      </button>
+      <button type="button" onClick={() => onVideo(new Blob(["v"]))}>fake video</button>
+      <button type="button" onClick={() => onAudio(new Blob(["a"]))}>fake audio</button>
     </div>
   ),
 }));
+vi.mock("../app/components/GoogleSignInButton", () => ({
+  default: ({ onCredential }: { onCredential: (t: string) => void }) => (
+    <button type="button" onClick={() => onCredential("idt")}>fake google</button>
+  ),
+}));
 
-const CONFIG = { google_client_id: null, biometrics_enabled: false };
+const PLAIN = { google_client_id: null, biometrics_enabled: false };
 const BIO = { google_client_id: null, biometrics_enabled: true };
+const ALL = { google_client_id: "cid", biometrics_enabled: true };
 
 interface Routes {
   config?: unknown;
-  login?: () => Response;
   extra?: (url: string, init: RequestInit) => Response | undefined;
 }
 
@@ -38,31 +49,97 @@ function setup(routes: Routes = {}) {
   return mockFetch((url, init) => {
     const extra = routes.extra?.(url, init);
     if (extra) return extra;
-    if (url.endsWith("/auth/config")) return jsonResponse(routes.config ?? CONFIG);
-    if (url.endsWith("/auth/login")) return routes.login?.() ?? jsonResponse(session);
-    if (url.endsWith("/auth/register")) return jsonResponse(session, 201);
+    if (url.endsWith("/auth/config")) return jsonResponse(routes.config ?? PLAIN);
+    if (url.endsWith("/auth/login") || url.endsWith("/auth/google")) return jsonResponse(session);
+    if (url.endsWith("/login/voice") || url.endsWith("/login/webcam")) return jsonResponse(session);
+    if (url.endsWith("/register/combined")) return jsonResponse(session, 201);
     return jsonResponse({ detail: "unexpected " + url }, 500);
   });
 }
 
 type User = ReturnType<typeof userEvent.setup>;
 
-async function fill(user: User, password = "password1") {
-  await user.type(screen.getByLabelText("Tên đăng nhập"), "ann");
-  if (password) await user.type(screen.getByLabelText("Mật khẩu"), password);
-}
-
-async function fillAndSubmit(user: User, password = "password1", button = "Đăng nhập") {
-  await fill(user, password);
-  await user.click(screen.getByRole("button", { name: button }));
-}
-
 const callTo = (fetchMock: ReturnType<typeof setup>, suffix: string) =>
   fetchMock.mock.calls.find(([url]) => url.endsWith(suffix));
+const formOf = (fetchMock: ReturnType<typeof setup>, suffix: string) =>
+  callTo(fetchMock, suffix)?.[1].body as FormData;
+const calls = (fetchMock: ReturnType<typeof setup>, suffix: string) =>
+  fetchMock.mock.calls.filter(([url]) => url.endsWith(suffix));
+
+async function typeName(user: User) {
+  await user.type(screen.getByLabelText("Tên đăng nhập"), "ann");
+}
+const submit = (user: User, name = "Đăng nhập") => user.click(screen.getByRole("button", { name }));
+const openRegister = (user: User) => user.click(screen.getByRole("button", { name: "Chưa có tài khoản? Đăng ký" }));
+const tab = (name: string) => screen.getByRole("tab", { name });
 
 beforeEach(() => {
   goTo.mockReset();
   window.history.pushState({}, "", "/login");
+});
+
+describe("LoginFlow selector", () => {
+  it("defaults to Mật khẩu and is keyboard operable", async () => {
+    setup({ config: ALL });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await screen.findByRole("tab", { name: "Webcam" });
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Mật khẩu", "Google", "Giọng nói", "Webcam"]);
+    expect(tab("Mật khẩu")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Mật khẩu", { selector: "input" })).toBeInTheDocument();
+
+    tab("Mật khẩu").focus();
+    await user.keyboard("{ArrowRight}");
+    expect(tab("Google")).toHaveAttribute("aria-selected", "true");
+    expect(tab("Google")).toHaveFocus();
+    await user.keyboard("{End}");
+    expect(tab("Webcam")).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowRight}");
+    expect(tab("Mật khẩu")).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowLeft}");
+    expect(tab("Webcam")).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{Home}");
+    expect(tab("Mật khẩu")).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{a}");
+    expect(tab("Mật khẩu")).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("hides voice, webcam and Google when they are not configured", async () => {
+    setup();
+    render(<LoginFlow />);
+    await screen.findByLabelText("Tên đăng nhập");
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Mật khẩu"]);
+  });
+
+  it("shows Google only when a client id is set, voice/webcam only when biometrics are on", async () => {
+    setup({ config: { google_client_id: "cid", biometrics_enabled: false } });
+    const first = render(<LoginFlow />);
+    await screen.findByRole("tab", { name: "Google" });
+    expect(screen.queryByRole("tab", { name: "Giọng nói" })).not.toBeInTheDocument();
+    first.unmount();
+    setup({ config: BIO });
+    render(<LoginFlow />);
+    await screen.findByRole("tab", { name: "Webcam" });
+    expect(screen.queryByRole("tab", { name: "Google" })).not.toBeInTheDocument();
+  });
+
+  it("keeps working when the config request fails", async () => {
+    mockFetch(() => jsonResponse({ detail: "down" }, 503));
+    render(<LoginFlow />);
+    expect(await screen.findByLabelText("Tên đăng nhập")).toBeInTheDocument();
+  });
+
+  it("shows the no-liveness warning only for voice and webcam", async () => {
+    setup({ config: BIO });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await user.click(await screen.findByRole("tab", { name: "Giọng nói" }));
+    expect(screen.getByRole("note")).toHaveTextContent(/chưa có kiểm tra người thật/);
+    await user.click(tab("Webcam"));
+    expect(screen.getByRole("note")).toBeInTheDocument();
+    await user.click(tab("Mật khẩu"));
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+  });
 });
 
 describe("LoginFlow password", () => {
@@ -70,7 +147,9 @@ describe("LoginFlow password", () => {
     const fetchMock = setup();
     const user = userEvent.setup();
     render(<LoginFlow />);
-    await fillAndSubmit(user);
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await submit(user);
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
     expect(JSON.parse(callTo(fetchMock, "/auth/login")?.[1].body as string)).toEqual({
       username: "ann",
@@ -83,281 +162,418 @@ describe("LoginFlow password", () => {
     window.history.pushState({}, "", "/login?next=%2Fchat");
     const user = userEvent.setup();
     const first = render(<LoginFlow />);
-    await fillAndSubmit(user);
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await submit(user);
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/chat"));
     first.unmount();
 
     goTo.mockReset();
     window.history.pushState({}, "", "/login?next=https%3A%2F%2Fevil.com");
     render(<LoginFlow />);
-    await fillAndSubmit(user);
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await submit(user);
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
   });
 
-  it("shows the server message for a wrong password and stays on the page", async () => {
-    setup({ login: () => jsonResponse({ detail: "Invalid username or password" }, 401) });
+  it("shows the server message and stays on the page; 429 gets the throttling text", async () => {
+    let status = 401;
+    setup({
+      extra: (url) =>
+        url.endsWith("/auth/login") ? jsonResponse({ detail: "Invalid username or password" }, status) : undefined,
+    });
     const user = userEvent.setup();
     render(<LoginFlow />);
-    await fillAndSubmit(user);
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await submit(user);
     expect(await screen.findByRole("alert")).toHaveTextContent("Invalid username or password");
     expect(goTo).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Đăng nhập" })).toBeEnabled();
-  });
-
-  it("shows a throttling message on 429", async () => {
-    setup({ login: () => jsonResponse({ detail: "slow down" }, 429) });
-    const user = userEvent.setup();
-    render(<LoginFlow />);
-    await fillAndSubmit(user);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Thử quá nhiều lần, hãy thử lại sau");
+    status = 429;
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await submit(user);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Thử quá nhiều lần, hãy thử lại sau"));
   });
 
   it("locks the form while a request is running", async () => {
     let release: (r: Response) => void = () => undefined;
     const fetchMock = mockFetch((url) => {
-      if (url.endsWith("/auth/config")) return jsonResponse(CONFIG);
+      if (url.endsWith("/auth/config")) return jsonResponse(PLAIN);
       return new Promise<Response>((resolve) => (release = resolve)) as unknown as Response;
     });
     const user = userEvent.setup();
     render(<LoginFlow />);
-    await fillAndSubmit(user);
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await submit(user);
     expect(await screen.findByRole("button", { name: "Đang xử lý..." })).toBeDisabled();
-    await user.type(screen.getByLabelText("Mật khẩu"), "{Enter}");
-    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/auth/login"))).toHaveLength(1);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "{Enter}");
+    expect(calls(fetchMock, "/auth/login")).toHaveLength(1);
     release(jsonResponse(session));
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
   });
 });
 
-describe("LoginFlow register and mode switch", () => {
-  it("blocks short passwords locally, then registers", async () => {
-    const fetchMock = setup();
-    const user = userEvent.setup();
-    render(<LoginFlow />);
-    await user.click(screen.getByRole("button", { name: "Chưa có tài khoản? Đăng ký" }));
-    expect(screen.getByRole("heading", { name: "Đăng ký" })).toBeInTheDocument();
-    await fillAndSubmit(user, "short", "Đăng ký");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Mật khẩu cần ít nhất 8 ký tự");
-    expect(callTo(fetchMock, "/register")).toBeUndefined();
-    await user.type(screen.getByLabelText("Mật khẩu"), "12345");
-    await user.click(screen.getByRole("button", { name: "Đăng ký" }));
-    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
-    expect(callTo(fetchMock, "/me/biometrics")).toBeUndefined();
-  });
-
-  it("switches back to login", async () => {
-    setup();
-    const user = userEvent.setup();
-    render(<LoginFlow />);
-    await user.click(screen.getByRole("button", { name: "Chưa có tài khoản? Đăng ký" }));
-    await user.click(screen.getByRole("button", { name: "Đã có tài khoản? Đăng nhập" }));
-    expect(screen.getByRole("heading", { name: "Đăng nhập" })).toBeInTheDocument();
-  });
-
-  it("enrolls the recording made at register time with the new csrf token", async () => {
+describe("LoginFlow voice, webcam and Google sign-in", () => {
+  it("signs in with voice: username + audio, no password field", async () => {
     const fetchMock = setup({ config: BIO });
     const user = userEvent.setup();
     render(<LoginFlow />);
-    await user.click(await screen.findByRole("button", { name: "fake video" }));
-    await user.click(screen.getByRole("button", { name: "Chưa có tài khoản? Đăng ký" }));
-    await user.click(screen.getByRole("button", { name: "fake video" }));
-    await fillAndSubmit(user, "password1", "Đăng ký");
+    await user.click(await screen.findByRole("tab", { name: "Giọng nói" }));
+    expect(screen.queryByLabelText("Mật khẩu", { selector: "input" })).not.toBeInTheDocument();
+    await typeName(user);
+    await submit(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hãy ghi giọng nói");
+    expect(callTo(fetchMock, "/login/voice")).toBeUndefined();
+    await user.click(screen.getByRole("button", { name: "fake voice" }));
+    await submit(user);
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
-    const enroll = callTo(fetchMock, "/me/biometrics");
-    expect((enroll?.[1].body as FormData).get("password")).toBe("password1");
-    expect((enroll?.[1].body as FormData).get("video")).toBeInstanceOf(Blob);
-    expect((enroll?.[1].headers as Record<string, string>)["X-CSRF-Token"]).toBe("csrf-1");
-  });
-
-  it("still finishes registering when the enrolment fails", async () => {
-    setup({
-      config: BIO,
-      extra: (url) => (url.endsWith("/me/biometrics") ? jsonResponse({ detail: "no face" }, 400) : undefined),
-    });
-    const user = userEvent.setup();
-    render(<LoginFlow />);
-    await user.click(await screen.findByRole("button", { name: "Chưa có tài khoản? Đăng ký" }));
-    await user.click(screen.getByRole("button", { name: "fake audio" }));
-    await fillAndSubmit(user, "password1", "Đăng ký");
-    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
-  });
-});
-
-describe("LoginFlow optional features", () => {
-  it("hides recorders and Google without config", async () => {
-    setup();
-    render(<LoginFlow />);
-    await screen.findByLabelText("Tên đăng nhập");
-    expect(screen.queryByLabelText("Đăng nhập bằng Google")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "fake video" })).not.toBeInTheDocument();
-  });
-
-  it("shows the recorders when biometrics are enabled", async () => {
-    setup({ config: BIO });
-    render(<LoginFlow />);
-    expect(await screen.findByRole("button", { name: "fake video" })).toBeInTheDocument();
-  });
-
-  it("shows a graceful error when the Google script cannot load", async () => {
-    setup({ config: { google_client_id: "cid", biometrics_enabled: false } });
-    const appendSpy = vi.spyOn(document.head, "appendChild").mockImplementation((node) => {
-      queueMicrotask(() => (node as HTMLScriptElement).onerror?.(new Event("error")));
-      return node;
-    });
-    render(<LoginFlow />);
-    expect(await screen.findByText(/Không tải được đăng nhập Google/)).toBeInTheDocument();
-    expect(appendSpy).toHaveBeenCalled();
-    appendSpy.mockRestore();
-  });
-
-  it("keeps working when the config request fails", async () => {
-    mockFetch(() => jsonResponse({ detail: "down" }, 503));
-    render(<LoginFlow />);
-    expect(await screen.findByLabelText("Tên đăng nhập")).toBeInTheDocument();
-  });
-});
-
-describe("LoginFlow biometrics", () => {
-  it("explains that an empty password plus a recording signs in with face + voice, with the warning", async () => {
-    setup({ config: BIO });
-    const user = userEvent.setup();
-    render(<LoginFlow />);
-    expect(await screen.findByText(/để trống mật khẩu/i)).toBeInTheDocument();
-    expect(screen.queryByRole("note")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "fake video" }));
-    expect(screen.getByRole("note")).toHaveTextContent(/chưa có kiểm tra người thật/);
-    await user.type(screen.getByLabelText("Mật khẩu"), "x");
-    expect(screen.queryByRole("note")).not.toBeInTheDocument();
-  });
-
-  it("sends no recordings with a password login when the account has no second factor", async () => {
-    const fetchMock = setup({ config: BIO });
-    const user = userEvent.setup();
-    render(<LoginFlow />);
-    await user.click(await screen.findByRole("button", { name: "fake video" }));
-    await user.click(screen.getByRole("button", { name: "fake audio" }));
-    await fillAndSubmit(user);
-    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
-    expect(screen.queryByRole("heading", { name: "Xác minh danh tính" })).not.toBeInTheDocument();
-    expect(callTo(fetchMock, "/biometric")).toBeUndefined();
-    expect(callTo(fetchMock, "/biometric-only")).toBeUndefined();
-    const login = callTo(fetchMock, "/auth/login");
-    expect(typeof login?.[1].body).toBe("string");
-    expect(JSON.parse(login?.[1].body as string)).toEqual({ username: "ann", password: "password1" });
-  });
-
-  it("signs in with face + voice only when the password is empty", async () => {
-    const fetchMock = setup({
-      config: BIO,
-      extra: (url) => (url.endsWith("/biometric-only") ? jsonResponse(session) : undefined),
-    });
-    const user = userEvent.setup();
-    render(<LoginFlow />);
-    await user.click(await screen.findByRole("button", { name: "fake video" }));
-    await user.click(screen.getByRole("button", { name: "fake audio" }));
-    await fillAndSubmit(user, "");
-    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
-    const form = callTo(fetchMock, "/biometric-only")?.[1].body as FormData;
+    const form = formOf(fetchMock, "/login/voice");
     expect(form.get("username")).toBe("ann");
     expect(form.get("audio")).toBeInstanceOf(Blob);
-    expect(callTo(fetchMock, "/auth/login")).toBeUndefined();
+    expect(form.has("password")).toBe(false);
   });
 
-  it("shows the server error when passwordless sign-in fails", async () => {
-    setup({
-      config: BIO,
-      extra: (url) => (url.endsWith("/biometric-only") ? jsonResponse({ detail: "Biometric login failed" }, 401) : undefined),
-    });
-    const user = userEvent.setup();
-    render(<LoginFlow />);
-    await user.click(await screen.findByRole("button", { name: "fake video" }));
-    await fillAndSubmit(user, "");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Biometric login failed");
-    expect(goTo).not.toHaveBeenCalled();
-  });
-
-  it("with an audio-only recording and no password it asks for the password instead of calling biometric-only", async () => {
+  it("signs in with the webcam: username + one video clip", async () => {
     const fetchMock = setup({ config: BIO });
     const user = userEvent.setup();
     render(<LoginFlow />);
-    await user.click(await screen.findByRole("button", { name: "fake audio" }));
-    expect(screen.getByLabelText("Mật khẩu")).toBeRequired();
-    await fillAndSubmit(user, "");
-    expect(callTo(fetchMock, "/biometric-only")).toBeUndefined();
+    await user.click(await screen.findByRole("tab", { name: "Webcam" }));
+    await typeName(user);
+    await submit(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hãy quay webcam");
+    await user.click(screen.getByRole("button", { name: "fake webcam" }));
+    await submit(user);
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    const form = formOf(fetchMock, "/login/webcam");
+    expect(form.get("username")).toBe("ann");
+    expect(form.get("video")).toBeInstanceOf(Blob);
+    expect(form.has("password")).toBe(false);
   });
 
-  it("clears recordings on mode switch so they are not reused", async () => {
-    const fetchMock = setup({ config: BIO });
-    const user = userEvent.setup();
-    render(<LoginFlow />);
-    await user.click(await screen.findByRole("button", { name: "fake video" }));
-    await user.click(screen.getByRole("button", { name: "Chưa có tài khoản? Đăng ký" }));
-    await user.click(screen.getByRole("button", { name: "Đã có tài khoản? Đăng nhập" }));
-    await fillAndSubmit(user, "");
-    expect(callTo(fetchMock, "/biometric-only")).toBeUndefined();
-    expect(screen.getByLabelText("Mật khẩu")).toBeRequired();
-  });
-
-  it("can be switched on per account: the second factor is asked after the password", async () => {
+  it("shows the server error when a biometric sign-in fails and clears the recording", async () => {
     const fetchMock = setup({
       config: BIO,
-      login: () => jsonResponse({ mfa_required: true, mfa_token: "tok" }),
-      extra: (url) => (url.endsWith("/auth/login/biometric") ? jsonResponse(session) : undefined),
+      extra: (url) => (url.endsWith("/login/voice") ? jsonResponse({ detail: "Biometric login failed" }, 401) : undefined),
     });
     const user = userEvent.setup();
     render(<LoginFlow />);
-    await fillAndSubmit(user);
-    expect(await screen.findByRole("heading", { name: "Xác minh danh tính" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("tab", { name: "Giọng nói" }));
+    await typeName(user);
+    await user.click(screen.getByRole("button", { name: "fake voice" }));
+    await submit(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Biometric login failed");
+    expect(goTo).not.toHaveBeenCalled();
+    await submit(user); // recording was cleared after the attempt
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Hãy ghi giọng nói"));
+    expect(calls(fetchMock, "/login/voice")).toHaveLength(1);
+  });
+
+  it("clears recordings when the method is switched", async () => {
+    const fetchMock = setup({ config: BIO });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await user.click(await screen.findByRole("tab", { name: "Giọng nói" }));
+    await typeName(user);
+    await user.click(screen.getByRole("button", { name: "fake voice" }));
+    await user.click(tab("Webcam"));
+    await user.click(tab("Giọng nói"));
+    await submit(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hãy ghi giọng nói");
+    expect(callTo(fetchMock, "/login/voice")).toBeUndefined();
+  });
+
+  it("signs in with Google from the Google tab", async () => {
+    const fetchMock = setup({ config: ALL });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await user.click(await screen.findByRole("tab", { name: "Google" }));
+    expect(screen.queryByLabelText("Tên đăng nhập")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "fake google" }));
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    expect(JSON.parse(callTo(fetchMock, "/auth/google")?.[1].body as string)).toEqual({ id_token: "idt" });
+  });
+});
+
+describe("LoginFlow second factor (unchanged)", () => {
+  const mfa = (url: string) =>
+    url.endsWith("/auth/login") || url.endsWith("/auth/google")
+      ? jsonResponse({ mfa_required: true, mfa_token: "tok" })
+      : undefined;
+
+  async function reachMfa(user: User) {
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await submit(user);
+    await screen.findByRole("heading", { name: "Xác minh danh tính" });
+  }
+
+  it("asks for the second factor after the password and finishes with the clip", async () => {
+    const fetchMock = setup({
+      extra: (url) => mfa(url) ?? (url.endsWith("/auth/login/biometric") ? jsonResponse(session) : undefined),
+    });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await reachMfa(user);
     expect(goTo).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Xác minh và đăng nhập" })).toBeDisabled();
-
     await user.click(screen.getByRole("button", { name: "fake video" }));
     await user.click(screen.getByRole("button", { name: "Xác minh và đăng nhập" }));
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
-    const body = callTo(fetchMock, "/auth/login/biometric")?.[1].body as FormData;
+    const body = formOf(fetchMock, "/auth/login/biometric");
     expect(body.get("mfa_token")).toBe("tok");
     expect(body.get("video")).toBeInstanceOf(File);
   });
 
-  it("uses a clip already recorded in the form for the second factor", async () => {
-    const fetchMock = setup({
-      config: BIO,
-      login: () => jsonResponse({ mfa_required: true, mfa_token: "tok" }),
-      extra: (url) => (url.endsWith("/auth/login/biometric") ? jsonResponse(session) : undefined),
-    });
+  it("also applies to Google sign-in", async () => {
+    setup({ config: ALL, extra: mfa });
     const user = userEvent.setup();
     render(<LoginFlow />);
-    await user.click(await screen.findByRole("button", { name: "fake video" }));
-    await fillAndSubmit(user);
-    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
-    expect(screen.queryByRole("heading", { name: "Xác minh danh tính" })).not.toBeInTheDocument();
-    expect((callTo(fetchMock, "/auth/login/biometric")?.[1].body as FormData).get("mfa_token")).toBe("tok");
+    await user.click(await screen.findByRole("tab", { name: "Google" }));
+    await user.click(screen.getByRole("button", { name: "fake google" }));
+    expect(await screen.findByRole("heading", { name: "Xác minh danh tính" })).toBeInTheDocument();
   });
 
-  it("returns to the sign-in form when the second factor is cancelled", async () => {
-    setup({ config: BIO, login: () => jsonResponse({ mfa_required: true, mfa_token: "tok" }) });
+  it("returns to the sign-in form when cancelled", async () => {
+    setup({ extra: mfa });
     const user = userEvent.setup();
     render(<LoginFlow />);
-    await fillAndSubmit(user);
-    await user.click(await screen.findByRole("button", { name: "Hủy" }));
+    await reachMfa(user);
+    await user.click(screen.getByRole("button", { name: "Hủy" }));
     expect(await screen.findByRole("heading", { name: "Đăng nhập" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Mật khẩu")).toHaveValue("");
-    expect(goTo).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Mật khẩu", { selector: "input" })).toHaveValue("");
   });
 
   it("shows the server message when the second factor does not match", async () => {
     setup({
-      config: BIO,
-      login: () => jsonResponse({ mfa_required: true, mfa_token: "tok" }),
       extra: (url) =>
-        url.endsWith("/auth/login/biometric") ? jsonResponse({ detail: "Biometric verification failed" }, 401) : undefined,
+        mfa(url) ??
+        (url.endsWith("/auth/login/biometric") ? jsonResponse({ detail: "Biometric verification failed" }, 401) : undefined),
     });
     const user = userEvent.setup();
     render(<LoginFlow />);
-    await fillAndSubmit(user);
-    await user.click(await screen.findByRole("button", { name: "fake video" }));
+    await reachMfa(user);
+    await user.click(screen.getByRole("button", { name: "fake audio" }));
     await user.click(screen.getByRole("button", { name: "Xác minh và đăng nhập" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Biometric verification failed");
     expect(goTo).not.toHaveBeenCalled();
+  });
+});
+
+describe("LoginFlow register (multi-select)", () => {
+  async function register(config: unknown = PLAIN) {
+    const fetchMock = setup({ config });
+    const user = userEvent.setup();
+    render(<LoginFlow />);
+    await screen.findByLabelText("Tên đăng nhập");
+    await openRegister(user);
+    return { fetchMock, user };
+  }
+  const box = (name: string) => screen.getByRole("checkbox", { name });
+
+  it("offers checkboxes with Mật khẩu checked by default and no selector tabs", async () => {
+    await register(ALL);
+    expect(screen.getByRole("heading", { name: "Đăng ký" })).toBeInTheDocument();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    const group = screen.getByRole("group", { name: /Chọn các cách đăng ký trước, bổ sung cách còn thiếu sau/ });
+    expect(group).toBeInTheDocument();
+    expect(box("Mật khẩu")).toBeChecked();
+    for (const name of ["Google", "Giọng nói", "Webcam"]) expect(box(name)).not.toBeChecked();
+    expect(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" })).toBeInTheDocument();
+  });
+
+  it("hides unconfigured methods", async () => {
+    await register();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+  });
+
+  it("registers with a password only via the combined route", async () => {
+    const { fetchMock, user } = await register();
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await submit(user, "Đăng ký");
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    const form = formOf(fetchMock, "/register/combined");
+    expect([...form.keys()].sort()).toEqual(["password", "username"]);
+    expect(form.get("username")).toBe("ann");
+    expect(form.get("password")).toBe("password1");
+  });
+
+  it("shows live password hints and blocks short passwords locally", async () => {
+    const { fetchMock, user } = await register();
+    await typeName(user);
+    expect(screen.getByText(/Cần ít nhất 8 ký tự/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "short");
+    await submit(user, "Đăng ký");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Mật khẩu cần ít nhất 8 ký tự");
+    expect(callTo(fetchMock, "/register/combined")).toBeUndefined();
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "12345");
+    expect(screen.getByText("Mật khẩu đủ dài.")).toBeInTheDocument();
+  });
+
+  it("registers with password + voice and shows the warning", async () => {
+    const { fetchMock, user } = await register(BIO);
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+    await user.click(box("Giọng nói"));
+    expect(screen.getByRole("note")).toHaveTextContent(/chưa có kiểm tra người thật/);
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await submit(user, "Đăng ký");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hãy ghi giọng nói");
+    await user.click(screen.getByRole("button", { name: "fake voice" }));
+    await submit(user, "Đăng ký");
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    const form = formOf(fetchMock, "/register/combined");
+    expect([...form.keys()].sort()).toEqual(["password", "username", "voice_audio"]);
+  });
+
+  it("registers with voice + webcam and no password", async () => {
+    const { fetchMock, user } = await register(BIO);
+    await user.click(box("Giọng nói"));
+    await user.click(box("Webcam"));
+    await user.click(box("Mật khẩu"));
+    expect(screen.queryByLabelText("Mật khẩu", { selector: "input[type=password]" })).not.toBeInTheDocument();
+    await typeName(user);
+    await user.click(screen.getByRole("button", { name: "fake voice" }));
+    await user.click(screen.getByRole("button", { name: "fake webcam" }));
+    await submit(user, "Đăng ký");
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    const form = formOf(fetchMock, "/register/combined");
+    expect([...form.keys()].sort()).toEqual(["username", "voice_audio", "webcam_video"]);
+    expect(form.get("webcam_video")).toBeInstanceOf(Blob);
+  });
+
+  it("requires a webcam clip when Webcam is checked", async () => {
+    const { fetchMock, user } = await register(BIO);
+    await user.click(box("Webcam"));
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await submit(user, "Đăng ký");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hãy quay webcam");
+    expect(callTo(fetchMock, "/register/combined")).toBeUndefined();
+  });
+
+  it("keeps the Google credential in a chip, does not submit, and can clear it", async () => {
+    const { fetchMock, user } = await register(ALL);
+    await user.click(box("Google"));
+    expect(screen.getByText("Chọn tài khoản Google")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "fake google" }));
+    expect(screen.getByText(/Đã chọn tài khoản Google/)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => !url.endsWith("/auth/config"))).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Chọn lại" }));
+    expect(screen.getByRole("button", { name: "fake google" })).toBeInTheDocument();
+  });
+
+  it("registers with Google + password", async () => {
+    const { fetchMock, user } = await register(ALL);
+    await user.click(box("Google"));
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await submit(user, "Đăng ký");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hãy chọn tài khoản Google");
+    await user.click(screen.getByRole("button", { name: "fake google" }));
+    await submit(user, "Đăng ký");
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    const form = formOf(fetchMock, "/register/combined");
+    expect([...form.keys()].sort()).toEqual(["google_id_token", "password", "username"]);
+    expect(form.get("google_id_token")).toBe("idt");
+  });
+
+  it("clears data of an unchecked method and does not send it", async () => {
+    const { fetchMock, user } = await register(ALL);
+    await user.click(box("Google"));
+    await user.click(screen.getByRole("button", { name: "fake google" }));
+    await user.click(box("Giọng nói"));
+    await user.click(screen.getByRole("button", { name: "fake voice" }));
+    await user.click(box("Google"));
+    await user.click(box("Giọng nói"));
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await submit(user, "Đăng ký");
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+    expect([...formOf(fetchMock, "/register/combined").keys()].sort()).toEqual(["password", "username"]);
+
+    // re-checking starts from empty
+    await user.click(box("Google"));
+    expect(screen.queryByText(/Đã chọn tài khoản Google/)).not.toBeInTheDocument();
+  });
+
+  it("clears the password when Mật khẩu is unchecked and re-checked", async () => {
+    const { user } = await register(BIO);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.click(box("Mật khẩu"));
+    await user.click(box("Mật khẩu"));
+    expect(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" })).toHaveValue("");
+  });
+
+  it("clears the webcam clip when the box is unchecked", async () => {
+    const { fetchMock, user } = await register(BIO);
+    await user.click(box("Webcam"));
+    await user.click(screen.getByRole("button", { name: "fake webcam" }));
+    await user.click(box("Webcam"));
+    await user.click(box("Webcam"));
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await submit(user, "Đăng ký");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hãy quay webcam");
+    expect(callTo(fetchMock, "/register/combined")).toBeUndefined();
+  });
+
+  it("requires at least one method", async () => {
+    const { fetchMock, user } = await register();
+    await typeName(user);
+    await user.click(box("Mật khẩu"));
+    await submit(user, "Đăng ký");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hãy chọn ít nhất một cách đăng ký");
+    expect(callTo(fetchMock, "/register/combined")).toBeUndefined();
+  });
+
+  it.each([
+    [409, "Username already taken"],
+    [422, "Webcam sign-in needs both your face and your voice"],
+    [400, "Voice or face sample is unusable, record again"],
+    [401, "Invalid Google token"],
+    [503, "Biometrics are not available"],
+  ])("shows the server detail for %i and lets the user retry", async (status, detail) => {
+    let fail = true;
+    const { fetchMock, user } = await register();
+    fetchMock.mockImplementation(async (url) =>
+      url.endsWith("/register/combined") && fail ? jsonResponse({ detail }, status) : jsonResponse(session, 201),
+    );
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await submit(user, "Đăng ký");
+    expect(await screen.findByRole("alert")).toHaveTextContent(detail);
+    expect(goTo).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Tên đăng nhập")).toHaveValue("ann");
+    expect(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" })).toHaveValue("password1");
+    fail = false;
+    await submit(user, "Đăng ký");
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
+  });
+
+  it("shows the throttling text on 429", async () => {
+    const { fetchMock, user } = await register();
+    fetchMock.mockImplementation(async () => jsonResponse({ detail: "slow" }, 429));
+    await typeName(user);
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await submit(user, "Đăng ký");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Thử quá nhiều lần, hãy thử lại sau");
+  });
+
+  it("switches back to login with the single-method selector", async () => {
+    const { user } = await register(ALL);
+    await user.click(screen.getByRole("button", { name: "Đã có tài khoản? Đăng nhập" }));
+    expect(screen.getByRole("heading", { name: "Đăng nhập" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("offers the Google picker only when Google is checked", async () => {
+    const { user } = await register({ google_client_id: "cid", biometrics_enabled: false });
+    await user.click(box("Google"));
+    expect(screen.getByRole("button", { name: "fake google" })).toBeInTheDocument();
   });
 });

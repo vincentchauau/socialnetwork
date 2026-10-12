@@ -19,20 +19,22 @@ export interface Me {
   email: string | null;
   has_password: boolean;
   google_linked: boolean;
+  voice_login: boolean;
+  webcam_login: boolean;
   has_audio: boolean;
   has_face: boolean;
-  biometric_login: boolean;
   require_biometric_2fa: boolean;
-  passwordless_ready: boolean;
   csrf_token: string;
 }
 
-export interface BiometricStatus {
+export interface MethodsStatus {
+  has_password: boolean;
+  google_linked: boolean;
+  voice_login: boolean;
+  webcam_login: boolean;
   has_audio: boolean;
   has_face: boolean;
-  biometric_login: boolean;
   require_biometric_2fa: boolean;
-  passwordless_ready: boolean;
 }
 
 export interface AuthConfig {
@@ -96,9 +98,6 @@ export async function loginWithPassword(username: string, password: string): Pro
   return toLoginResult(await apiFetch<SessionOrMfa>(`${CENTER_API}/auth/login`, json({ username, password })));
 }
 
-export const registerAccount = (username: string, password: string) =>
-  apiFetch<Session>(`${CENTER_API}/auth/register`, json({ username, password }));
-
 /** Only an account that turned on the optional second factor gets an MFA challenge (default: a session). */
 export async function loginWithGoogle(idToken: string): Promise<LoginResult> {
   return toLoginResult(await apiFetch<SessionOrMfa>(`${CENTER_API}/auth/google`, json({ id_token: idToken })));
@@ -107,9 +106,33 @@ export async function loginWithGoogle(idToken: string): Promise<LoginResult> {
 export const loginWithBiometrics = (mfaToken: string, audio?: Blob, video?: Blob) =>
   apiForm<Session>(`${CENTER_API}/auth/login/biometric`, biometricForm({ mfa_token: mfaToken }, audio, video));
 
-/** Passwordless sign-in (opt-in per account): needs a username and a recorded clip. */
-export const loginWithBiometricsOnly = (username: string, audio?: Blob, video?: Blob) =>
-  apiForm<Session>(`${CENTER_API}/auth/login/biometric-only`, biometricForm({ username }, audio, video));
+/** Sign in with ONE voice clip. */
+export const loginWithVoice = (username: string, audio: Blob) =>
+  apiForm<Session>(`${CENTER_API}/auth/login/voice`, biometricForm({ username }, audio));
+
+/** Sign in with ONE webcam clip (face and voice together). */
+export const loginWithWebcam = (username: string, video: Blob) =>
+  apiForm<Session>(`${CENTER_API}/auth/login/webcam`, biometricForm({ username }, undefined, video));
+
+export interface CombinedRegistration {
+  username: string;
+  password?: string;
+  googleIdToken?: string;
+  voiceAudio?: Blob;
+  webcamVideo?: Blob;
+}
+
+/** Register with any mix of methods in one all-or-nothing request; only the given methods are sent. */
+export async function registerCombined(input: CombinedRegistration): Promise<Session> {
+  assertBlobSizes(input.voiceAudio, input.webcamVideo);
+  const form = new FormData();
+  form.append("username", input.username);
+  if (input.password !== undefined) form.append("password", input.password);
+  if (input.googleIdToken) form.append("google_id_token", input.googleIdToken);
+  if (input.voiceAudio) form.append("voice_audio", input.voiceAudio, "voice.webm");
+  if (input.webcamVideo) form.append("webcam_video", input.webcamVideo, "webcam.webm");
+  return apiForm<Session>(`${CENTER_API}/auth/register/combined`, form);
+}
 
 export const fetchMe = () => apiFetch<Me>(`${CENTER_API}/auth/me`);
 
@@ -143,15 +166,17 @@ export const unlinkGoogle = (password?: string) =>
 export const deleteAccount = (password?: string) =>
   apiFetch<void>(`${CENTER_API}/auth/me`, { method: "DELETE", body: JSON.stringify({ password }) });
 
-export const enrollBiometrics = (password: string | undefined, audio?: Blob, video?: Blob) =>
-  apiForm<BiometricStatus>(`${CENTER_API}/auth/me/biometrics`, biometricForm({ password }, audio, video));
+export const saveVoice = (audio: Blob, password?: string) =>
+  apiForm<MethodsStatus>(`${CENTER_API}/auth/me/voice`, biometricForm({ password }, audio));
 
-export const setBiometricLogin = (enabled: boolean, password?: string) =>
-  apiForm<unknown>(
-    `${CENTER_API}/auth/me/biometric-login`,
-    biometricForm({ enabled: String(enabled), password }),
-    { method: "PUT" },
-  );
+export const saveWebcam = (video: Blob, password?: string) =>
+  apiForm<MethodsStatus>(`${CENTER_API}/auth/me/webcam`, biometricForm({ password }, undefined, video));
+
+export const removeVoice = (password?: string) =>
+  apiForm<MethodsStatus>(`${CENTER_API}/auth/me/voice`, biometricForm({ password }), { method: "DELETE" });
+
+export const removeWebcam = (password?: string) =>
+  apiForm<MethodsStatus>(`${CENTER_API}/auth/me/webcam`, biometricForm({ password }), { method: "DELETE" });
 
 export const setBiometric2fa = (enabled: boolean, password?: string) =>
   apiForm<unknown>(
@@ -159,6 +184,3 @@ export const setBiometric2fa = (enabled: boolean, password?: string) =>
     biometricForm({ enabled: String(enabled), password }),
     { method: "PUT" },
   );
-
-export const deleteBiometrics = (password?: string) =>
-  apiForm<unknown>(`${CENTER_API}/auth/me/biometrics`, biometricForm({ password }), { method: "DELETE" });

@@ -68,6 +68,7 @@ export default function HomePage() {
           </a>
         ))}
       </nav>
+      <p className="text-sm text-gray-600 mb-2">Liên kết thêm cách đăng nhập tại Tài khoản</p>
       <a href="/account" className="block w-full border px-4 py-2 rounded mb-2 text-center">Tài khoản</a>
       <button type="button" onClick={logout} className="w-full bg-gray-700 text-white px-4 py-2 rounded">
         Đăng xuất

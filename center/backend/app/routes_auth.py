@@ -20,6 +20,7 @@ from app.deps import (
 )
 from app.google_auth import GoogleAuthError, GoogleIdentity
 from app.handles import unique_handle
+from app.methods import methods_status
 from app.models import User
 from app.passwords import NO_PASSWORD, hash_password, needs_rehash, password_problem, verify_password
 from app.schemas import AuthConfig, Credentials, GoogleBody, LoginBody, MeOut, MfaRequired, SessionOut
@@ -44,14 +45,8 @@ def me_out(user: User, token: str) -> MeOut:
         username=user.username,
         role=user.role,
         email=user.email,
-        has_password=user.has_password,
-        google_linked=user.google_sub is not None,
-        has_audio=bool(user.audio_embedding),
-        has_face=bool(user.face_embedding),
-        biometric_login=user.biometric_login,
-        require_biometric_2fa=user.biometric_2fa,
-        passwordless_ready=bool(user.audio_embedding and user.face_embedding),
         csrf_token=csrf_token(token),
+        **methods_status(user).model_dump(),
     )
 
 

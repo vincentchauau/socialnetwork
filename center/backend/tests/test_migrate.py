@@ -8,7 +8,7 @@ from sn_shared import hash_password as bcrypt_hash
 
 NEW_COLUMNS = {
     "email", "google_sub", "role", "token_version", "audio_embedding", "face_embedding", "biometric_login",
-    "biometric_2fa",
+    "biometric_2fa", "voice_login", "webcam_login",
 }  # fmt: skip
 
 
@@ -125,3 +125,51 @@ def test_database_missing_only_biometric_2fa_gets_just_that_column(tmp_path):
     with engine.begin() as conn:
         conn.execute(sa.text("ALTER TABLE users DROP COLUMN biometric_2fa"))
     assert ensure_columns(engine) == ["biometric_2fa"]
+
+
+def _old_db_with_legacy_passwordless(tmp_path):
+    """Previous schema (has biometric_login): one passwordless-enabled user, one plain user."""
+    engine = make_engine(make_old_db(tmp_path / "old.db"))
+    with engine.begin() as conn:
+        conn.execute(sa.text("ALTER TABLE users ADD COLUMN biometric_login BOOLEAN NOT NULL DEFAULT 0"))
+        conn.execute(
+            sa.text("INSERT INTO users (username, password_hash, created_at, biometric_login) VALUES ('legacy', '!', '2024', 1)")
+        )
+    return engine
+
+
+def _flags(engine):
+    with engine.connect() as conn:
+        rows = conn.execute(sa.text("SELECT username, voice_login, webcam_login FROM users")).all()
+    return {r[0]: (r[1], r[2]) for r in rows}
+
+
+def test_new_method_columns_are_added_off_by_default(tmp_path):
+    engine = make_engine(make_old_db(tmp_path / "old.db"))
+    added = ensure_columns(engine)
+    assert {"voice_login", "webcam_login"} <= set(added)
+    columns = {c["name"]: c for c in sa.inspect(engine).get_columns("users")}
+    assert not columns["voice_login"]["nullable"] and not columns["webcam_login"]["nullable"]
+    assert _flags(engine) == {"olduser": (0, 0)}
+
+
+def test_legacy_biometric_login_becomes_webcam_login(tmp_path):
+    engine = _old_db_with_legacy_passwordless(tmp_path)
+    ensure_columns(engine)
+    assert _flags(engine) == {"olduser": (0, 0), "legacy": (0, 1)}  # never voice-only
+
+
+def test_legacy_conversion_runs_once_and_never_resurrects_a_removed_webcam_login(tmp_path):
+    engine = _old_db_with_legacy_passwordless(tmp_path)
+    ensure_columns(engine)
+    with engine.begin() as conn:
+        conn.execute(sa.text("UPDATE users SET webcam_login = 0"))  # the user removed the method
+    assert ensure_columns(engine) == []
+    assert _flags(engine)["legacy"] == (0, 0)
+
+
+def test_app_startup_migrates_legacy_biometric_login(tmp_path):
+    engine = _old_db_with_legacy_passwordless(tmp_path)
+    engine.dispose()
+    app = create_app(f"sqlite:///{tmp_path / 'old.db'}")
+    assert _flags(app.state.session_factory().get_bind()) == {"olduser": (0, 0), "legacy": (0, 1)}

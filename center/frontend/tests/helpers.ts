@@ -27,11 +27,11 @@ export const me: Me = {
   email: null,
   has_password: true,
   google_linked: false,
+  voice_login: false,
+  webcam_login: false,
   has_audio: false,
   has_face: false,
-  biometric_login: false,
   require_biometric_2fa: false,
-  passwordless_ready: false,
 };
 
 export function headerOf(init: RequestInit | undefined, name: string): string | undefined {
