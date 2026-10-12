@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sn-shared"
+version = "0.1.0"
+description = "Shared auth primitives for socialnetwork services (library, not a service)"
+requires-python = ">=3.11"
+dependencies = [
+    "bcrypt>=4.2",
+    "PyJWT>=2.9",
+    "fastapi>=0.115",
+]
+
+[tool.setuptools]
+packages = ["sn_shared"]
