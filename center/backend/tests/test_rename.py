@@ -46,7 +46,7 @@ def expire_reservation(client, name):
 
 def test_rename_returns_a_new_session_with_the_new_name(client):
     session = register(client)
-    response = rename(client, session, "Bobby")
+    response = rename(client, session, "bobby")
     assert response.status_code == 200
     body = response.json()
     assert body["username"] == "bobby" and body["id"] == session["id"] and body["role"] == "user"
@@ -111,7 +111,7 @@ def test_same_policy_as_registration(client, name):
 
 def test_renaming_to_the_current_name_is_refused(client):
     session = register(client)
-    assert rename(client, session, "ALICE").status_code == 422
+    assert rename(client, session, "Alice").status_code == 422
 
 
 def test_taken_name_is_409_with_the_register_message_case_insensitively(client):
@@ -176,13 +176,13 @@ def test_event_is_written_with_the_change(client):
     rename(client, session, "bobby")
     (event,) = events(client)
     assert (event.type, event.user_id) == ("user.renamed", session["id"])
-    assert json.loads(event.payload) == {"username": "bobby", "old_username": "alice", "seq": event.id}
+    assert json.loads(event.payload) == {"username": "bobby", "old_username": "Alice", "seq": event.id}
 
 
 def test_failed_rename_leaves_no_event_or_change(client):
     session = register(client)
     rename(client, session, "ab")
-    rename(client, session, "alice")
+    rename(client, session, "Alice")
     assert events(client) == [] and user_row(client, "alice").username_changed_at is None
 
 
@@ -218,7 +218,7 @@ def test_revocation_is_published_to_the_other_apps(client, revocations):
 
 def test_throttled_per_user(client):
     session = register(client)
-    codes = [rename(client, session, "alice").status_code for _ in range(12)]
+    codes = [rename(client, session, "Alice").status_code for _ in range(12)]
     assert codes[0] == 422 and codes[-1] == 429
 
 
@@ -226,7 +226,7 @@ def test_notice_mail_names_old_and_new(mail_client):
     session = verified_account(mail_client)
     assert rename(mail_client, session, "bobby").status_code == 200
     mail = last_mail(mail_client, "alice@example.com")
-    assert "alice" in mail.text and "bobby" in mail.text and "30" in mail.text
+    assert "Alice" in mail.text and "bobby" in mail.text and "30" in mail.text
 
 
 def test_no_notice_without_a_verified_address(mail_client):

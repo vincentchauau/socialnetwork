@@ -9,6 +9,7 @@ from app import usernames
 from app.audit import audit
 from app.events import USER_DELETED, USER_RENAMED, add_event
 from app.db import get_db
+from app.handles import key_of
 from app.deps import AuthSession, check_origin, client_ip, csrf_session, require_reauth, settings_of, too_many
 from app.methods import GOOGLE_IN_USE, KEEP_ONE, has_verified_email, methods_lost_on_unlink, usable_methods
 from app.models import User
@@ -162,7 +163,7 @@ def change_username(
         raise too_many()
     require_reauth(request, user, body.password)
     old, new = user.username, body.username
-    if new == old:
+    if new == old:  # exactly the same text; a capitalisation-only change is a (counted) rename
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, SAME_USERNAME)
     # Row lock (PostgreSQL) and a fresh read, so two concurrent renames serialise; the conditional UPDATE
     # below is the backstop everywhere (SQLite has no row locks).
@@ -180,13 +181,13 @@ def change_username(
     claimed = db.execute(
         update(User)
         .where(User.id == user.id, or_(User.username_changed_at.is_(None), User.username_changed_at <= now - usernames.RENAME_INTERVAL))
-        .values(username=new, username_changed_at=now)
+        .values(username=new, username_key=key_of(new), username_changed_at=now)
         .execution_options(synchronize_session=False)
     )
     if claimed.rowcount != 1:  # a concurrent rename won
         db.rollback()
         raise _too_soon(None)
-    db.refresh(user, ["username", "username_changed_at"])
+    db.refresh(user, ["username", "username_key", "username_changed_at"])
     add_event(db, USER_RENAMED, user.id, {"username": new, "old_username": old}, with_seq=True)
     bump_token_version(db, user, keep_sid=session.sid)  # other sessions end; this one is re-issued below
     try:

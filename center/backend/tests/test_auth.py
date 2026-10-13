@@ -9,7 +9,7 @@ def test_register_creates_user_and_sets_cookies(client):
 
     assert response.status_code == 201
     body = response.json()
-    assert body["username"] == "alice"
+    assert body["username"] == "Alice"
     assert body["role"] == "user"
     assert body["csrf_token"]
     assert "password" not in response.text
@@ -46,7 +46,7 @@ def test_access_token_claims_stay_compatible_with_other_services(client):
     session = register(client)
     payload = decode_token(client.cookies.get(COOKIE_NAME))
     assert (payload.user_id, payload.username, payload.role, payload.ver) == (
-        session["id"], "alice", "user", 0,
+        session["id"], "Alice", "user", 0,
     )  # fmt: skip
 
 
@@ -104,9 +104,9 @@ def test_register_rejects_bad_username(client, name):
     assert isinstance(response.json()["detail"], str)
 
 
-def test_register_accepts_dots_dashes_and_normalises_case(client):
+def test_register_accepts_dots_dashes_and_keeps_case(client):
     response = client.post("/auth/register", json={**CREDS, "username": "  Al.ice-1_x "})
-    assert response.json()["username"] == "al.ice-1_x"
+    assert response.json()["username"] == "Al.ice-1_x"
 
 
 def test_login_with_correct_password_authenticates_me(client):
@@ -119,7 +119,7 @@ def test_login_with_correct_password_authenticates_me(client):
     assert login.status_code == 200
     assert me.status_code == 200
     assert me.json() == {
-        "id": login.json()["id"], "username": "alice", "role": "user", "email": None, "email_verified": False,
+        "id": login.json()["id"], "username": "Alice", "role": "user", "email": None, "email_verified": False,
         "has_password": True, "google_linked": False, "voice_login": False, "webcam_login": False,
         "has_audio": False, "has_face": False, "require_biometric_2fa": False, "passkey_count": 0, "passkeys": [],
             "totp_enabled": False, "recovery_codes_left": 0, "phone": None, "phone_verified": False,

@@ -31,8 +31,10 @@ _COLUMNS: tuple[tuple[str, TypeEngine, tuple[str, str] | None], ...] = (
     ("totp_pending_secret", Text(), None),
     ("totp_last_step", BigInteger(), None),
     ("username_changed_at", DateTime(timezone=True), None),
+    ("username_key", String(32), None),  # added nullable, backfilled below, then uniquely indexed
 )
-_UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_sub"), ("uq_users_phone", "phone"))
+_UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_sub"), ("uq_users_phone", "phone"),
+                   ("uq_users_username_key", "username_key"))
 
 
 def _column_ddl(engine: Engine, name: str, type_: TypeEngine, default: tuple[str, str] | None) -> str:
@@ -92,6 +94,8 @@ def ensure_columns(engine: Engine) -> list[str]:
             conn.execute(
                 text(f"UPDATE {TABLE} SET email_from_google = {true} WHERE google_sub IS NOT NULL AND email IS NOT NULL")
             )
+        # Idempotent: only rows without a key (old rows were all lowercase already).
+        conn.execute(text(f"UPDATE {TABLE} SET username_key = lower(username) WHERE username_key IS NULL"))
         for index_name, column in _UNIQUE_INDEXES:
             conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {TABLE} ({column})"))
     return added

@@ -74,7 +74,7 @@ def test_happy_path_logs_the_new_device_in_once(client):
     assert approve(client, session, started).json() == {"status": "approved"}
     done = poll(device, started)
     assert done.status_code == 200 and set(done.json()) == {"id", "username", "role", "csrf_token"}
-    assert device.get("/auth/me").json()["username"] == "alice"
+    assert device.get("/auth/me").json()["username"] == "Alice"
     with client.app.state.session_factory() as db:
         methods = [r.method for r in db.scalars(select(UserSession))]
     assert sorted(methods) == ["password", "qr"]

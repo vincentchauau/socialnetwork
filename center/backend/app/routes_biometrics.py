@@ -159,7 +159,7 @@ def login_biometric(
     if user is None or user.token_version != int(claims["ver"]) or user.totp_enabled or not (user.biometric_2fa and user.has_biometrics):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA)  # also: switched off meanwhile, or TOTP is on (it never accepts a biometric instead)
     throttles = [state.bio_throttle, state.bio_account_throttle]
-    keys = [f"{ip}|{user.username}", user.username]
+    keys = [f"{ip}|{user.username_key}", user.username_key]
     _count_attempts(throttles, keys, user.username, ip)
     if not factors_match(request, user, audio, video):
         audit.warning("mfa biometric failed user=%r ip=%s", user.username, ip)

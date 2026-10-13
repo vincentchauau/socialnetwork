@@ -117,7 +117,7 @@ def test_setup_returns_secret_and_authenticator_uri(client):
     assert response.status_code == 200 and set(body) == {"secret", "otpauth_uri"}
     parsed = urlparse(body["otpauth_uri"])
     query = parse_qs(parsed.query)
-    assert parsed.scheme == "otpauth" and parsed.netloc == "totp" and parsed.path.endswith("alice")
+    assert parsed.scheme == "otpauth" and parsed.netloc == "totp" and parsed.path.endswith("Alice")
     assert query["secret"] == [body["secret"]] and query["issuer"] == ["Mạng xã hội"]
     assert query.get("algorithm", ["SHA1"]) == ["SHA1"] and query.get("digits", ["6"]) == ["6"]
     assert query.get("period", ["30"]) == ["30"]
@@ -293,7 +293,7 @@ def test_totp_code_completes_login_and_issues_cookies(account, clock):
     client, _, secret, _ = account
     clock.advance()
     response = second_step(client, code=code_at(secret, clock))
-    assert response.status_code == 200 and response.json()["username"] == "alice"
+    assert response.status_code == 200 and response.json()["username"] == "Alice"
     assert {"sn_token", "sn_refresh"} <= {c.split("=")[0] for c in response.headers.get_list("set-cookie")}
     assert client.get("/auth/me").status_code == 200
 
@@ -494,7 +494,7 @@ def test_disable_with_a_totp_code_clears_everything_and_revokes_other_sessions(c
     assert other.get("/auth/me").status_code == 401
     me = client.get("/auth/me")  # this session was re-issued
     assert me.status_code == 200 and me.json()["totp_enabled"] is False and me.json()["recovery_codes_left"] == 0
-    assert other_session["username"] == "alice"
+    assert other_session["username"] == "Alice"
     assert client.post("/auth/login", json=CREDS).json().get("mfa_required") is None
 
 

@@ -125,7 +125,7 @@ def test_link_options_demand_resident_key_uv_none_attestation_and_algorithms(cli
     assert options["authenticatorSelection"]["userVerification"] == "required"
     assert options["attestation"] == "none"
     assert [p["alg"] for p in options["pubKeyCredParams"]] == [-7, -257, -8]
-    assert options["user"]["name"] == "alice" and len(unb64(options["user"]["id"])) == 32
+    assert options["user"]["name"] == "Alice" and len(unb64(options["user"]["id"])) == 32
 
 
 def test_link_options_exclude_existing_passkeys_and_reuse_the_user_handle(linked):
@@ -301,7 +301,7 @@ def test_sign_in_without_a_username(linked):
     client, _, auth, handle = linked
     response = sign_in(client, auth, handle)
     assert response.status_code == 200 and cookie_names(response) == COOKIES
-    assert response.json()["username"] == "alice"
+    assert response.json()["username"] == "Alice"
     me = client.get("/auth/me")
     assert me.status_code == 200 and me.json()["passkey_count"] == 1
 
@@ -629,7 +629,7 @@ def test_sign_up_with_a_passkey_alone_generates_a_username_and_signs_in_later(cl
 
 def test_sign_up_with_a_passkey_and_a_chosen_username(client):
     session, _, _ = passkey_only(client, username="Pat")
-    assert session["username"] == "pat"
+    assert session["username"] == "Pat"
 
 
 def test_sign_up_with_passkey_and_password_needs_a_username(client):
@@ -642,7 +642,7 @@ def test_sign_up_with_passkey_and_password_needs_a_username(client):
     data = client.post("/auth/register/passkey/options", json={}).json()
     form = signup_form(auth, data, {"password": "Correct-Horse-Battery1", "username": "Pam"})
     ok = client.post("/auth/register/combined", data=form)
-    assert ok.status_code == 201 and ok.json()["username"] == "pam"
+    assert ok.status_code == 201 and ok.json()["username"] == "Pam"
     me = client.get("/auth/me").json()
     assert me["has_password"] is True and me["passkey_count"] == 1
 

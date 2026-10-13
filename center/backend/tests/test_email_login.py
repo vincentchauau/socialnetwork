@@ -53,7 +53,7 @@ def test_login_with_the_code(mail_client):
 
     assert response.status_code == 200
     assert {"id", "username", "role", "csrf_token"} <= set(response.json())
-    assert mail_client.get("/auth/me").json()["username"] == "alice"
+    assert mail_client.get("/auth/me").json()["username"] == "Alice"
     assert refresh_with(mail_client, cookie_value(response, "sn_refresh")).status_code == 200
 
 
@@ -63,7 +63,7 @@ def test_login_with_the_magic_link(mail_client):
 
     response = mail_client.post(MAGIC, json={"token": token_of(last_mail(mail_client, EMAIL))})
 
-    assert response.status_code == 200 and response.json()["username"] == "alice"
+    assert response.status_code == 200 and response.json()["username"] == "Alice"
     assert mail_client.get("/auth/me").status_code == 200
 
 

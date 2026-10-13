@@ -2,9 +2,10 @@
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.handles import key_of
 from app.models import ReservedUsername, User, utcnow
 from app.usersessions import as_utc
 
@@ -29,25 +30,24 @@ SYSTEM_NAMES = frozenset(
 
 def unavailable(db: Session, username: str, user_id: int | None = None) -> bool:
     """True when `username` is a system name, belongs to another account, or is reserved for another one
-    (`user_id` may use its own reservation)."""
-    if username.lower() in SYSTEM_NAMES:
+    (`user_id` may use its own reservation). Compared by key, so capitalisation never matters."""
+    key = key_of(username)
+    if key in SYSTEM_NAMES:
         return True
-    taken = select(User.id).where(func.lower(User.username) == username.lower())
+    taken = select(User.id).where(User.username_key == key)
     if user_id is not None:
         taken = taken.where(User.id != user_id)
     if db.scalar(taken) is not None:
         return True
-    reserved = select(ReservedUsername.user_id).where(
-        func.lower(ReservedUsername.username) == username.lower(), ReservedUsername.until > utcnow()
-    )
+    reserved = select(ReservedUsername.user_id).where(ReservedUsername.username == key, ReservedUsername.until > utcnow())
     owner = db.scalar(reserved)
     return owner is not None and owner != user_id
 
 
 def reserve(db: Session, username: str, user_id: int) -> None:
-    """Reserve `username` for `user_id` (replacing an expired or own earlier reservation). Caller commits."""
-    db.merge(ReservedUsername(username=username, user_id=user_id, until=utcnow() + RESERVATION))
+    """Reserve the KEY of `username` for `user_id` (replacing an expired or own earlier reservation). Caller commits."""
+    db.merge(ReservedUsername(username=key_of(username), user_id=user_id, until=utcnow() + RESERVATION))
 
 
 def release(db: Session, username: str) -> None:
-    db.execute(delete(ReservedUsername).where(ReservedUsername.username == username))
+    db.execute(delete(ReservedUsername).where(ReservedUsername.username == key_of(username)))

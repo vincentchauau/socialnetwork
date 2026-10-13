@@ -18,11 +18,14 @@ class User(Base):
         Index("uq_users_email", "email", unique=True),
         Index("uq_users_google_sub", "google_sub", unique=True),
         Index("uq_users_phone", "phone", unique=True),
+        Index("uq_users_username_key", "username_key", unique=True),
         {"sqlite_autoincrement": True},  # ids are never reused (dev SQLite); PostgreSQL sequences never reuse
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    username: Mapped[str] = mapped_column(String(32), unique=True, index=True)  # display form, as typed
+    # Case-insensitive identity (username.lower()): every lookup and uniqueness check uses it.
+    username_key: Mapped[str] = mapped_column(String(32), default=lambda ctx: ctx.get_current_parameters()["username"].lower())
     password_hash: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)

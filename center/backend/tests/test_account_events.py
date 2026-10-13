@@ -53,7 +53,7 @@ def test_delete_writes_a_user_deleted_row_with_only_id_and_old_name(client):
     assert delete(client, session).status_code == 204
     (event,) = rows(client)
     assert (event.type, event.user_id) == ("user.deleted", session["id"])
-    assert json.loads(event.payload) == {"old_username": "alice"}
+    assert json.loads(event.payload) == {"old_username": "Alice"}
     assert event.published_at is None  # no Redis configured: the row stays
 
 
@@ -68,7 +68,7 @@ def test_delete_is_published_right_after_the_commit(relay_client, stream):
     delete(relay_client, session)
     ((_, fields),) = stream.xrange(ACCOUNT_STREAM)
     assert fields["type"] == "user.deleted" and fields["user_id"] == str(session["id"])
-    assert json.loads(fields["payload"]) == {"old_username": "alice"}
+    assert json.loads(fields["payload"]) == {"old_username": "Alice"}
     assert rows(relay_client)[0].published_at is not None
 
 

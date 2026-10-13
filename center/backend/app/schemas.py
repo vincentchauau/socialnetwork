@@ -7,11 +7,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.handles import HANDLE_RE
 
 MAX_INPUT = 1024  # hard cap on any submitted secret; the policy limit is passwords.MAX_PASSWORD
-USERNAME_HINT = "Username must be 3-32 characters: a-z, 0-9, '.', '_' or '-'"
+USERNAME_HINT = "Username must be 3-32 characters: A-Z, a-z, 0-9, '.', '_' or '-'"
 
 
 def _normalize_username(value: str) -> str:
-    return value.strip().lower()
+    return value.strip()  # capitalisation is kept; identity is key_of(name)
 
 
 def checked_username(value: str) -> str:

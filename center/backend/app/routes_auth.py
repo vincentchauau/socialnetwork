@@ -19,7 +19,7 @@ from app.deps import (
     too_many,
 )
 from app.google_auth import GoogleAuthError, GoogleIdentity
-from app.handles import unique_handle
+from app.handles import key_of, unique_handle
 from app.methods import methods_status, passkey_items
 from app.models import User
 from app.passwords import NO_PASSWORD, hash_password, needs_rehash, password_problem, verify_password
@@ -105,12 +105,12 @@ def _login_throttles(request: Request, ip: str, name: str) -> tuple[list, list[s
 def login(
     body: LoginBody, request: Request, response: Response, db: Session = Depends(get_db)
 ) -> SessionOut | MfaRequired:
-    ip, name = client_ip(request), body.username
+    ip, name = client_ip(request), key_of(body.username)  # throttles and lookup use the key
     throttles, keys = _login_throttles(request, ip, name)
     if any(t.is_blocked(k) for t, k in zip(throttles, keys)):
         audit.warning("login locked user=%r ip=%s", name, ip)
         raise too_many()
-    user = db.scalar(select(User).where(User.username == name))
+    user = db.scalar(select(User).where(User.username_key == name))
     password_ok = verify_password(body.password, user.password_hash if user else _DUMMY_HASH)
     if user is None or not password_ok:
         for throttle, key in zip(throttles, keys):

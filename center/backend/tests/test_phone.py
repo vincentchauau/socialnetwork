@@ -69,7 +69,7 @@ def ask(client, phone=PHONE):
 
 def db_user(client, name="alice"):
     with client.app.state.session_factory() as db:
-        return db.scalar(select(User).where(User.username == name))
+        return db.scalar(select(User).where(User.username_key == name.lower()))
 
 
 # --- units ---------------------------------------------------------------------------------------
@@ -266,7 +266,7 @@ def test_taken_in_the_meantime_gives_409(pclient):
     add(pclient, session, body={"password": other["password"]})
     code = pclient.app.state.sms.codes(PHONE)[0]
     with pclient.app.state.session_factory() as db:
-        user = db.scalar(select(User).where(User.username == "alice"))
+        user = db.scalar(select(User).where(User.username_key == "alice"))
         if user is None:
             from app.models import User as U
             db.add(U(username="alice", password_hash="x", phone=PHONE, phone_verified=True))
@@ -342,7 +342,7 @@ def test_submit_budget_per_ip(pclient):
 def test_totp_account_gets_mfa_required(pclient):
     phone_account(pclient)
     with pclient.app.state.session_factory() as db:
-        user = db.scalar(select(User).where(User.username == "alice"))
+        user = db.scalar(select(User).where(User.username_key == "alice"))
         user.totp_enabled = True
         user.totp_secret = "x"
         db.commit()
@@ -356,7 +356,7 @@ def test_phone_alone_can_sign_in(pclient):
     """A phone-only account (no password, no email) is a valid account; it signs in by SMS."""
     phone_account(pclient)
     with pclient.app.state.session_factory() as db:
-        user = db.scalar(select(User).where(User.username == "alice"))
+        user = db.scalar(select(User).where(User.username_key == "alice"))
         assert usable(user) >= 1
 
 
@@ -516,7 +516,7 @@ def test_remove_phone(pclient):
 def test_last_method_guard(pclient):
     session = phone_account(pclient)
     with pclient.app.state.session_factory() as db:
-        user = db.scalar(select(User).where(User.username == "alice"))
+        user = db.scalar(select(User).where(User.username_key == "alice"))
         user.password_hash = "!"  # NO_PASSWORD marker
         from app.passwords import NO_PASSWORD
 

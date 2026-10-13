@@ -54,7 +54,7 @@ def verified_account(client, creds=CREDS, email=EMAIL):
 
 def user_row(client, username="alice") -> User:
     with client.app.state.session_factory() as db:
-        return db.scalar(select(User).where(User.username == username))
+        return db.scalar(select(User).where(User.username_key == username.lower()))
 
 
 def token_rows(client) -> list[EmailToken]:
@@ -71,5 +71,5 @@ def age_tokens(client, **delta):
 
 def set_user(client, username="alice", **columns):
     with client.app.state.session_factory() as db:
-        db.execute(update(User).where(User.username == username).values(**columns))
+        db.execute(update(User).where(User.username_key == username.lower()).values(**columns))
         db.commit()

@@ -106,7 +106,7 @@ def test_identical_401s_across_failure_types(three):
 def test_method_not_enabled_is_the_same_401(bio_client):
     enroll(bio_client, "ana", ANA)
     with bio_client.app.state.session_factory() as db:
-        db.scalar(select(User).where(User.username == "ana")).voice_login = False
+        db.scalar(select(User).where(User.username_key == "ana")).voice_login = False
         db.commit()
     assert shape(_post(bio_client, ANA)) == FAILED
 

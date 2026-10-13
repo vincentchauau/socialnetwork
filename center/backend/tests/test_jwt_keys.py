@@ -72,7 +72,7 @@ def test_the_access_cookie_is_eddsa_and_verifiable_with_the_public_key_alone(cli
     monkeypatch.delenv("JWT_PRIVATE_KEY")  # an app has no private key
     monkeypatch.setenv("JWT_PUBLIC_KEYS", keypair()[1])
     jwtkeys.reset()
-    assert decode_token(token).username == CREDS["username"].lower()
+    assert decode_token(token).username == CREDS["username"]
 
 
 def test_internal_center_tokens_stay_hs256_and_apps_refuse_them_as_access_tokens():

@@ -3,10 +3,15 @@
 import re
 from typing import Callable
 
-HANDLE_RE = re.compile(r"^[a-z0-9._-]{3,32}$")
+HANDLE_RE = re.compile(r"^[A-Za-z0-9._-]{3,32}$")  # capitalisation is kept for display only
 _INVALID = re.compile(r"[^a-z0-9._-]")
 MAX_LEN = 32
 MIN_LEN = 3
+
+
+def key_of(name: str) -> str:
+    """The case-insensitive identity of a username: what uniqueness, lookups, reservations and throttles use."""
+    return name.strip().lower()
 
 
 def base_handle(email: str) -> str:

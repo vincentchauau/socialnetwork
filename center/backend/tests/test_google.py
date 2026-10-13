@@ -69,7 +69,7 @@ def test_does_not_auto_link_to_a_password_account_with_the_same_email(google_cli
     google_client.cookies.clear()
     google_login(google_client, "sub-9|alice@example.com")
     with google_client.app.state.session_factory() as db:
-        assert {u.username for u in db.scalars(select(User))} == {"alice", "alice2"}
+        assert {u.username for u in db.scalars(select(User))} == {"Alice", "alice2"}
 
 
 def test_email_already_used_is_not_stored_twice(google_client):
@@ -100,7 +100,7 @@ def test_link_requires_csrf_and_password(google_client):
     assert response.status_code == 200
     assert (response.json()["google_linked"], response.json()["email"]) == (True, "alice.real@example.com")
     google_client.cookies.clear()
-    assert google_login(google_client, "sub-5|whatever@example.com").json()["username"] == "alice"
+    assert google_login(google_client, "sub-5|whatever@example.com").json()["username"] == "Alice"
 
 
 def test_link_duplicate_google_id_is_409(google_client):

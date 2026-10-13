@@ -146,8 +146,8 @@ def test_two_interleaved_bumps_are_two_bumps(mail_file_client):
     before = user_row(client).token_version
     factory = client.app.state.session_factory
     with factory() as first, factory() as second:
-        a = first.scalar(select(User).where(User.username == "alice"))
-        b = second.scalar(select(User).where(User.username == "alice"))  # both read the same stale version
+        a = first.scalar(select(User).where(User.username_key == "alice"))
+        b = second.scalar(select(User).where(User.username_key == "alice"))  # both read the same stale version
         bump_token_version(first, a)
         first.commit()
         bump_token_version(second, b)
@@ -159,7 +159,7 @@ def test_two_interleaved_bumps_are_two_bumps(mail_file_client):
 def test_a_bump_does_not_discard_pending_changes_on_the_instance(mail_client):
     register(mail_client)
     with mail_client.app.state.session_factory() as db:
-        user = db.scalar(select(User).where(User.username == "alice"))
+        user = db.scalar(select(User).where(User.username_key == "alice"))
         user.role = "admin"
         bump_token_version(db, user)
         db.commit()

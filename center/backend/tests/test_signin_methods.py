@@ -54,7 +54,7 @@ def unlock(c, username="vera"):
 
 def row(c, username="vera") -> User:
     with c.app.state.session_factory() as db:
-        return db.scalar(select(User).where(User.username == username))
+        return db.scalar(select(User).where(User.username_key == username.lower()))
 
 
 def flags(user):
@@ -74,7 +74,7 @@ def gclient(bio_client):
 def test_register_voice_creates_a_passwordless_voice_account(bio_client):
     response = reg_voice(bio_client, "Vera")
     assert response.status_code == 201
-    assert cookie_names(response) == COOKIES and response.json()["username"] == "vera"
+    assert cookie_names(response) == COOKIES and response.json()["username"] == "Vera"
     user = row(bio_client)
     assert user.password_hash == NO_PASSWORD and flags(user) == (False, False, True, False, True, False)
     assert b"vera-voice" not in user.audio_embedding
@@ -173,7 +173,7 @@ def test_combined_registration_sets_the_right_flags(gclient, data, files, expect
     user = row(gclient)
     assert flags(user) == expected
     assert (user.password_hash == NO_PASSWORD) is (not expected[0])
-    assert gclient.get("/auth/me").json()["username"] == "vera"
+    assert gclient.get("/auth/me").json()["username"] == "Vera"
 
 
 def test_combined_with_voice_and_video_keeps_two_independent_templates(gclient):
@@ -491,7 +491,7 @@ def test_remove_webcam_keeps_an_old_unused_voice_template(bio_client):
     session = register(bio_client)
     cipher = bio_client.app.state.cipher
     with bio_client.app.state.session_factory() as db:  # an account created before the change
-        user = db.scalar(select(User).where(User.username == "alice"))
+        user = db.scalar(select(User).where(User.username_key == "alice"))
         user.webcam_login = True
         user.face_embedding, user.audio_embedding = cipher.encrypt(b"F:x"), cipher.encrypt(b"A:x")
         db.commit()

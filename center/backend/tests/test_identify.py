@@ -107,7 +107,7 @@ def test_no_candidate_still_does_one_dummy_comparison(bio_client, monkeypatch):
 def test_method_not_enabled_is_the_same_401(bio_client):
     enroll(bio_client, "alice", ALICE)
     with bio_client.app.state.session_factory() as db:
-        user = db.scalar(select(User).where(User.username == "alice"))
+        user = db.scalar(select(User).where(User.username_key == "alice"))
         user.webcam_login = False
         db.commit()
     assert shape(_post(bio_client, ALICE)) == FAILED
@@ -317,4 +317,4 @@ def test_explicit_usernames_behave_as_before(bio_client):
     response = bio_client.post(
         "/auth/register/combined", data={"username": "Zed"}, files={"webcam_video": ALICE}
     )
-    assert response.status_code == 201 and response.json()["username"] == "zed"
+    assert response.status_code == 201 and response.json()["username"] == "Zed"

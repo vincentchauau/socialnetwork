@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import audit
 from app.db import get_db
-from app.handles import unique_handle
+from app.handles import key_of, unique_handle
 from app.identify import (
     ENTER_USERNAME,
     IDENTIFY_GLOBAL_KEY,
@@ -284,12 +284,12 @@ def _biometric_login(
     live: Callable[[], bool] = lambda: True,
 ) -> SessionOut | MfaRequired:  # fmt: skip
     """Voice (audio only) or webcam (face only) sign-in. Strict thresholds; every failure is the same 401."""
-    ip, state, name = client_ip(request), request.app.state, username.strip().lower()
+    ip, state, name = client_ip(request), request.app.state, key_of(username)
     throttles = [state.alone_throttle, state.alone_account_throttle]
     keys = [f"{ip}|{name}", name]
     _count_attempts(throttles, keys, name, ip)
     live_ok = live() if method == "webcam" else True  # after the lockout check: a locked key costs no analysis
-    user = db.scalar(select(User).where(User.username == name))
+    user = db.scalar(select(User).where(User.username_key == name))
     if user is None:
         matched = False
     elif method == "voice":

@@ -22,7 +22,7 @@ def test_refresh_reissues_both_cookies(client):
     again = refresh_with(client, refresh)
 
     assert again.status_code == 200
-    assert again.json()["username"] == "alice" and again.json()["csrf_token"]
+    assert again.json()["username"] == "Alice" and again.json()["csrf_token"]
     assert set(set_cookies(again)) == {"sn_token", "sn_refresh"}
 
 
@@ -113,7 +113,7 @@ def test_other_services_still_accept_the_access_token_until_it_expires(client):
     register(client)
     session, old_access, _ = login_tokens(client)
     client.post("/auth/logout", headers=csrf(session))
-    assert decode_token(old_access).username == "alice"
+    assert decode_token(old_access).username == "Alice"
 
 
 # --- CSRF -------------------------------------------------------------------------------------

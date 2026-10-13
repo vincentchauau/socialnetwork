@@ -282,7 +282,7 @@ def test_mfa_with_matching_samples_issues_a_session(enrolled_2fa):
         "/auth/login/biometric", data={"mfa_token": mfa_token(enrolled_2fa)}, files=files(VOICE, FACE)
     )
     assert response.status_code == 200
-    assert response.json()["username"] == "alice" and response.json()["csrf_token"]
+    assert response.json()["username"] == "Alice" and response.json()["csrf_token"]
     assert enrolled_2fa.get("/auth/me").status_code == 200
     assert set(c.split("=")[0] for c in response.headers.get_list("set-cookie")) == {"sn_token", "sn_refresh"}
     assert set(enrolled_2fa.app.state.biometrics.strict_calls) == {False}  # normal thresholds

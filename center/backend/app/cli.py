@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import DEFAULT_DATABASE_URL, Base, make_engine
+from app.handles import key_of
 from app.migrate import ensure_columns, force_relogin, sessions_table_is_new
 from app.models import User
 from app.passwords import hash_password, password_problem
@@ -69,9 +70,9 @@ def main(
     if len(argv) != 2 or argv[0] not in COMMANDS:
         print(__doc__)
         return 2
-    command, username = argv[0], argv[1].strip().lower()
+    command, username = argv[0], key_of(argv[1])
     with open_session() as db:
-        user = db.scalar(select(User).where(User.username == username))
+        user = db.scalar(select(User).where(User.username_key == username))
         if user is None:
             print("User not found")
             return 1
@@ -85,7 +86,7 @@ def main(
             bump_token_version(db, user)
             db.commit()
             _publish(user)
-            print(f"Password reset for {username}; all sessions revoked")
+            print(f"Password reset for {user.username}; all sessions revoked")
             return 0
         user.role = "admin" if command == "promote" else "user"
         if command == "demote":
@@ -93,7 +94,7 @@ def main(
         db.commit()
         if command == "demote":
             _publish(user)
-        print(f"Role of {username} is now {user.role}")
+        print(f"Role of {user.username} is now {user.role}")
     return 0
 
 
