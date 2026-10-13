@@ -170,7 +170,7 @@ def test_logout_and_password_change_bump_by_exactly_one(mail_client):
     session = register(mail_client)
     start = user_row(mail_client).token_version
     changed = mail_client.post(
-        "/auth/me/password", json={"current_password": CREDS["password"], "new_password": "brand-new-pass-9"},
+        "/auth/me/password", json={"current_password": CREDS["password"], "new_password": "Brand-New-Pass-9"},
         headers=csrf(session),
     )
     assert user_row(mail_client).token_version == start + 1

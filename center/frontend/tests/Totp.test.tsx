@@ -49,7 +49,7 @@ function loginSetup(factors: string[] | undefined, extra?: Handler) {
 
 async function reachMfa(user: User) {
   await user.type(await screen.findByLabelText("Tên đăng nhập"), "ann");
-  await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+  await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "Password-1x");
   await user.click(screen.getByRole("button", { name: "Đăng nhập" }));
   await screen.findByRole("heading", { name: "Xác minh danh tính" });
 }
@@ -277,7 +277,7 @@ function accountSetup(account: Partial<typeof me> = {}, extra?: Handler) {
 
 const card = () => screen.findByRole("region", { name: "Xác thực hai bước (TOTP)" });
 
-async function startSetup(user: User, password = "pw-123456") {
+async function startSetup(user: User, password = "Pw-123456!") {
   const region = await card();
   await user.type(within(region).getByLabelText("Nhập lại mật khẩu để xác nhận"), password);
   await user.click(within(region).getByRole("button", { name: "Bật" }));
@@ -336,7 +336,7 @@ describe("TOTP card: off", () => {
     expect(qr.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
     // only the gateway is ever called: the secret never reaches a third party
     expect(fn.mock.calls.every(([url]) => url.startsWith("/api/center/"))).toBe(true);
-    expect(bodyOf(callsTo(fn, "/totp/setup")[0][1])).toEqual({ password: "pw-123456" });
+    expect(bodyOf(callsTo(fn, "/totp/setup")[0][1])).toEqual({ password: "Pw-123456!" });
     expect(screen.getByLabelText("Khóa thiết lập")).toHaveTextContent(SETUP.secret);
     await user.click(screen.getByRole("button", { name: "Sao chép khóa" }));
     expect(writeText).toHaveBeenCalledWith(SETUP.secret);
@@ -360,7 +360,7 @@ describe("TOTP card: off", () => {
     const user = newUser();
     render(<AccountView />);
     const region = await card();
-    await user.type(within(region).getByLabelText("Nhập lại mật khẩu để xác nhận"), "pw-123456");
+    await user.type(within(region).getByLabelText("Nhập lại mật khẩu để xác nhận"), "Pw-123456!");
     await user.click(within(region).getByRole("button", { name: "Bật" }));
     expect(await screen.findByText(/Không tạo được mã QR/)).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /Mã QR/ })).not.toBeInTheDocument();
@@ -401,7 +401,7 @@ describe("TOTP card: recovery codes box", () => {
     const user = newUser();
     render(<AccountView />);
     await enableTotp(user);
-    expect(bodyOf(callsTo(fn, "/totp/enable")[0][1])).toEqual({ code: "123456", password: "pw-123456" });
+    expect(bodyOf(callsTo(fn, "/totp/enable")[0][1])).toEqual({ code: "123456", password: "Pw-123456!" });
     const box = screen.getByRole("region", { name: "Mã khôi phục" });
     expect(within(within(box).getByRole("list", { name: "Danh sách mã khôi phục" })).getAllByRole("listitem")).toHaveLength(10);
     const done = within(box).getByRole("button", { name: "Hoàn tất" });
@@ -462,10 +462,10 @@ describe("TOTP card: on", () => {
     const region = await card();
     await user.click(within(region).getByRole("button", { name: "Tạo lại mã khôi phục" }));
     await user.type(screen.getByLabelText(/Mã xác thực hiện tại/), "123456");
-    await user.type(within(region).getByLabelText("Nhập lại mật khẩu để xác nhận"), "pw-123456");
+    await user.type(within(region).getByLabelText("Nhập lại mật khẩu để xác nhận"), "Pw-123456!");
     await user.click(screen.getByRole("button", { name: "Xác nhận tạo lại mã" }));
     expect(await screen.findByRole("region", { name: "Mã khôi phục" })).toBeInTheDocument();
-    expect(bodyOf(callsTo(fn, "/totp/recovery-codes")[0][1])).toEqual({ code: "123456", password: "pw-123456" });
+    expect(bodyOf(callsTo(fn, "/totp/recovery-codes")[0][1])).toEqual({ code: "123456", password: "Pw-123456!" });
   });
 
   it("rejects an empty code locally and shows a server error for a wrong one, then cancels", async () => {
@@ -495,10 +495,10 @@ describe("TOTP card: on", () => {
     const region = await card();
     await user.click(within(region).getByRole("button", { name: "Tắt" }));
     await user.type(screen.getByLabelText("Mã xác thực hoặc mã khôi phục"), "  ABCD-1234 ");
-    await user.type(within(region).getByLabelText("Nhập lại mật khẩu để xác nhận"), "pw-123456");
+    await user.type(within(region).getByLabelText("Nhập lại mật khẩu để xác nhận"), "Pw-123456!");
     await user.click(screen.getByRole("button", { name: "Xác nhận tắt" }));
     expect(await within(region).findByRole("button", { name: "Bật" })).toBeInTheDocument();
-    expect(bodyOf(callsTo(fn, "/auth/totp")[0][1])).toEqual({ code: "abcd-1234", password: "pw-123456" });
+    expect(bodyOf(callsTo(fn, "/auth/totp")[0][1])).toEqual({ code: "abcd-1234", password: "Pw-123456!" });
     expect(region).toHaveTextContent("đang TẮT");
   });
 

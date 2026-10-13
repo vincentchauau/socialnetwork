@@ -106,10 +106,30 @@ export const MAX_PASSKEYS = 10;
 export const PASSKEY_LIMIT_MESSAGE = "Tối đa 10 Passkey cho mỗi tài khoản";
 export const RECOVERY_CODE_COUNT = 10;
 
-export const PASSWORD_MESSAGE = `Mật khẩu cần ít nhất ${MIN_PASSWORD} ký tự`;
+export const PASSWORD_EXAMPLE = "Hoa-Sen_2026";
+export const PASSWORD_MESSAGE = `Mật khẩu cần ${MIN_PASSWORD}-${MAX_PASSWORD} ký tự, gồm chữ thường, chữ hoa, số và ký tự đặc biệt`;
+
+export interface PasswordChecks {
+  length: boolean;
+  lower: boolean;
+  upper: boolean;
+  digit: boolean;
+  special: boolean;
+}
+
+/** The four character classes the server requires (it has the final say; same rule as app/passwords.py). */
+export function passwordChecks(password: string): PasswordChecks {
+  return {
+    length: password.length >= MIN_PASSWORD && password.length <= MAX_PASSWORD,
+    lower: /\p{Ll}/u.test(password),
+    upper: /\p{Lu}/u.test(password),
+    digit: /\p{Nd}/u.test(password),
+    special: /[^\p{L}\p{N}]/u.test(password),
+  };
+}
 
 export function isPasswordValid(password: string): boolean {
-  return password.length >= MIN_PASSWORD && password.length <= MAX_PASSWORD;
+  return Object.values(passwordChecks(password)).every(Boolean);
 }
 
 /** Only same-site relative paths ("/x", never "//host" or "/\host") may be redirected to. */

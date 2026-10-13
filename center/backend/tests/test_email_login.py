@@ -287,7 +287,7 @@ def test_reset_token_is_single_use_and_expires(mail_client):
     forgot(mail_client)
     token = token_of(last_mail(mail_client, EMAIL))
     assert mail_client.post(RESET, json={"token": token, "new_password": STRONG}).status_code == 200
-    again = mail_client.post(RESET, json={"token": token, "new_password": "another-strong-1"})
+    again = mail_client.post(RESET, json={"token": token, "new_password": "Another-Strong-1"})
     assert (again.status_code, again.json()) == (400, EXPIRED_LINK)
     forgot_again = mail_client.post(FORGOT, json={"email": EMAIL})
     assert forgot_again.status_code == 202

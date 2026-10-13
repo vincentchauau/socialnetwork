@@ -162,12 +162,12 @@ describe("LoginFlow password", () => {
     const user = userEvent.setup();
     render(<LoginFlow />);
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "Password-1x");
     await submit(user);
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
     expect(JSON.parse(callTo(fetchMock, "/auth/login")?.[1].body as string)).toEqual({
       username: "ann",
-      password: "password1",
+      password: "Password-1x",
     });
   });
 
@@ -177,7 +177,7 @@ describe("LoginFlow password", () => {
     const user = userEvent.setup();
     const first = render(<LoginFlow />);
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "Password-1x");
     await submit(user);
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/chat"));
     first.unmount();
@@ -186,7 +186,7 @@ describe("LoginFlow password", () => {
     window.history.pushState({}, "", "/login?next=https%3A%2F%2Fevil.com");
     render(<LoginFlow />);
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "Password-1x");
     await submit(user);
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
   });
@@ -200,13 +200,13 @@ describe("LoginFlow password", () => {
     const user = userEvent.setup();
     render(<LoginFlow />);
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "Password-1x");
     await submit(user);
     expect(await screen.findByRole("alert")).toHaveTextContent("Invalid username or password");
     expect(goTo).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Đăng nhập" })).toBeEnabled();
     status = 429;
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "Password-1x");
     await submit(user);
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Thử quá nhiều lần, hãy thử lại sau"));
   });
@@ -220,7 +220,7 @@ describe("LoginFlow password", () => {
     const user = userEvent.setup();
     render(<LoginFlow />);
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "Password-1x");
     await submit(user);
     expect(await screen.findByRole("button", { name: "Đang xử lý..." })).toBeDisabled();
     await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "{Enter}");
@@ -393,7 +393,7 @@ describe("LoginFlow second factor (unchanged)", () => {
 
   async function reachMfa(user: User) {
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input" }), "Password-1x");
     await submit(user);
     await screen.findByRole("heading", { name: "Xác minh danh tính" });
   }
@@ -563,7 +563,7 @@ describe("LoginFlow register (multi-select)", () => {
 
   it("blocks a blank username when a password is chosen", async () => {
     const { fetchMock, user } = await register();
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Password-1x");
     await user.type(screen.getByLabelText("Tên đăng nhập"), "   ");
     await submit(user, "Đăng ký");
     expect(callTo(fetchMock, "/register/combined")).toBeUndefined();
@@ -572,25 +572,26 @@ describe("LoginFlow register (multi-select)", () => {
   it("registers with a password only via the combined route", async () => {
     const { fetchMock, user } = await register();
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Password-1x");
     await submit(user, "Đăng ký");
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
     const form = formOf(fetchMock, "/register/combined");
     expect([...form.keys()].sort()).toEqual(["password", "username"]);
     expect(form.get("username")).toBe("ann");
-    expect(form.get("password")).toBe("password1");
+    expect(form.get("password")).toBe("Password-1x");
   });
 
   it("shows live password hints and blocks short passwords locally", async () => {
     const { fetchMock, user } = await register();
     await typeName(user);
-    expect(screen.getByText(/Cần ít nhất 8 ký tự/)).toBeInTheDocument();
+    expect(screen.getByText(/Cần 8 ký tự trở lên và đủ 4 loại ký tự/)).toBeInTheDocument();
     await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "short");
     await submit(user, "Đăng ký");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Mật khẩu cần ít nhất 8 ký tự");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Mật khẩu cần 8-128 ký tự");
     expect(callTo(fetchMock, "/register/combined")).toBeUndefined();
     await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "12345");
-    expect(screen.getByText("Mật khẩu đủ dài.")).toBeInTheDocument();
+    expect(screen.getByText(/Chữ hoa \(A-Z\): chưa có/)).toBeInTheDocument();
+    expect(screen.getByText(/Chữ số \(0-9\): đã có/)).toBeInTheDocument();
   });
 
   it("registers with password + voice and shows the warning", async () => {
@@ -599,7 +600,7 @@ describe("LoginFlow register (multi-select)", () => {
     await user.click(box("Giọng nói"));
     expect(screen.getByRole("note")).toHaveTextContent(/chưa có kiểm tra người thật/);
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Password-1x");
     await submit(user, "Đăng ký");
     expect(await screen.findByRole("alert")).toHaveTextContent("Hãy ghi giọng nói");
     await user.click(screen.getByRole("button", { name: "fake voice" }));
@@ -629,7 +630,7 @@ describe("LoginFlow register (multi-select)", () => {
     const { fetchMock, user } = await register(BIO);
     await user.click(box("Webcam (khuôn mặt)"));
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Password-1x");
     await submit(user, "Đăng ký");
     expect(await screen.findByRole("alert")).toHaveTextContent("Hãy quay khuôn mặt");
     expect(callTo(fetchMock, "/register/combined")).toBeUndefined();
@@ -650,7 +651,7 @@ describe("LoginFlow register (multi-select)", () => {
     const { fetchMock, user } = await register(ALL);
     await user.click(box("Google"));
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Password-1x");
     await submit(user, "Đăng ký");
     expect(await screen.findByRole("alert")).toHaveTextContent("Hãy chọn tài khoản Google");
     await user.click(screen.getByRole("button", { name: "fake google" }));
@@ -670,7 +671,7 @@ describe("LoginFlow register (multi-select)", () => {
     await user.click(box("Google"));
     await user.click(box("Giọng nói"));
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Password-1x");
     await submit(user, "Đăng ký");
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
     expect([...formOf(fetchMock, "/register/combined").keys()].sort()).toEqual(["password", "username"]);
@@ -682,7 +683,7 @@ describe("LoginFlow register (multi-select)", () => {
 
   it("clears the password when Mật khẩu is unchecked and re-checked", async () => {
     const { user } = await register(BIO);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Password-1x");
     await user.click(box("Mật khẩu"));
     await user.click(box("Mật khẩu"));
     expect(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" })).toHaveValue("");
@@ -695,7 +696,7 @@ describe("LoginFlow register (multi-select)", () => {
     await user.click(box("Webcam (khuôn mặt)"));
     await user.click(box("Webcam (khuôn mặt)"));
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Password-1x");
     await submit(user, "Đăng ký");
     expect(await screen.findByRole("alert")).toHaveTextContent("Hãy quay khuôn mặt");
     expect(callTo(fetchMock, "/register/combined")).toBeUndefined();
@@ -726,13 +727,13 @@ describe("LoginFlow register (multi-select)", () => {
       url.endsWith("/register/combined") && fail ? jsonResponse({ detail }, status) : jsonResponse(session, 201),
     );
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Password-1x");
     await submit(user, "Đăng ký");
     expect(await screen.findByRole("alert")).toHaveTextContent(detail);
     if (detail.includes("voice")) expect(screen.getByRole("alert")).toHaveTextContent("Giọng nói này đã được đăng ký");
     expect(goTo).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Tên đăng nhập")).toHaveValue("ann");
-    expect(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" })).toHaveValue("password1");
+    expect(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" })).toHaveValue("Password-1x");
     fail = false;
     await submit(user, "Đăng ký");
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
@@ -742,7 +743,7 @@ describe("LoginFlow register (multi-select)", () => {
     const { fetchMock, user } = await register();
     fetchMock.mockImplementation(async () => jsonResponse({ detail: "slow" }, 429));
     await typeName(user);
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Password-1x");
     await submit(user, "Đăng ký");
     expect(await screen.findByRole("alert")).toHaveTextContent("Thử quá nhiều lần, hãy thử lại sau");
   });

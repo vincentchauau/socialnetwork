@@ -45,7 +45,7 @@ def test_google_only_account_cannot_log_in_with_a_password(google_client):
 
 
 def test_handle_collision_gets_a_numeric_suffix_and_never_the_domain(google_client):
-    register(google_client, {"username": "jane.doe", "password": "s3cret-pass"})
+    register(google_client, {"username": "jane.doe", "password": "S3cret-Pass"})
     google_client.cookies.clear()
     handle = google_login(google_client).json()["username"]
     assert handle == "jane.doe2"
@@ -213,15 +213,15 @@ def test_google_only_account_cannot_unlink_its_only_method(google_client):
 def test_google_only_account_can_unlink_after_setting_a_password(google_client):
     session = google_login(google_client).json()
     grant_fresh(google_client)
-    set_pw = google_client.post("/auth/me/password", json={"new_password": "correct-horse-battery"}, headers=csrf(session))
+    set_pw = google_client.post("/auth/me/password", json={"new_password": "Correct-Horse-Battery1"}, headers=csrf(session))
     assert set_pw.status_code == 200
     session = set_pw.json()
     response = google_client.request(
-        "DELETE", "/auth/me/google", json={"password": "correct-horse-battery"}, headers=csrf(session)
+        "DELETE", "/auth/me/google", json={"password": "Correct-Horse-Battery1"}, headers=csrf(session)
     )
     assert response.status_code == 200 and response.json()["google_linked"] is False
     google_client.cookies.clear()
-    login = google_client.post("/auth/login", json={"username": "jane.doe", "password": "correct-horse-battery"})
+    login = google_client.post("/auth/login", json={"username": "jane.doe", "password": "Correct-Horse-Battery1"})
     assert login.status_code == 200
 
 

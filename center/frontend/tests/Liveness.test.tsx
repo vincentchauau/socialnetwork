@@ -293,7 +293,7 @@ describe("liveness token in the forms", () => {
     await recordClip(user);
     await user.click(screen.getByRole("checkbox", { name: "Webcam (khuôn mặt)" }));
     await user.type(screen.getByLabelText(/Tên đăng nhập/), "ann");
-    await user.type(screen.getByPlaceholderText("Ít nhất 8 ký tự"), "password123");
+    await user.type(screen.getByPlaceholderText(/vd: Hoa-Sen_2026/), "Pass-word-123X");
     await user.click(screen.getByRole("button", { name: "Đăng ký" }));
     await waitFor(() => expect(goTo).toHaveBeenCalled());
     expect(formOf(fn, "/register/combined").has("liveness_token")).toBe(false);
@@ -345,12 +345,12 @@ describe("liveness token in the forms", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<BiometricMethod kind="webcam" enabled={false} hasPassword liveness={ON} onDone={onDone} />);
     await recordClip(user);
-    await user.type(screen.getByLabelText("Nhập lại mật khẩu để xác nhận"), "pw123456");
+    await user.type(screen.getByLabelText("Nhập lại mật khẩu để xác nhận"), "Pw123456!");
     await user.click(screen.getByRole("button", { name: "Lưu webcam" }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     const form = formOf(fn, "/me/webcam");
     expect(form.get("liveness_token")).toBe("lv-token");
-    expect(form.get("password")).toBe("pw123456");
+    expect(form.get("password")).toBe("Pw123456!");
   });
 
   it("linking the webcam without liveness sends no token", async () => {

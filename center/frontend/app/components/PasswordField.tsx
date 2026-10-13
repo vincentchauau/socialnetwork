@@ -1,5 +1,6 @@
 import { INPUT, LABEL } from "./ui";
-import { MIN_PASSWORD } from "../lib/auth";
+import PasswordChecklist from "./PasswordChecklist";
+import { PASSWORD_EXAMPLE } from "../lib/auth";
 
 interface Props {
   value: string;
@@ -9,7 +10,6 @@ interface Props {
 }
 
 export default function PasswordField({ value, onChange, isRegister, label = "Mật khẩu" }: Props) {
-  const longEnough = value.length >= MIN_PASSWORD;
   return (
     <>
       <label htmlFor="password" className={LABEL}>{label}</label>
@@ -22,14 +22,10 @@ export default function PasswordField({ value, onChange, isRegister, label = "M�
         className={INPUT}
         required
         autoComplete={isRegister ? "new-password" : "current-password"}
-        placeholder="Ít nhất 8 ký tự"
+        placeholder={isRegister ? `vd: ${PASSWORD_EXAMPLE}` : "Mật khẩu"}
         aria-describedby={isRegister ? "password-hint" : undefined}
       />
-      {isRegister && (
-        <p id="password-hint" aria-live="polite" className={`text-xs mb-2 ${longEnough ? "text-green-700" : "text-gray-600"}`}>
-          {longEnough ? "Mật khẩu đủ dài." : `Cần ít nhất ${MIN_PASSWORD} ký tự (đã nhập ${value.length}).`}
-        </p>
-      )}
+      {isRegister && <PasswordChecklist id="password-hint" password={value} />}
     </>
   );
 }

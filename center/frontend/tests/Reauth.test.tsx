@@ -354,10 +354,10 @@ describe("accounts with a password are unchanged", () => {
     const user = userEvent.setup();
     render(<DeleteAccount hasPassword />);
     await user.type(screen.getByLabelText("Xác nhận"), "XOA");
-    await user.type(screen.getByLabelText("Nhập lại mật khẩu để xác nhận"), "pw123456");
+    await user.type(screen.getByLabelText("Nhập lại mật khẩu để xác nhận"), "Pw123456!");
     await user.click(screen.getByRole("button", { name: "Xóa tài khoản của tôi" }));
     expect(await screen.findByText("Mật khẩu không đúng")).toBeInTheDocument();
-    expect(JSON.parse(String(fn.mock.calls[0][1].body))).toEqual({ password: "pw123456" });
+    expect(JSON.parse(String(fn.mock.calls[0][1].body))).toEqual({ password: "Pw123456!" });
     expect(dialog()).toBeNull();
     expect(fn).toHaveBeenCalledTimes(1);
   });
@@ -368,10 +368,10 @@ describe("accounts with a password are unchanged", () => {
     const user = userEvent.setup();
     render(<EmailMethod me={{ ...me, email: null }} onDone={onDone} />);
     await user.type(screen.getByLabelText("Địa chỉ email"), "a@b.co");
-    await user.type(screen.getByLabelText("Nhập lại mật khẩu để xác nhận"), "pw123456");
+    await user.type(screen.getByLabelText("Nhập lại mật khẩu để xác nhận"), "Pw123456!");
     await user.click(screen.getByRole("button", { name: "Thêm email" }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
-    expect(JSON.parse(String(fn.mock.calls[0][1].body))).toEqual({ email: "a@b.co", password: "pw123456" });
+    expect(JSON.parse(String(fn.mock.calls[0][1].body))).toEqual({ email: "a@b.co", password: "Pw123456!" });
     expect(dialog()).toBeNull();
   });
 });

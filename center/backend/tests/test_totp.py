@@ -226,7 +226,7 @@ def test_enable_twice_is_409_and_needs_the_password(client, clock):
     session = register(client)
     secret, _ = turn_on(client, session, clock)
     assert enable(client, session, code_at(secret, clock)).status_code == 409
-    other = register(client, {"username": "Bob", "password": "s3cret-pass"})
+    other = register(client, {"username": "Bob", "password": "S3cret-Pass"})
     setup(client, other)
     assert enable(client, other, "123456", {"password": "bad"}).status_code == 403
 

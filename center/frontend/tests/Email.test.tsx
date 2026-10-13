@@ -264,12 +264,12 @@ describe("Reset password page", () => {
     await screen.findByRole("form", { name: "Đặt lại mật khẩu" });
     expect(window.location.search + window.location.hash).toBe("");
     expect(window.location.href).not.toContain(SECRET);
-    await user.type(screen.getByLabelText("Mật khẩu mới"), "newpassword1");
-    expect(screen.getByText("Mật khẩu đủ dài.")).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "newpassword1");
+    await user.type(screen.getByLabelText("Mật khẩu mới"), "New-Password1");
+    expect(screen.getByText(/Từ 8 ký tự: đủ dài/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "New-Password1");
     await user.click(screen.getByRole("button", { name: "Đổi mật khẩu" }));
     expect(await screen.findByText("Đã đổi mật khẩu. Hãy đăng nhập lại.")).toBeInTheDocument();
-    expect(bodyOf(fetchMock, "/password/reset")).toEqual({ token: SECRET, new_password: "newpassword1" });
+    expect(bodyOf(fetchMock, "/password/reset")).toEqual({ token: SECRET, new_password: "New-Password1" });
     expect(noTokenInUrls(fetchMock, SECRET)).toBe(true);
     expect(screen.getByRole("link", { name: "Đăng nhập" })).toHaveAttribute("href", "/login");
   });
@@ -282,9 +282,9 @@ describe("Reset password page", () => {
     await user.type(await screen.findByLabelText("Mật khẩu mới"), "short");
     await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "short");
     await user.click(screen.getByRole("button", { name: "Đổi mật khẩu" }));
-    expect(await screen.findByText("Mật khẩu cần ít nhất 8 ký tự")).toBeInTheDocument();
+    expect(await screen.findByText(/Mật khẩu cần 8-128 ký tự/)).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Mật khẩu mới"));
-    await user.type(screen.getByLabelText("Mật khẩu mới"), "longenough1");
+    await user.type(screen.getByLabelText("Mật khẩu mới"), "Longenough-1");
     await user.click(screen.getByRole("button", { name: "Đổi mật khẩu" }));
     expect(await screen.findByText("Mật khẩu nhập lại không khớp")).toBeInTheDocument();
     expect(callsTo(fetchMock, "/password/reset")).toHaveLength(0);
@@ -297,8 +297,8 @@ describe("Reset password page", () => {
     );
     const user = userEvent.setup();
     render(<ResetPasswordForm />);
-    await user.type(await screen.findByLabelText("Mật khẩu mới"), "newpassword1");
-    await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "newpassword1");
+    await user.type(await screen.findByLabelText("Mật khẩu mới"), "New-Password1");
+    await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "New-Password1");
     await user.click(screen.getByRole("button", { name: "Đổi mật khẩu" }));
     expect(await screen.findByText("Liên kết không hợp lệ hoặc đã hết hạn.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Yêu cầu liên kết mới" })).toHaveAttribute("href", "/forgot-password");
@@ -311,8 +311,8 @@ describe("Reset password page", () => {
     );
     const user = userEvent.setup();
     render(<ResetPasswordForm />);
-    await user.type(await screen.findByLabelText("Mật khẩu mới"), "password123");
-    await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "password123");
+    await user.type(await screen.findByLabelText("Mật khẩu mới"), "Password123!");
+    await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "Password123!");
     await user.click(screen.getByRole("button", { name: "Đổi mật khẩu" }));
     expect(await screen.findByText("Password is too common")).toBeInTheDocument();
     expect(screen.getByLabelText("Mật khẩu mới")).toBeInTheDocument();
@@ -431,7 +431,7 @@ describe("Register email field", () => {
   }
   async function fillAccount(user: ReturnType<typeof userEvent.setup>) {
     await user.type(screen.getByLabelText("Tên đăng nhập"), "ann");
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "password1");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Password-1x");
   }
   const formOf = (fetchMock: ReturnType<typeof setup>) =>
     callsTo(fetchMock, "/register/combined")[0][1].body as FormData;
@@ -561,10 +561,10 @@ describe("Account email row", () => {
     render(<AccountView />);
     const email = await rowFor("Email");
     await user.type(within(email).getByLabelText("Địa chỉ email"), "new@example.com");
-    await user.type(within(email).getByLabelText("Nhập lại mật khẩu để xác nhận"), "secret-pass");
+    await user.type(within(email).getByLabelText("Nhập lại mật khẩu để xác nhận"), "Secret-Pass1");
     await user.click(within(email).getByRole("button", { name: "Thêm email" }));
     await waitFor(async () => expect(await rowFor("Email")).toHaveTextContent("new@example.com (chưa xác minh)"));
-    expect(bodyOf(fetchMock, "/auth/me/email")).toEqual({ email: "new@example.com", password: "secret-pass" });
+    expect(bodyOf(fetchMock, "/auth/me/email")).toEqual({ email: "new@example.com", password: "Secret-Pass1" });
     expect(await screen.findByText("Chúng tôi đã gửi mã xác minh tới new@example.com.")).toBeInTheDocument();
     expect(within(await rowFor("Email")).getByLabelText(/Mã xác minh/)).toBeInTheDocument();
   });
@@ -613,10 +613,10 @@ describe("Account email row", () => {
     const user = userEvent.setup();
     render(<AccountView />);
     const email = await rowFor("Email");
-    await user.type(within(email).getByLabelText("Nhập lại mật khẩu để xác nhận"), "secret-pass");
+    await user.type(within(email).getByLabelText("Nhập lại mật khẩu để xác nhận"), "Secret-Pass1");
     await user.click(within(email).getByRole("button", { name: "Gửi lại" }));
     expect(await screen.findByText("Đã gửi lại mã xác minh tới ann@example.com.")).toBeInTheDocument();
-    expect(bodyOf(fetchMock, "/auth/me/email")).toEqual({ email: "ann@example.com", password: "secret-pass" });
+    expect(bodyOf(fetchMock, "/auth/me/email")).toEqual({ email: "ann@example.com", password: "Secret-Pass1" });
   });
 
   it("removes the email with the password and reloads", async () => {
@@ -624,11 +624,11 @@ describe("Account email row", () => {
     const user = userEvent.setup();
     render(<AccountView />);
     const email = await rowFor("Email");
-    await user.type(within(email).getByLabelText("Nhập lại mật khẩu để xác nhận"), "secret-pass");
+    await user.type(within(email).getByLabelText("Nhập lại mật khẩu để xác nhận"), "Secret-Pass1");
     await user.click(within(email).getByRole("button", { name: "Xóa email" }));
     await waitFor(async () => expect(await rowFor("Email")).toHaveTextContent("Email: chưa có"));
     const call = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/auth/me/email") && init.method === "DELETE")!;
-    expect(JSON.parse(String(call[1].body))).toEqual({ password: "secret-pass" });
+    expect(JSON.parse(String(call[1].body))).toEqual({ password: "Secret-Pass1" });
   });
 
   it("shows the server 409 text when the email is the last sign-in method", async () => {

@@ -79,11 +79,11 @@ describe("ChangeUsername", () => {
     render(<AccountView />);
     const form = await openForm();
     await user.type(form.getByLabelText(NAME), " bob.2 ");
-    await user.type(form.getByLabelText(PASSWORD), "secret123");
+    await user.type(form.getByLabelText(PASSWORD), "Secret-123");
     await user.click(form.getByRole("button", { name: "Đổi tên" }));
 
     expect(await screen.findByText(SAVED)).toBeInTheDocument();
-    expect(bodyOf(fn)).toEqual({ username: "bob.2", password: "secret123" });
+    expect(bodyOf(fn)).toEqual({ username: "bob.2", password: "Secret-123" });
     expect(await screen.findByRole("heading", { name: "Xin chào, bob.2" })).toBeInTheDocument();
     expect(form.getByLabelText(NAME)).toHaveValue("");
 
@@ -135,7 +135,7 @@ describe("ChangeUsername", () => {
     render(<AccountView />);
     const form = await openForm();
     await user.type(form.getByLabelText(NAME), "Bad@Name");
-    await user.type(form.getByLabelText(PASSWORD), "secret123");
+    await user.type(form.getByLabelText(PASSWORD), "Secret-123");
     await user.click(form.getByRole("button", { name: "Đổi tên" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Tên đăng nhập gồm 3-32 ký tự");
     expect(renameCalls(fn)).toHaveLength(0);
@@ -153,7 +153,7 @@ describe("ChangeUsername", () => {
     render(<AccountView />);
     const form = await openForm();
     await user.type(form.getByLabelText(NAME), "erin");
-    await user.type(form.getByLabelText(PASSWORD), "secret123");
+    await user.type(form.getByLabelText(PASSWORD), "Secret-123");
     await user.click(form.getByRole("button", { name: "Đổi tên" }));
     expect(await form.findByRole("alert")).toHaveTextContent(text);
     expect(form.getByLabelText(NAME)).toHaveValue("erin");
@@ -168,7 +168,7 @@ describe("ChangeUsername", () => {
     render(<AccountView />);
     const form = await openForm();
     await user.type(form.getByLabelText(NAME), "frank");
-    await user.type(form.getByLabelText(PASSWORD), "secret123");
+    await user.type(form.getByLabelText(PASSWORD), "Secret-123");
     await user.click(form.getByRole("button", { name: "Đổi tên" }));
     expect(await form.findByRole("button", { name: "Đang lưu..." })).toBeDisabled();
     expect(form.getByLabelText(NAME)).toBeDisabled();

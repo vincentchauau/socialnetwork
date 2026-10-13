@@ -14,15 +14,31 @@ SALT_BYTES = 16
 DIGEST_BYTES = 32  # keeps the stored hash at 86 characters (column is String(100))
 MIN_PASSWORD = 8
 MAX_PASSWORD = 128
+CLASS_RULE_MESSAGE = "Password must contain a lowercase letter, an uppercase letter, a digit and a special character"
 # Stored for accounts without a password (Google-only); verify_password always rejects it.
 NO_PASSWORD = "!"
 COMMON_PASSWORDS = frozenset(
     {
         "password", "password1", "password123", "12345678", "123456789", "1234567890",
         "qwertyuiop", "qwerty123", "iloveyou", "11111111", "00000000", "abc12345",
-        "letmein123", "welcome123", "admin1234",
+        "letmein123", "welcome123", "admin1234", "passw0rd", "p@ssw0rd", "p@ssword1", "pssw0rd",
     }
 )  # fmt: skip
+
+
+def _alphanumeric(text: str) -> str:
+    return "".join(c for c in text if c.isalnum())
+
+
+def missing_character_classes(password: str) -> list[str]:
+    """Which of the four classes (lower, upper, digit, special) the password lacks."""
+    present = {
+        "lower": any(c.islower() for c in password),
+        "upper": any(c.isupper() for c in password),
+        "digit": any(c.isdigit() for c in password),
+        "special": any(not c.isalnum() for c in password),
+    }
+    return [name for name, ok in present.items() if not ok]
 
 
 def password_problem(password: str, username: str = "") -> str | None:
@@ -31,9 +47,10 @@ def password_problem(password: str, username: str = "") -> str | None:
         return f"Password must be at least {MIN_PASSWORD} characters"
     if len(password) > MAX_PASSWORD:
         return f"Password must be at most {MAX_PASSWORD} characters"
-    if len(set(password)) < 4:
-        return "Password is too simple (too few distinct characters)"
-    if password.lower() in COMMON_PASSWORDS:
+    if missing_character_classes(password):
+        return CLASS_RULE_MESSAGE
+    lowered = password.lower()
+    if lowered in COMMON_PASSWORDS or _alphanumeric(lowered) in COMMON_PASSWORDS:  # "Password1!" is still "password1"
         return "Password is too common"
     if username and password.lower() == username.lower():
         return "Password must not equal the username"

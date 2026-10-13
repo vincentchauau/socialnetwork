@@ -224,7 +224,7 @@ def test_duplicate_face_rejected_on_register_webcam(bio_client):
 def test_duplicate_face_rejected_on_combined_without_creating_anything(bio_client):
     enroll(bio_client, "alice", ALICE)
     response = bio_client.post(
-        "/auth/register/combined", data={"username": "dupe", "password": "correct-horse-battery"},
+        "/auth/register/combined", data={"username": "dupe", "password": "Correct-Horse-Battery1"},
         files={"webcam_video": clip(0.1, "dupe")},
     )
     assert response.status_code == 409 and row(bio_client, "dupe") is None
@@ -232,10 +232,10 @@ def test_duplicate_face_rejected_on_combined_without_creating_anything(bio_clien
 
 def test_me_webcam_duplicate_rejected_and_own_face_relink_allowed(bio_client):
     enroll(bio_client, "alice", ALICE)
-    r = bio_client.post("/auth/register/combined", data={"username": "bobby", "password": "correct-horse-battery"})
+    r = bio_client.post("/auth/register/combined", data={"username": "bobby", "password": "Correct-Horse-Battery1"})
     assert r.status_code == 201
     session = r.json()
-    pw = {"password": "correct-horse-battery"}
+    pw = {"password": "Correct-Horse-Battery1"}
     dup = bio_client.post("/auth/me/webcam", data=pw, files={"video": clip(0.2, "x")}, headers=csrf(session))
     assert dup.status_code == 409 and row(bio_client, "bobby").webcam_login is False
     ok = bio_client.post("/auth/me/webcam", data=pw, files={"video": BOB}, headers=csrf(session))
@@ -295,10 +295,10 @@ def test_google_and_webcam_without_a_name_uses_the_email_handle(bio_client):
 @pytest.mark.parametrize(
     "data,files",
     [
-        ({"password": "correct-horse-battery"}, {}),
-        ({"password": "correct-horse-battery"}, {"webcam_video": ALICE}),
-        ({"password": "correct-horse-battery"}, {"voice_audio": ("v.webm", b"vera-voice")}),
-        ({"username": "  ", "password": "correct-horse-battery"}, {}),
+        ({"password": "Correct-Horse-Battery1"}, {}),
+        ({"password": "Correct-Horse-Battery1"}, {"webcam_video": ALICE}),
+        ({"password": "Correct-Horse-Battery1"}, {"voice_audio": ("v.webm", b"vera-voice")}),
+        ({"username": "  ", "password": "Correct-Horse-Battery1"}, {}),
     ],
 )
 def test_username_required_for_password(bio_client, data, files):

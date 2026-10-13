@@ -119,7 +119,7 @@ def combined(client, **fields):
 
 
 def test_register_with_email_sends_a_verify_mail_and_the_account_starts_unverified(mail_client):
-    response = combined(mail_client, username="carol", password="carols-pass-1", email=" Carol@Example.com ")
+    response = combined(mail_client, username="carol", password="Carols-Pass-1", email=" Carol@Example.com ")
 
     assert response.status_code == 201
     mail = last_mail(mail_client, "carol@example.com")
@@ -132,7 +132,7 @@ def test_register_with_email_sends_a_verify_mail_and_the_account_starts_unverifi
 
 def test_a_mail_failure_does_not_fail_the_registration(mail_client):
     mail_client.app.state.mailer.fail = True
-    response = combined(mail_client, username="carol", password="carols-pass-1", email="carol@example.com")
+    response = combined(mail_client, username="carol", password="Carols-Pass-1", email="carol@example.com")
     assert response.status_code == 201 and user_row(mail_client, "carol") is not None
 
 
@@ -143,7 +143,7 @@ def test_email_alone_is_not_a_sign_in_method(mail_client):
 
 
 def test_register_with_an_invalid_email_is_a_422(mail_client):
-    response = combined(mail_client, username="carol", password="carols-pass-1", email="nope")
+    response = combined(mail_client, username="carol", password="Carols-Pass-1", email="nope")
     assert response.status_code == 422 and response.json()["detail"].startswith("email:")
     assert user_row(mail_client, "carol") is None
 
@@ -151,18 +151,18 @@ def test_register_with_an_invalid_email_is_a_422(mail_client):
 def test_register_with_an_email_verified_elsewhere_still_succeeds_without_mail(mail_client):
     verified_account(mail_client)
     mail_client.cookies.clear()
-    response = combined(mail_client, username="carol", password="carols-pass-1", email=EMAIL)
+    response = combined(mail_client, username="carol", password="Carols-Pass-1", email=EMAIL)
     assert response.status_code == 201 and sent_to(mail_client, EMAIL) == []
 
 
 def test_register_with_email_while_email_is_disabled_still_works(client):
-    response = combined(client, username="carol", password="carols-pass-1", email="carol@example.com")
+    response = combined(client, username="carol", password="Carols-Pass-1", email="carol@example.com")
     assert response.status_code == 201 and token_rows(client) == []
 
 
 def test_registration_mail_flood_to_one_address_is_capped(mail_client):
     for i in range(5):
-        combined(mail_client, username=f"user{i}", password="carols-pass-1", email="victim@example.com")
+        combined(mail_client, username=f"user{i}", password="Carols-Pass-1", email="victim@example.com")
     assert len(sent_to(mail_client, "victim@example.com")) == 3
 
 

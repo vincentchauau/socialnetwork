@@ -88,7 +88,7 @@ One `users` row per account; six methods, **each usable on its own**, plus an op
 
 | Method | Stored in `users` | Notes |
 |---|---|---|
-| Password | `password_hash` (scrypt; `!` = none) | policy: 8-128 chars, not common, not the username |
+| Password | `password_hash` (scrypt; `!` = none) | policy: 8-128 chars with all four classes (lowercase, uppercase, digit, special character), not common (also with symbols stripped, so `Password1!` is refused), not the username. Existing passwords keep working until changed; sign-in never checks the policy |
 | Google | `google_sub`, `email` | ID token verified server side; needs `GOOGLE_CLIENT_ID` |
 | Voice | `audio_embedding` (Fernet), `voice_login` | one short audio clip; strict threshold; no username needed |
 | Webcam | `face_embedding` (Fernet), `webcam_login` | one camera-only clip (no microphone); FACE ONLY; no username needed |

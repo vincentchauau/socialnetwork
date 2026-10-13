@@ -15,7 +15,7 @@ from tests.helpers import csrf
 from tests.test_signin_methods import COOKIES, cookie_names, login_voice, reg_voice, row
 
 FAILED = (401, '{"detail":"Biometric login failed"}')
-PW = {"password": "correct-horse-battery"}
+PW = {"password": "Correct-Horse-Battery1"}
 
 
 def voice(value: float, who: str) -> tuple[str, bytes]:

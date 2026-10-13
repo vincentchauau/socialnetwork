@@ -252,7 +252,7 @@ def test_max_three_live_codes(pclient):
 
 def test_number_taken_elsewhere_is_silent_202_then_409(pclient):
     phone_account(pclient)
-    other = {"username": "Bob", "password": "s3cret-pass"}
+    other = {"username": "Bob", "password": "S3cret-Pass"}
     session = register(pclient, other)
     sent_before = len(pclient.app.state.sms.sent)
     assert add(pclient, session, body={"password": other["password"]}).status_code == 202
@@ -261,7 +261,7 @@ def test_number_taken_elsewhere_is_silent_202_then_409(pclient):
 
 
 def test_taken_in_the_meantime_gives_409(pclient):
-    other = {"username": "Bob", "password": "s3cret-pass"}
+    other = {"username": "Bob", "password": "S3cret-Pass"}
     session = register(pclient, other)
     add(pclient, session, body={"password": other["password"]})
     code = pclient.app.state.sms.codes(PHONE)[0]
@@ -410,7 +410,7 @@ def test_daily_cap_is_split_and_counts_real_sends_only(monkeypatch, caplog):
             assert ask(c).status_code == 202
         _free_budgets(c, PHONE, "+84900000002")
         assert ask(c, "+84900000002").status_code == 429 and ask(c).status_code == 429  # login share spent
-        bob = {"username": "Bob", "password": "s3cret-pass"}
+        bob = {"username": "Bob", "password": "S3cret-Pass"}
         session = register(c, bob)
         assert add(c, session, "+84900000003", {"password": bob["password"]}).status_code == 202  # verification share
         assert add(c, session, "+84900000004", {"password": bob["password"]}).status_code == 202

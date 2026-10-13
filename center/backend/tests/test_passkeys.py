@@ -203,8 +203,8 @@ def test_duplicate_credential_of_another_account_is_409(client):
     session = register(client)
     auth, _, _ = link(client, session)
     client.cookies.clear()
-    other = register(client, {"username": "bob", "password": "bobs-secret-1"})
-    _, _, again = link(client, other, auth, body={"password": "bobs-secret-1"})
+    other = register(client, {"username": "bob", "password": "Bobs-Secret-1"})
+    _, _, again = link(client, other, auth, body={"password": "Bobs-Secret-1"})
     assert again.status_code == 409
 
 
@@ -458,8 +458,8 @@ def test_a_successful_sign_in_clears_the_failure_count(linked):
 
 def second_user(client):
     client.cookies.clear()
-    session = register(client, {"username": "bob", "password": "bobs-secret-1"})
-    auth, _, response = link(client, session, body={"password": "bobs-secret-1"})
+    session = register(client, {"username": "bob", "password": "Bobs-Secret-1"})
+    auth, _, response = link(client, session, body={"password": "Bobs-Secret-1"})
     assert response.status_code == 200
     return session, response.json()["passkeys"][0]["id"]
 
@@ -498,7 +498,7 @@ def test_other_peoples_passkeys_are_404(client):
     mine = rows(client)[0].id
     assert mine != bob_id
     rename = client.patch(f"/auth/me/passkeys/{mine}", json={"name": "hacked"}, headers=csrf(bob))
-    remove = delete(client, f"/auth/me/passkeys/{mine}", bob, {"password": "bobs-secret-1"})
+    remove = delete(client, f"/auth/me/passkeys/{mine}", bob, {"password": "Bobs-Secret-1"})
     assert rename.status_code == 404 and remove.status_code == 404
     assert delete(client, "/auth/me/passkeys/9999", bob).status_code == 404
     assert [p.name for p in rows(client)] == ["Passkey", "Passkey"]
@@ -635,12 +635,12 @@ def test_sign_up_with_a_passkey_and_a_chosen_username(client):
 def test_sign_up_with_passkey_and_password_needs_a_username(client):
     data = client.post("/auth/register/passkey/options", json={}).json()
     auth = SoftAuthenticator()
-    form = signup_form(auth, data, {"password": "correct-horse-battery"})
+    form = signup_form(auth, data, {"password": "Correct-Horse-Battery1"})
     response = client.post("/auth/register/combined", data=form)
     assert (response.status_code, response.json()) == (422, {"detail": "Choose a username"})
     assert rows(client, User) == []
     data = client.post("/auth/register/passkey/options", json={}).json()
-    form = signup_form(auth, data, {"password": "correct-horse-battery", "username": "Pam"})
+    form = signup_form(auth, data, {"password": "Correct-Horse-Battery1", "username": "Pam"})
     ok = client.post("/auth/register/combined", data=form)
     assert ok.status_code == 201 and ok.json()["username"] == "pam"
     me = client.get("/auth/me").json()
@@ -668,7 +668,7 @@ SIGNUP_BAD = {
 @pytest.mark.parametrize("create", SIGNUP_BAD.values(), ids=SIGNUP_BAD.keys())
 def test_sign_up_is_all_or_nothing_when_the_passkey_fails(client, create):
     data = client.post("/auth/register/passkey/options", json={}).json()
-    form = signup_form(SoftAuthenticator(), data, {"password": "correct-horse-battery", "username": "pam"}, **create)
+    form = signup_form(SoftAuthenticator(), data, {"password": "Correct-Horse-Battery1", "username": "pam"}, **create)
     response = client.post("/auth/register/combined", data=form)
     assert (response.status_code, response.json()) == (400, REG_FAILED)
     assert rows(client, User) == [] and rows(client) == []
@@ -731,7 +731,7 @@ def test_a_taken_username_does_not_create_a_passkey_row(client):
     register(client)
     client.cookies.clear()
     data = client.post("/auth/register/passkey/options", json={}).json()
-    form = signup_form(SoftAuthenticator(), data, {"password": "correct-horse-battery", "username": "alice"})
+    form = signup_form(SoftAuthenticator(), data, {"password": "Correct-Horse-Battery1", "username": "alice"})
     assert client.post("/auth/register/combined", data=form).status_code == 409
     assert rows(client) == []
 

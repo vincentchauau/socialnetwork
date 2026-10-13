@@ -91,23 +91,30 @@ describe("AccountView", () => {
     const user = userEvent.setup();
     render(<AccountView />);
     await screen.findByRole("form", { name: "Đổi mật khẩu" });
-    await user.type(screen.getByLabelText("Mật khẩu hiện tại"), "oldpassword");
+    await user.type(screen.getByLabelText("Mật khẩu hiện tại"), "Oldpassword-1");
     await user.type(screen.getByLabelText("Mật khẩu mới"), "short");
     await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "short");
     await user.click(screen.getByRole("button", { name: "Cập nhật mật khẩu" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Mật khẩu cần ít nhất 8 ký tự");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Mật khẩu cần 8-128 ký tự");
 
-    await user.type(screen.getByLabelText("Mật khẩu mới"), "12345");
+    await user.clear(screen.getByLabelText("Mật khẩu mới"));
+    await user.type(screen.getByLabelText("Mật khẩu mới"), "short12345"); // long enough but missing classes
+    await user.click(screen.getByRole("button", { name: "Cập nhật mật khẩu" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("gồm chữ thường, chữ hoa, số và ký tự đặc biệt");
+
+    await user.clear(screen.getByLabelText("Mật khẩu mới"));
+    await user.type(screen.getByLabelText("Mật khẩu mới"), "Short-12345");
+    await user.clear(screen.getByLabelText("Nhập lại mật khẩu mới"));
     await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "999");
     await user.click(screen.getByRole("button", { name: "Cập nhật mật khẩu" }));
     expect(await screen.findByText("Mật khẩu nhập lại không khớp")).toBeInTheDocument();
 
     await user.clear(screen.getByLabelText("Nhập lại mật khẩu mới"));
-    await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "short12345");
+    await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "Short-12345");
     await user.click(screen.getByRole("button", { name: "Cập nhật mật khẩu" }));
     expect(await screen.findByText("Đã cập nhật mật khẩu.")).toBeInTheDocument();
     const call = fetchMock.mock.calls.find(([url]) => url.endsWith("/me/password"));
-    expect(JSON.parse(call?.[1].body as string)).toEqual({ new_password: "short12345", current_password: "oldpassword" });
+    expect(JSON.parse(call?.[1].body as string)).toEqual({ new_password: "Short-12345", current_password: "Oldpassword-1" });
 
     await user.click(screen.getByRole("button", { name: "Đăng xuất mọi nơi" }));
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/login"));
@@ -121,8 +128,8 @@ describe("AccountView", () => {
     render(<AccountView />);
     await screen.findByRole("form", { name: "Đổi mật khẩu" });
     expect(screen.queryByLabelText("Mật khẩu hiện tại")).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText("Mật khẩu mới"), "longenough1");
-    await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "longenough1");
+    await user.type(screen.getByLabelText("Mật khẩu mới"), "Longenough-1");
+    await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "Longenough-1");
     await user.click(screen.getByRole("button", { name: "Cập nhật mật khẩu" }));
     expect(await screen.findByText("Thử quá nhiều lần, hãy thử lại sau")).toBeInTheDocument();
   });
@@ -140,11 +147,11 @@ describe("AccountView", () => {
     await user.type(screen.getByLabelText("Xác nhận"), "XOA");
     expect(button).toBeEnabled();
     const deleteForm = screen.getByRole("form", { name: "Xóa tài khoản" });
-    await user.type(deleteForm.querySelector('input[type="password"]') as HTMLInputElement, "secret-pass");
+    await user.type(deleteForm.querySelector('input[type="password"]') as HTMLInputElement, "Secret-Pass1");
     await user.click(button);
     await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
     const call = fetchMock.mock.calls.find(([, init]) => init.method === "DELETE");
-    expect(call?.[1].body).toBe(JSON.stringify({ password: "secret-pass" }));
+    expect(call?.[1].body).toBe(JSON.stringify({ password: "Secret-Pass1" }));
     expect(headerOf(call?.[1], "Content-Type")).toBe("application/json");
   });
 
@@ -226,12 +233,12 @@ describe("AccountView", () => {
     await user.click(within(form).getByRole("button", { name: "fake voice" }));
     await user.click(screen.getByRole("button", { name: "Lưu giọng nói" }));
     expect(await screen.findByText("Hãy nhập mật khẩu để xác nhận")).toBeInTheDocument();
-    await user.type(form.querySelector("#voice-password") as HTMLInputElement, "pw-pass-1");
+    await user.type(form.querySelector("#voice-password") as HTMLInputElement, "Pw-Pass-1");
     await user.click(screen.getByRole("button", { name: "Lưu giọng nói" }));
     expect(await screen.findByText("Đã lưu giọng nói.")).toBeInTheDocument();
     const call = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/me/voice") && init.method === "POST");
     const body = call?.[1].body as FormData;
-    expect(body.get("password")).toBe("pw-pass-1");
+    expect(body.get("password")).toBe("Pw-Pass-1");
     expect(body.get("audio")).toBeInstanceOf(Blob);
   });
 
@@ -257,7 +264,7 @@ describe("AccountView", () => {
     render(<AccountView />);
     const form = await screen.findByRole("form", { name: "Đăng nhập bằng webcam (khuôn mặt)" });
     await user.click(within(form).getByRole("button", { name: "fake webcam" }));
-    await user.type(form.querySelector("#webcam-password") as HTMLInputElement, "pw-pass-1");
+    await user.type(form.querySelector("#webcam-password") as HTMLInputElement, "Pw-Pass-1");
     await user.click(screen.getByRole("button", { name: "Thay webcam" }));
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url, init]) => url.endsWith("/me/webcam") && init.method === "POST")).toBe(true),
@@ -271,11 +278,11 @@ describe("AccountView", () => {
     const voice = await screen.findByRole("form", { name: "Đăng nhập bằng giọng nói" });
     await user.click(within(voice).getByRole("button", { name: "Hủy giọng nói" }));
     expect(await screen.findByText("Hãy nhập mật khẩu để xác nhận")).toBeInTheDocument();
-    await user.type(voice.querySelector("#voice-password") as HTMLInputElement, "pw-pass-1");
+    await user.type(voice.querySelector("#voice-password") as HTMLInputElement, "Pw-Pass-1");
     await user.click(within(voice).getByRole("button", { name: "Hủy giọng nói" }));
     await waitFor(() => {
       const del = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/me/voice") && init.method === "DELETE");
-      expect((del?.[1].body as FormData).get("password")).toBe("pw-pass-1");
+      expect((del?.[1].body as FormData).get("password")).toBe("Pw-Pass-1");
     });
   });
 
@@ -326,12 +333,12 @@ describe("AccountView", () => {
     const form = await screen.findByRole("form", { name: SECOND_FACTOR });
     expect(screen.getByRole("heading", { name: "Bảo mật nâng cao (tùy chọn)" })).toBeInTheDocument();
     expect(form).toHaveTextContent(/webcam/);
-    await user.type(form.querySelector('input[type="password"]') as HTMLInputElement, "pw-pass-1");
+    await user.type(form.querySelector('input[type="password"]') as HTMLInputElement, "Pw-Pass-1");
     await user.click(screen.getByRole("button", { name: "Bật yêu cầu xác minh sinh trắc học" }));
     await waitFor(() => {
       const put = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/me/biometric-2fa") && init.method === "PUT");
       expect((put?.[1].body as FormData).get("enabled")).toBe("true");
-      expect((put?.[1].body as FormData).get("password")).toBe("pw-pass-1");
+      expect((put?.[1].body as FormData).get("password")).toBe("Pw-Pass-1");
     });
   });
 
@@ -355,11 +362,11 @@ describe("AccountView", () => {
     const user = userEvent.setup();
     render(<AccountView />);
     const form = await screen.findByRole("form", { name: "Hủy liên kết Google" });
-    await user.type(form.querySelector('input[type="password"]') as HTMLInputElement, "pw-pass-1");
+    await user.type(form.querySelector('input[type="password"]') as HTMLInputElement, "Pw-Pass-1");
     await user.click(screen.getByRole("button", { name: "Hủy liên kết Google" }));
     await waitFor(() => {
       const del = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/auth/me/google") && init.method === "DELETE");
-      expect(JSON.parse(del?.[1].body as string)).toEqual({ password: "pw-pass-1" });
+      expect(JSON.parse(del?.[1].body as string)).toEqual({ password: "Pw-Pass-1" });
     });
   });
 });

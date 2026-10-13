@@ -13,7 +13,7 @@ from tests.mail_helpers import (
     token_rows, user_row, verified_account, verify_by_link,
 )  # fmt: skip
 
-BOB = {"username": "Bob", "password": "bobs-secret-1"}
+BOB = {"username": "Bob", "password": "Bobs-Secret-1"}
 
 
 def test_constants():

@@ -215,10 +215,10 @@ describe("account phone card", () => {
     expect(row).toHaveTextContent(WARNING);
     expect(within(row).queryByRole("button", { name: "Xóa số điện thoại" })).not.toBeInTheDocument();
     await user.type(within(row).getByLabelText("Số điện thoại"), "+84 901 234 567");
-    await user.type(within(row).getByLabelText("Nhập lại mật khẩu để xác nhận"), "pw123456");
+    await user.type(within(row).getByLabelText("Nhập lại mật khẩu để xác nhận"), "Pw123456!");
     await user.click(within(row).getByRole("button", { name: "Thêm số điện thoại" }));
     expect(await within(row).findByText("Chúng tôi đã gửi mã xác minh qua SMS.")).toBeInTheDocument();
-    expect(bodyOf(fn, "/auth/me/phone", "POST")).toEqual({ phone: "+84901234567", password: "pw123456" });
+    expect(bodyOf(fn, "/auth/me/phone", "POST")).toEqual({ phone: "+84901234567", password: "Pw123456!" });
     expect(callsTo(fn, "/auth/me")).toHaveLength(2); // initial load + reload
   });
 
@@ -286,10 +286,10 @@ describe("account phone card", () => {
     const row = await rowFor("Số điện thoại");
     expect(row).toHaveTextContent("+84•••••567 (đã xác minh)");
     expect(within(row).queryByLabelText(/Mã SMS/)).not.toBeInTheDocument();
-    await user.type(within(row).getByLabelText("Nhập lại mật khẩu để xác nhận"), "pw123456");
+    await user.type(within(row).getByLabelText("Nhập lại mật khẩu để xác nhận"), "Pw123456!");
     await user.click(within(row).getByRole("button", { name: "Xóa số điện thoại" }));
     expect(await within(row).findByText("Đã xóa số điện thoại.")).toBeInTheDocument();
-    expect(bodyOf(fn, "/auth/me/phone", "DELETE")).toEqual({ password: "pw123456" });
+    expect(bodyOf(fn, "/auth/me/phone", "DELETE")).toEqual({ password: "Pw123456!" });
   });
 });
 

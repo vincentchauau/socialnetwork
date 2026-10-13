@@ -169,14 +169,14 @@ describe("Passkey in the register form", () => {
     webauthn.create.mockResolvedValue(CREDENTIAL);
     const { fetchMock, user } = await openRegister();
     await user.type(field(), "ann");
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "secret-12345");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Secret-12345!");
     await user.click(box("Passkey"));
     await user.click(screen.getByRole("button", { name: "Đăng ký" }));
     await waitFor(() => expect(goTo).toHaveBeenCalled());
     expect(bodyOf(callsTo(fetchMock, "/register/passkey/options")[0][1])).toEqual({ username: "ann" });
     const form = callsTo(fetchMock, "/register/combined")[0][1].body as FormData;
     expect(form.get("username")).toBe("ann");
-    expect(form.get("password")).toBe("secret-12345");
+    expect(form.get("password")).toBe("Secret-12345!");
     expect(form.has("passkey_credential")).toBe(true);
   });
 
@@ -209,7 +209,7 @@ describe("Passkey in the register form", () => {
 
   it("requires a username when a password is chosen even with a passkey", async () => {
     const { fetchMock, user } = await openRegister();
-    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "secret-12345");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Secret-12345!");
     await user.click(box("Passkey"));
     await user.click(screen.getByRole("button", { name: "Đăng ký" }));
     // The native required attribute blocks the submit; no ceremony starts.
@@ -312,10 +312,10 @@ describe("Passkey row on /account", () => {
     expect(callsTo(fetchMock, "/me/passkeys/options")).toHaveLength(0);
     await user.clear(screen.getByLabelText("Tên Passkey (không bắt buộc)"));
     await user.type(screen.getByLabelText("Tên Passkey (không bắt buộc)"), "Khóa USB");
-    await user.type(document.getElementById("passkey-password") as HTMLInputElement, "pw-123456");
+    await user.type(document.getElementById("passkey-password") as HTMLInputElement, "Pw-123456!");
     await user.click(screen.getByRole("button", { name: "Thêm Passkey" }));
     await screen.findByText("Đã thêm Passkey.");
-    expect(bodyOf(callsTo(fetchMock, "/me/passkeys/options")[0][1])).toEqual({ password: "pw-123456" });
+    expect(bodyOf(callsTo(fetchMock, "/me/passkeys/options")[0][1])).toEqual({ password: "Pw-123456!" });
     expect(bodyOf(callsTo(fetchMock, "/me/passkeys", "POST")[0][1]).name).toBe("Khóa USB");
     expect(document.getElementById("passkey-password")).toHaveValue("");
   });
@@ -393,10 +393,10 @@ describe("Passkey row on /account", () => {
     await user.click(screen.getAllByRole("button", { name: "Xóa" })[1]);
     await user.click(screen.getByRole("button", { name: "Xác nhận xóa" }));
     expect(await screen.findByText("Hãy nhập mật khẩu để xác nhận")).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Nhập lại mật khẩu để xóa"), "pw-123456");
+    await user.type(screen.getByLabelText("Nhập lại mật khẩu để xóa"), "Pw-123456!");
     await user.click(screen.getByRole("button", { name: "Xác nhận xóa" }));
     await waitFor(() => expect(callsTo(fetchMock, "/me/passkeys/8", "DELETE")).toHaveLength(1));
-    expect(bodyOf(callsTo(fetchMock, "/me/passkeys/8", "DELETE")[0][1])).toEqual({ password: "pw-123456" });
+    expect(bodyOf(callsTo(fetchMock, "/me/passkeys/8", "DELETE")[0][1])).toEqual({ password: "Pw-123456!" });
   });
 
   it("deletes without a password field when the account has none, and can cancel", async () => {
@@ -529,7 +529,7 @@ describe("Passkey limit on /account", () => {
     const user = userEvent.setup();
     render(<AccountView />);
     await card();
-    await user.type(document.getElementById("passkey-password") as HTMLInputElement, "pw-123456");
+    await user.type(document.getElementById("passkey-password") as HTMLInputElement, "Pw-123456!");
     await user.click(screen.getByRole("button", { name: "Thêm Passkey" }));
     expect((await screen.findAllByText("Tối đa 10 Passkey cho mỗi tài khoản")).length).toBeGreaterThan(0);
   });

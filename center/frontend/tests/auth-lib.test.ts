@@ -43,10 +43,16 @@ describe("safeNextPath (open redirect guard)", () => {
 
 describe("password policy", () => {
   it("reports each rule", () => {
-    expect(auth.isPasswordValid("short")).toBe(false);
-    expect(auth.isPasswordValid("long enough")).toBe(true);
-    expect(auth.isPasswordValid("x".repeat(129))).toBe(false);
-    expect(auth.isPasswordValid("x".repeat(128))).toBe(true);
+    expect(auth.isPasswordValid("Sh-1a")).toBe(false); // too short
+    expect(auth.isPasswordValid("Long-Enough-1")).toBe(true);
+    expect(auth.isPasswordValid("long-enough-1")).toBe(false); // no uppercase
+    expect(auth.isPasswordValid("LONG-ENOUGH-1")).toBe(false); // no lowercase
+    expect(auth.isPasswordValid("Long-Enough-x")).toBe(false); // no digit
+    expect(auth.isPasswordValid("LongEnough1x")).toBe(false); // no special character
+    expect(auth.isPasswordValid("Mật-Khẩu-Dài-1")).toBe(true); // accents are allowed
+    expect(auth.isPasswordValid("Aa1-".repeat(33))).toBe(false); // 132 characters: too long
+    expect(auth.isPasswordValid("Aa1-".repeat(32))).toBe(true); // exactly 128
+    expect(auth.passwordChecks("abc")).toEqual({ length: false, lower: true, upper: false, digit: false, special: false });
   });
 });
 
@@ -135,7 +141,7 @@ describe("API helpers", () => {
 
   it("combined registration sends only the chosen fields", async () => {
     const fetchMock = mockFetch(() => jsonResponse(session, 201));
-    await auth.registerCombined({ username: "ann", password: "password1" });
+    await auth.registerCombined({ username: "ann", password: "Password-1x" });
     await auth.registerCombined({
       username: "ann",
       googleIdToken: "idt",

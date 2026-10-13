@@ -6,7 +6,8 @@ import { setCsrfToken } from "@sn/api";
 import Alert from "./Alert";
 import { INPUT, LABEL, NOTE, PRIMARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
-import { PASSWORD_MESSAGE, changePassword, isPasswordValid } from "../lib/auth";
+import PasswordChecklist from "./PasswordChecklist";
+import { PASSWORD_EXAMPLE, PASSWORD_MESSAGE, changePassword, isPasswordValid } from "../lib/auth";
 
 interface Props {
   hasPassword: boolean;
@@ -48,9 +49,9 @@ export default function PasswordForm({ hasPassword, onDone }: Props) {
       )}
       <label htmlFor="new-password" className={LABEL}>Mật khẩu mới</label>
       <input id="new-password" type="password" value={next} autoComplete="new-password" required
-             aria-describedby="new-password-hint" placeholder="Ít nhất 8 ký tự"
+             aria-describedby="new-password-hint" placeholder={`vd: ${PASSWORD_EXAMPLE}`}
              onChange={(e) => setNext(e.target.value)} className={INPUT} />
-      <p id="new-password-hint" className={NOTE}>{PASSWORD_MESSAGE}.</p>
+      <PasswordChecklist id="new-password-hint" password={next} />
       <label htmlFor="confirm-password" className={LABEL}>Nhập lại mật khẩu mới</label>
       <input id="confirm-password" type="password" value={confirm} autoComplete="new-password" required
              onChange={(e) => setConfirm(e.target.value)} className={INPUT} />

@@ -8,7 +8,7 @@ from app.config import ConfigError, Settings
 from app.main import create_app
 from tests.helpers import CREDS, STRONG, csrf, register, grant_fresh
 
-SECRETS = ("s3cret-pass", "wrong-password", STRONG, "eyJ")  # passwords and the start of any JWT
+SECRETS = ("S3cret-Pass", "wrong-password", STRONG, "eyJ")  # passwords and the start of any JWT
 
 
 def build(monkeypatch, **env):

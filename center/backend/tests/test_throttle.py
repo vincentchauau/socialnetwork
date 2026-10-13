@@ -70,7 +70,7 @@ def test_one_address_spraying_many_usernames_gets_blocked(client):
 
 def test_register_is_throttled_per_address(client):
     codes = [
-        client.post("/auth/register", json={"username": f"user{i}", "password": "s3cret-pass"}).status_code
+        client.post("/auth/register", json={"username": f"user{i}", "password": "S3cret-Pass"}).status_code
         for i in range(12)
     ]
     assert codes[0] == 201

@@ -73,9 +73,13 @@ def test_register_duplicate_username_returns_409(client):
     [
         ("short", "at least 8"),
         ("p" * 129, "at most 128"),
-        ("aaaaaaaabbbb", "too simple"),
-        ("Password123", "too common"),
-        ("alice-alice", None),
+        ("aaaaaaaabbbb", "special character"),
+        ("alllower-case1!", "uppercase letter"),
+        ("ALLUPPER-CASE1!", "special character"),
+        ("No-digits-here!", "special character"),
+        ("Password123!", "too common"),
+        ("P@ssw0rd", "too common"),
+        ("Alice-alice-1", None),
     ],
 )
 def test_register_password_policy(client, password, fragment):
@@ -88,7 +92,7 @@ def test_register_password_policy(client, password, fragment):
 
 
 def test_register_rejects_password_equal_to_username(client):
-    response = client.post("/auth/register", json={"username": "longname1", "password": "LongName1"})
+    response = client.post("/auth/register", json={"username": "long-name1", "password": "Long-Name1"})
     assert response.status_code == 422
     assert "username" in response.json()["detail"]
 

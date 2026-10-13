@@ -3,8 +3,8 @@
 from app.tokens import create_fresh_token
 from sn_shared.security import INTERNAL_ALGORITHM, ISSUER, decode_token, get_jwt_secret
 
-CREDS = {"username": "Alice", "password": "s3cret-pass"}
-STRONG = "correct-horse-battery"
+CREDS = {"username": "Alice", "password": "S3cret-Pass"}
+STRONG = "Correct-Horse-Battery1"
 
 
 def register(client, creds=CREDS):

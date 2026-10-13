@@ -149,11 +149,11 @@ def test_delete_revokes_tokens_everywhere_and_reserves_the_name(client, revocati
     assert int(revocations.get(f"sn:minver:{session['id']}")) == 1
     client.cookies.set("sn_token", token, path="/")
     assert client.get("/auth/me").status_code == 401
-    assert client.post("/auth/register", json={"username": "alice", "password": "correct-horse-battery"}).status_code == 409
+    assert client.post("/auth/register", json={"username": "alice", "password": "Correct-Horse-Battery1"}).status_code == 409
 
 
 def test_a_new_user_never_gets_a_deleted_id(client):
     first = register(client)
     delete(client, first)
-    second = register(client, {"username": "bob", "password": "correct-horse-battery"})
+    second = register(client, {"username": "bob", "password": "Correct-Horse-Battery1"})
     assert second["id"] > first["id"]

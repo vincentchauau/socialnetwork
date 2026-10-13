@@ -66,11 +66,12 @@ def test_needs_rehash_on_garbage():
     [
         ("short", "", "at least 8"),
         ("x" * 129, "", "at most 128"),
-        ("aabbaabb", "", "too simple"),
-        ("PASSWORD123", "", "too common"),
-        ("Alice-Smith", "alice-smith", "username"),
-        ("good-enough-pass", "alice", None),
-        ("abcd1234" * 16, "", None),
+        ("aabbaabb", "", "special character"),
+        ("Password123!", "", "too common"),
+        ("Alice-Smith1", "alice-smith1", "username"),
+        ("Good-Enough-Pass1", "alice", None),
+        ("Abcd1234!" * 14, "", None),
+        ("lower-only-1!", "", "uppercase letter"),
     ],
 )
 def test_password_problem(password, username, fragment):

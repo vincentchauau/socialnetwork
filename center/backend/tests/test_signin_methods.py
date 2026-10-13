@@ -153,15 +153,15 @@ def test_register_throttle_is_shared_per_ip(bio_client):
 @pytest.mark.parametrize(
     "data, files, expected",
     [
-        ({"password": "correct-horse-battery"}, {}, (True, False, False, False, False, False)),
+        ({"password": "Correct-Horse-Battery1"}, {}, (True, False, False, False, False, False)),
         ({}, {"voice_audio": VOICE}, (False, False, True, False, True, False)),
         ({}, {"webcam_video": CAM}, (False, False, False, True, False, True)),
-        ({"password": "correct-horse-battery"}, {"voice_audio": VOICE}, (True, False, True, False, True, False)),
-        ({"password": "correct-horse-battery"}, {"webcam_video": CAM}, (True, False, False, True, False, True)),
+        ({"password": "Correct-Horse-Battery1"}, {"voice_audio": VOICE}, (True, False, True, False, True, False)),
+        ({"password": "Correct-Horse-Battery1"}, {"webcam_video": CAM}, (True, False, False, True, False, True)),
         ({"google_id_token": "g1|vera@example.com"}, {"voice_audio": VOICE}, (False, True, True, False, True, False)),
         ({"google_id_token": "g1|vera@example.com"}, {}, (False, True, False, False, False, False)),
         (
-            {"password": "correct-horse-battery", "google_id_token": "g1|vera@example.com"},
+            {"password": "Correct-Horse-Battery1", "google_id_token": "g1|vera@example.com"},
             {"voice_audio": VOICE, "webcam_video": CAM},
             (True, True, True, True, True, True),
         ),
@@ -191,9 +191,9 @@ def test_combined_google_stores_the_email(gclient):
 
 
 def test_combined_signs_in_with_every_chosen_method_afterwards(gclient):
-    combined(gclient, data={"password": "correct-horse-battery"}, voice_audio=VOICE, webcam_video=CAM)
+    combined(gclient, data={"password": "Correct-Horse-Battery1"}, voice_audio=VOICE, webcam_video=CAM)
     gclient.cookies.clear()
-    assert gclient.post("/auth/login", json={"username": "vera", "password": "correct-horse-battery"}).status_code == 200
+    assert gclient.post("/auth/login", json={"username": "vera", "password": "Correct-Horse-Battery1"}).status_code == 200
     assert login_voice(gclient).status_code == 200
     assert login_webcam(gclient).status_code == 200  # face only: no voice involved
 
@@ -201,11 +201,11 @@ def test_combined_signs_in_with_every_chosen_method_afterwards(gclient):
 @pytest.mark.parametrize(
     "data, files, status_code",
     [
-        ({"password": "correct-horse-battery"}, {"voice_audio": BAD}, 400),
-        ({"password": "correct-horse-battery"}, {"webcam_video": BAD}, 400),
+        ({"password": "Correct-Horse-Battery1"}, {"voice_audio": BAD}, 400),
+        ({"password": "Correct-Horse-Battery1"}, {"webcam_video": BAD}, 400),
         ({"password": "short"}, {"voice_audio": VOICE}, 422),
         ({"google_id_token": "bad-token"}, {"voice_audio": VOICE}, 401),
-        ({"password": "correct-horse-battery"}, {"voice_audio": VOICE, "webcam_video": BAD}, 400),
+        ({"password": "Correct-Horse-Battery1"}, {"voice_audio": VOICE, "webcam_video": BAD}, 400),
     ],
 )
 def test_combined_is_all_or_nothing(gclient, data, files, status_code):
@@ -217,9 +217,9 @@ def test_combined_is_all_or_nothing(gclient, data, files, status_code):
 def test_combined_needs_a_method_and_a_valid_free_username(gclient):
     none = combined(gclient)
     assert none.status_code == 422 and none.json() == {"detail": "Choose at least one sign-in method"}
-    assert combined(gclient, "ab", {"password": "correct-horse-battery"}).status_code == 422
-    assert combined(gclient, data={"password": "correct-horse-battery"}).status_code == 201
-    assert combined(gclient, data={"password": "correct-horse-battery"}).status_code == 409
+    assert combined(gclient, "ab", {"password": "Correct-Horse-Battery1"}).status_code == 422
+    assert combined(gclient, data={"password": "Correct-Horse-Battery1"}).status_code == 201
+    assert combined(gclient, data={"password": "Correct-Horse-Battery1"}).status_code == 409
 
 
 def test_combined_google_conflict_creates_nothing(gclient):
@@ -238,17 +238,17 @@ def test_combined_biometric_file_while_disabled_is_503_but_password_still_works(
     r = combined(client, voice_audio=VOICE)
     assert r.status_code == 503 and r.json() == {"detail": "Biometrics are not available"}
     assert row(client) is None
-    assert combined(client, data={"password": "correct-horse-battery"}).status_code == 201
+    assert combined(client, data={"password": "Correct-Horse-Battery1"}).status_code == 201
 
 
 def test_combined_shares_the_register_throttle(bio_client):
-    codes = [combined(bio_client, f"user{i:02d}", {"password": "correct-horse-battery"}).status_code for i in range(11)]
+    codes = [combined(bio_client, f"user{i:02d}", {"password": "Correct-Horse-Battery1"}).status_code for i in range(11)]
     assert codes == [201] * 10 + [429]
 
 
 def test_combined_rejects_a_bad_origin(bio_client):
     r = bio_client.post(
-        "/auth/register/combined", data={"username": "vera", "password": "correct-horse-battery"},
+        "/auth/register/combined", data={"username": "vera", "password": "Correct-Horse-Battery1"},
         headers={"Origin": "https://evil.example"},
     )  # fmt: skip
     assert r.status_code == 403
@@ -564,9 +564,9 @@ def test_google_can_be_unlinked_when_voice_or_webcam_remains_and_then_voice_is_l
 
 
 def test_each_method_can_go_while_another_remains(gclient):
-    session = combined(gclient, data={"password": "correct-horse-battery", "google_id_token": "g1|v@example.com"},
+    session = combined(gclient, data={"password": "Correct-Horse-Battery1", "google_id_token": "g1|v@example.com"},
                        voice_audio=VOICE, webcam_video=CAM).json()  # fmt: skip
-    pw = {"password": "correct-horse-battery"}
+    pw = {"password": "Correct-Horse-Battery1"}
     unlink = gclient.request("DELETE", "/auth/me/google", json=pw, headers=csrf(session))
     assert unlink.status_code == 200
     assert remove(gclient, session, "voice", pw).status_code == 200
