@@ -37,6 +37,7 @@ ALL_APPS: tuple[App, ...] = (
     App("market", "Market", "Mua và bán sản phẩm"),
     App("learning", "Learning", "Học và dạy các khóa kỹ năng"),
     App("jobs", "Jobs", "Tìm việc hoặc tuyển người"),
+    App("face", "Face", "Đo cân đối khuôn mặt"),
 )
 
 # The apps that are generated into compose/nginx/apps.ts; narrowed by --apps in main().

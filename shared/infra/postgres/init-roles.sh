@@ -64,6 +64,7 @@ provision sn_werewolf werewolf DB_PASSWORD_WEREWOLF
 provision sn_market market DB_PASSWORD_MARKET
 provision sn_learning learning DB_PASSWORD_LEARNING
 provision sn_jobs jobs DB_PASSWORD_JOBS
+provision sn_face face DB_PASSWORD_FACE
 
 # The maintenance databases are not a way around the per-service databases.
 admin --dbname postgres <<'SQL'

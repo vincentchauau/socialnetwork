@@ -17,6 +17,7 @@ socialnetwork/
   market/       products, cart, orders, reviews (payments are a stub)
   learning/     courses, lessons, quizzes, progress, certificates
   jobs/         postings, applications, saved jobs, candidate profile
+  face/         face-symmetry measurements (computed in the browser; only numeric scores saved on opt-in; see face/API.md)
                 (each app = backend/ FastAPI + frontend/ Next.js, served at /<app>)
 ```
 
@@ -32,7 +33,7 @@ socialnetwork/
 ```
 browser -> gateway :8080
   /              -> center-frontend
-  /<app>         -> <app>-frontend   (chat, photos, watch, werewolf, market, learning, jobs)
+  /<app>         -> <app>-frontend   (chat, photos, watch, werewolf, market, learning, jobs, face)
   /api/center/*  -> center-backend   (prefix stripped)
   /api/<app>/*   -> <app>-backend    (prefix stripped; WebSocket upgrade for chat and werewolf)
 ```
@@ -257,7 +258,7 @@ next `/auth/refresh` issues an EdDSA one). Tokens without a session id keep the 
 ## Database roles
 
 Each service has its own LOGIN role (`sn_center`, `sn_chat`, `sn_photos`, `sn_watch`, `sn_werewolf`, `sn_market`,
-`sn_learning`, `sn_jobs`) with the password `DB_PASSWORD_<APP>` from `.env`. The role owns its database (so
+`sn_learning`, `sn_jobs`, `sn_face`) with the password `DB_PASSWORD_<APP>` from `.env`. The role owns its database (so
 `create_all` / `ensure_columns` keep working), is not superuser and cannot create databases or roles, and
 `CONNECT` is revoked from `PUBLIC`, so a service role cannot even connect to another service's database (or to
 `postgres` / `template1`). Only the `postgres` container knows `POSTGRES_PASSWORD`.

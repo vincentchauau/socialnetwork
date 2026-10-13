@@ -29,6 +29,7 @@ services:
       DB_PASSWORD_MARKET: ${DB_PASSWORD_MARKET:?set DB_PASSWORD_MARKET in .env (hex)}
       DB_PASSWORD_LEARNING: ${DB_PASSWORD_LEARNING:?set DB_PASSWORD_LEARNING in .env (hex)}
       DB_PASSWORD_JOBS: ${DB_PASSWORD_JOBS:?set DB_PASSWORD_JOBS in .env (hex)}
+      DB_PASSWORD_FACE: ${DB_PASSWORD_FACE:?set DB_PASSWORD_FACE in .env (hex)}
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Runs on a FRESH volume only; on an existing one use postgres/apply-roles.sh (see README).
@@ -297,6 +298,30 @@ services:
       context: ../..
       dockerfile: jobs/frontend/Dockerfile
 
+  face-backend:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: face/backend/Dockerfile
+    environment:
+      <<: *backend-env
+      DATABASE_URL: postgresql+psycopg://sn_face:${DB_PASSWORD_FACE:?set DB_PASSWORD_FACE in .env (hex)}@postgres:5432/face
+      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    secrets:
+      - jwt_public_keys
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  face-frontend:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: face/frontend/Dockerfile
+
   # Development mail sink: catches every email the app sends (nothing leaves this machine).
   # Enabled by COMPOSE_PROFILES=mail-dev in .env; in production point SMTP_* at a real server instead.
   # Web inbox: http://localhost:8025 (bound to this machine only).
@@ -338,6 +363,8 @@ services:
       - learning-frontend
       - jobs-backend
       - jobs-frontend
+      - face-backend
+      - face-frontend
 
 # Access-token keys (Ed25519). Create with `python -m app.cli gen-jwt-key` in center/backend (see README);
 # the files are NOT in the repository. Only center-backend gets the private key.
