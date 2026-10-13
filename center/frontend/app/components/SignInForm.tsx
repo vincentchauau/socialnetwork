@@ -46,11 +46,22 @@ export function availableMethods(config: AuthConfig): Method[] {
   return methods;
 }
 
-/** Các tab đăng nhập: thêm Email (sau Mật khẩu) khi máy chủ bật email. */
+/**
+ * Thứ tự tab: các cách cùng chuỗi thông điệp nằm cạnh nhau (xem SPEC.md).
+ *   A → S                 Mật khẩu, Giọng nói, Webcam
+ *   A → S → B ⇢ A → S     Email, Điện thoại (mã gửi qua kênh ngoài)
+ *   A → G → A → S         Google
+ *   A → S → A → B → A → S Passkey
+ *   A → S → A ⇢ B → S → A Mã QR
+ */
 export function signInMethods(config: AuthConfig): Method[] {
-  const [password, ...rest] = availableMethods(config);
-  const second: Method[] = [...(config.email_enabled ? (["email"] as const) : []), ...(config.phone_enabled ? (["phone"] as const) : [])];
-  return [password, ...second, ...rest, "qr"];
+  const methods: Method[] = ["password"];
+  if (config.biometrics_enabled) methods.push("voice", "webcam");
+  if (config.email_enabled) methods.push("email");
+  if (config.phone_enabled) methods.push("phone");
+  if (config.google_client_id) methods.push("google");
+  methods.push("passkey", "qr");
+  return methods;
 }
 
 const PASSKEY_HINT = "Dùng vân tay, Face ID, Windows Hello hoặc khóa bảo mật của thiết bị. Không cần nhập tên đăng nhập.";

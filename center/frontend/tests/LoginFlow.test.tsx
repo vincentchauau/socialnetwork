@@ -96,14 +96,14 @@ describe("LoginFlow selector", () => {
     const user = userEvent.setup();
     render(<LoginFlow />);
     await screen.findByRole("tab", { name: "Passkey" });
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Mật khẩu", "Google", "Giọng nói", "Webcam (khuôn mặt)", "Passkey", "Mã QR"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Mật khẩu", "Giọng nói", "Webcam (khuôn mặt)", "Google", "Passkey", "Mã QR"]);
     expect(tab("Mật khẩu")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByLabelText("Mật khẩu", { selector: "input" })).toBeInTheDocument();
 
     tab("Mật khẩu").focus();
     await user.keyboard("{ArrowRight}");
-    expect(tab("Google")).toHaveAttribute("aria-selected", "true");
-    expect(tab("Google")).toHaveFocus();
+    expect(tab("Giọng nói")).toHaveAttribute("aria-selected", "true");
+    expect(tab("Giọng nói")).toHaveFocus();
     await user.keyboard("{End}");
     expect(tab("Mã QR")).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{ArrowRight}");
