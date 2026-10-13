@@ -4,7 +4,7 @@ import FieldLabel from "./FieldLabel";
 import { INPUT } from "./ui";
 
 const USERNAME_HINT = "(thường + hoa + số + đặc biệt)";
-const USERNAME_EXAMPLE = "User_123!";
+const USERNAME_EXAMPLE = "User@123";
 
 interface Props {
   value: string;

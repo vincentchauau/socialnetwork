@@ -103,7 +103,7 @@ def test_generated_name_accounts_can_rename(google_client):
     assert rename(google_client, session, "zed-new", password=None).json()["username"] == "zed-new"
 
 
-@pytest.mark.parametrize("name", ["ab", "has space", "UPPER@", "x" * 33, ""])
+@pytest.mark.parametrize("name", ["ab", "has space", "UPPER:", "x" * 33, ""])
 def test_same_policy_as_registration(client, name):
     session = register(client)
     assert rename(client, session, name).status_code == 422

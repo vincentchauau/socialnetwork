@@ -307,7 +307,7 @@ def reset_password(
     if row is None or user is None or not has_verified_email(user) or user.email != row.email:
         audit.warning("password reset failed ip=%s", client_ip(request))
         raise _fail(status.HTTP_400_BAD_REQUEST, BAD_LINK)
-    problem = password_problem(body.new_password, user.username)
+    problem = password_problem(body.new_password)
     if problem:  # the token stays valid so the user can try again
         raise _fail(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
     if not et.consume(db, row.id):

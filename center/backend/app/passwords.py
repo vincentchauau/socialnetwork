@@ -41,7 +41,7 @@ def missing_character_classes(password: str) -> list[str]:
     return [name for name, ok in present.items() if not ok]
 
 
-def password_problem(password: str, username: str = "") -> str | None:
+def password_problem(password: str) -> str | None:
     """Why the password is rejected, or None when acceptable."""
     if len(password) < MIN_PASSWORD:
         return f"Password must be at least {MIN_PASSWORD} characters"
@@ -52,8 +52,6 @@ def password_problem(password: str, username: str = "") -> str | None:
     lowered = password.lower()
     if lowered in COMMON_PASSWORDS or _alphanumeric(lowered) in COMMON_PASSWORDS:  # "Password1!" is still "password1"
         return "Password is too common"
-    if username and password.lower() == username.lower():
-        return "Password must not equal the username"
     return None
 
 

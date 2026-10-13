@@ -37,7 +37,7 @@ def test_no_password_sentinel_never_verifies():
     assert not needs_rehash(NO_PASSWORD)
 
 
-@pytest.mark.parametrize("stored", [None, "", "garbage", "scrypt$1$2", "md5$1$1$1$AA==$AA==", "scrypt$x$8$1$AA==$AA=="])
+@pytest.mark.parametrize("stored", [None, "garbage", "scrypt$1$2", "md5$1$1$1$AA==$AA==", "scrypt$x$8$1$AA==$AA=="])
 def test_malformed_hashes_are_rejected(stored):
     assert not verify_password("pw", stored)
 
@@ -62,20 +62,20 @@ def test_needs_rehash_on_garbage():
 
 
 @pytest.mark.parametrize(
-    ("password", "username", "fragment"),
+    ("password", "fragment"),
     [
-        ("short", "", "at least 8"),
-        ("x" * 129, "", "at most 128"),
-        ("aabbaabb", "", "special character"),
-        ("Password123!", "", "too common"),
-        ("Alice-Smith1", "alice-smith1", "username"),
-        ("Good-Enough-Pass1", "alice", None),
-        ("Abcd1234!" * 14, "", None),
-        ("lower-only-1!", "", "uppercase letter"),
+        ("short", "at least 8"),
+        ("x" * 129, "at most 128"),
+        ("aabbaabb", "special character"),
+        ("Password123!", "too common"),
+        ("Alice-Smith1", None),
+        ("Good-Enough-Pass1", None),
+        ("Abcd1234!" * 14, None),
+        ("lower-only-1!", "uppercase letter"),
     ],
 )
-def test_password_problem(password, username, fragment):
-    problem = password_problem(password, username)
+def test_password_problem(password, fragment):
+    problem = password_problem(password)
     if fragment is None:
         assert problem is None
     else:

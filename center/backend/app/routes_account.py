@@ -40,7 +40,7 @@ def change_password(
     user = session.user
     # Google-only accounts may set a first password without one; every other session is revoked below.
     require_reauth(request, user, body.current_password)
-    problem = password_problem(body.new_password, user.username)
+    problem = password_problem(body.new_password)
     if problem:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
     user.password_hash = hash_password(body.new_password)

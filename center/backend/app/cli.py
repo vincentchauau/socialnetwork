@@ -78,7 +78,7 @@ def main(
             return 1
         if command == "reset-password":
             new = read_password()
-            problem = password_problem(new, username)
+            problem = password_problem(new)
             if problem:
                 print(problem)
                 return 1

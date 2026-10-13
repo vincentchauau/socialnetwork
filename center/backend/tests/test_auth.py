@@ -91,10 +91,9 @@ def test_register_password_policy(client, password, fragment):
     assert fragment in response.json()["detail"]
 
 
-def test_register_rejects_password_equal_to_username(client):
+def test_register_accepts_password_equal_to_username(client):
     response = client.post("/auth/register", json={"username": "long-name1", "password": "Long-Name1"})
-    assert response.status_code == 422
-    assert "username" in response.json()["detail"]
+    assert response.status_code == 201
 
 
 @pytest.mark.parametrize("name", ["a b", "ab", "x" * 33, "bad/name", "emojié"])
@@ -203,4 +202,4 @@ def test_health(client):
 def test_strong_password_constant_is_acceptable():
     from app.passwords import password_problem
 
-    assert password_problem(STRONG, "alice") is None
+    assert password_problem(STRONG) is None

@@ -71,7 +71,7 @@ describe("ChangeUsername", () => {
     expect(form.getByText(/Mỗi 30 ngày chỉ đổi được một lần/)).toBeInTheDocument();
     expect(form.getByText("(thường + hoa + số + đặc biệt)")).toBeInTheDocument();
     expect(form.queryByText(/3-32 ký tự/)).not.toBeInTheDocument();
-    expect(form.getByPlaceholderText("User_123!")).toBeInTheDocument();
+    expect(form.getByPlaceholderText("User@123")).toBeInTheDocument();
     expect(form.queryByText(/Có thể đổi lại từ/)).toBeNull();
   });
 
@@ -132,7 +132,6 @@ describe("ChangeUsername", () => {
   });
 
   it.each([
-    ["Bad@Name", "không được chứa @"],
     ["Bad Name", "không được chứa khoảng trắng"],
     ["!!!", "Tên đăng nhập gồm 3-32 ký tự"],
     ["Bad:Name", "Tên đăng nhập gồm 3-32 ký tự"],

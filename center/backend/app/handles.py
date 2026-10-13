@@ -5,10 +5,11 @@ from typing import Callable
 
 MAX_LEN = 32
 MIN_LEN = 3
-# Besides ASCII letters and digits. Deliberately NOT '@' (never confusable with an email), whitespace, control or
-# non-ASCII characters (homoglyphs), nor the separators/metacharacters : | / \ " ' < > ` * ? [ ] { } ( ) , ;
-# (Redis keys and globs, `|`-joined throttle keys, URLs, HTML/mail text, shell and SQL LIKE patterns).
-ALLOWED_SPECIALS = "._-!#$%&+=^~"
+# Besides ASCII letters and digits. '@' is allowed: email flows look users up by users.email only, never by name.
+# Deliberately NOT whitespace, control or non-ASCII characters (homoglyphs), nor the separators/metacharacters
+# : | / \ " ' < > ` * ? [ ] { } ( ) , ;  (Redis keys and globs, `|`-joined throttle keys, URLs, HTML/mail text,
+# shell and SQL LIKE patterns).
+ALLOWED_SPECIALS = "._-!#$%&+=^~@"
 HANDLE_RE = re.compile(rf"^[A-Za-z0-9{re.escape(ALLOWED_SPECIALS)}]{{{MIN_LEN},{MAX_LEN}}}$")  # case kept for display
 _ALNUM = re.compile(r"[A-Za-z0-9]")
 _INVALID = re.compile(r"[^a-z0-9._-]")  # generated handles stay within the conservative core

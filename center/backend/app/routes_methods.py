@@ -192,7 +192,7 @@ def _register(
         _username_free(db, name)
     columns: dict = {"password_hash": NO_PASSWORD}
     if password:
-        problem = password_problem(password, name)
+        problem = password_problem(password)
         if problem:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
         columns["password_hash"] = hash_password(password)

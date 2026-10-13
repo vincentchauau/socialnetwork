@@ -1,4 +1,4 @@
-"""Usernames may contain letters, digits and ALLOWED_SPECIALS (never '@', whitespace, separators or non-ASCII)."""
+"""Usernames may contain letters, digits and ALLOWED_SPECIALS (whitespace, separators or non-ASCII)."""
 
 import json
 from urllib.parse import parse_qs, unquote, urlparse
@@ -16,15 +16,14 @@ from tests.helpers import CREDS, STRONG, register
 from tests.test_rename import rename
 
 PW = CREDS["password"]
-REJECTED = ["a@b", "has space", "ab:c", "a|bc", "a/bc", "a\\bc", "Nguyễn", "ab*", "ab?", "a'b", 'a"b', "a<b>", "a`b",
+REJECTED = ["has space", "ab:c", "a|bc", "a/bc", "a\\bc", "Nguyễn", "ab*", "ab?", "a'b", 'a"b', "a<b>", "a`b",
             "a[b]", "a{b}", "a(b)", "a,b", "a;b", "tab\tx", "new\nline", "ab\x00", "аdmin"]  # last: Cyrillic a
 
 
 def test_allowed_set_is_one_constant_and_the_regex_is_built_from_it():
-    assert ALLOWED_SPECIALS == "._-!#$%&+=^~"
+    assert ALLOWED_SPECIALS == "._-!#$%&+=^~@"
     for char in ALLOWED_SPECIALS:
         assert HANDLE_RE.match(f"ab{char}")
-    assert not HANDLE_RE.match("ab@")
 
 
 @pytest.mark.parametrize("char", list(ALLOWED_SPECIALS))
@@ -61,7 +60,7 @@ def test_trailing_newline_is_not_accepted_by_the_validator():
 
 def test_rename_accepts_special_characters_and_rejects_the_rest(client):
     session = register(client)
-    assert rename(client, session, "a@b.co").status_code == 422
+    assert rename(client, session, "a:b.co").status_code == 422
     assert rename(client, session, "a b").status_code == 422
     assert rename(client, session, "Neo#1!").status_code == 200
     with client.app.state.session_factory() as db:

@@ -293,7 +293,7 @@ describe("liveness token in the forms", () => {
     await recordClip(user);
     await user.click(screen.getByRole("checkbox", { name: "Webcam (khuôn mặt)" }));
     await user.type(screen.getByLabelText(/Tên đăng nhập/), "ann");
-    await user.type(screen.getByPlaceholderText("123@Pass"), "Pass-word-123X");
+    await user.type(screen.getByLabelText("Mật khẩu", { selector: "input[type=password]" }), "Pass-word-123X");
     await user.click(screen.getByRole("button", { name: "Đăng ký" }));
     await waitFor(() => expect(goTo).toHaveBeenCalled());
     expect(formOf(fn, "/register/combined").has("liveness_token")).toBe(false);

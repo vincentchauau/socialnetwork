@@ -63,7 +63,6 @@ describe("username rule", () => {
     expect(auth.isUsernameValid("ab")).toBe(false);
     expect(auth.isUsernameValid("a".repeat(33))).toBe(false);
     expect(auth.isUsernameValid("has space")).toBe(false);
-    expect(auth.isUsernameValid("a@b.co")).toBe(false);
     expect(auth.isUsernameValid("Nguyễn")).toBe(false);
   });
 
@@ -72,12 +71,22 @@ describe("username rule", () => {
       expect(auth.isUsernameValid(`Us${char}er9`)).toBe(true);
       expect(auth.isUsernameValid(`${char}ab`)).toBe(true);
     }
-    expect(auth.USERNAME_SPECIALS).toBe("._-!#$%&+=^~");
-    expect(auth.isUsernameValid("User_123!")).toBe(true);
+    expect(auth.USERNAME_SPECIALS).toBe("._-!#$%&+=^~@");
+    expect(auth.isUsernameValid("User@123")).toBe(true);
+    for (const name of ["a@b.co", "@name1", "name@"]) expect(auth.isUsernameValid(name)).toBe(true);
+  });
+
+  it("treats @ as an ordinary character, including names that look like an email", () => {
+    for (const name of ["User@123", "a@b.co", "@name1", "name@", "bob@example.com"]) {
+      expect(auth.isUsernameValid(name)).toBe(true);
+      expect(auth.usernameProblem(name)).toBeNull();
+    }
+    expect(auth.isUsernameValid("@@@")).toBe(false);
+    expect(auth.PASSWORD_EXAMPLE).toBe("User@123");
   });
 
   it("refuses separators, metacharacters, control and look-alike characters", () => {
-    for (const bad of ["a@bc", "a:bc", "a|bc", "a/bc", "a\\bc", 'a"bc', "a'bc", "a<b>", "a`bc", "a*bc", "a?bc", "a[b]", "a{b}", "a(b)", "a,bc", "a;bc", "a\tb", "a\nb", "аdmin"]) {
+    for (const bad of ["a:bc", "a|bc", "a/bc", "a\\bc", 'a"bc', "a'bc", "a<b>", "a`bc", "a*bc", "a?bc", "a[b]", "a{b}", "a(b)", "a,bc", "a;bc", "a\tb", "a\nb", "аdmin"]) {
       expect(auth.isUsernameValid(bad)).toBe(false);
     }
   });
@@ -87,8 +96,8 @@ describe("username rule", () => {
     expect(auth.isUsernameValid("..1")).toBe(true);
   });
 
-  it("explains a rejected name: @, spaces, then the general rule", () => {
-    expect(auth.usernameProblem("a@b.co")).toBe(auth.USERNAME_AT_MESSAGE);
+  it("explains a rejected name: spaces, then the general rule", () => {
+    expect(auth.usernameProblem("a@b.co")).toBeNull();
     expect(auth.usernameProblem("has space")).toBe(auth.USERNAME_SPACE_MESSAGE);
     expect(auth.usernameProblem("ab")).toBe(auth.USERNAME_MESSAGE);
     expect(auth.usernameProblem("!!!")).toBe(auth.USERNAME_MESSAGE);

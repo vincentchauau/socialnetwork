@@ -9,7 +9,7 @@ from app.handles import ALLOWED_SPECIALS, is_valid_username
 MAX_INPUT = 1024  # hard cap on any submitted secret; the policy limit is passwords.MAX_PASSWORD
 USERNAME_HINT = (
     f"Username must be 3-32 characters: A-Z, a-z, 0-9 or {' '.join(ALLOWED_SPECIALS)} "
-    "(at least one letter or digit; no '@', spaces or other symbols)"
+    "(at least one letter or digit; no spaces or other symbols)"
 )
 
 

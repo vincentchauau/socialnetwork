@@ -77,7 +77,7 @@ def register(
     throttle, ip = request.app.state.register_throttle, client_ip(request)
     if not throttle.check_and_record(ip):
         raise too_many()
-    problem = password_problem(body.password, body.username)
+    problem = password_problem(body.password)
     if problem:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
     if usernames.unavailable(db, body.username):  # reserved for someone who just gave it up
