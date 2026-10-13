@@ -62,6 +62,7 @@ describe("error mapping", () => {
     ["NotReadableError", "đang được ứng dụng khác"],
     ["UnsupportedError", "không hỗ trợ"],
     ["ModelLoadError", "mô hình"],
+    ["WebglUnavailableError", "WebGL"],
     ["Whatever", "Không thể bật camera"],
   ])("maps camera error %s", (name, text) => {
     const error = new Error("x");

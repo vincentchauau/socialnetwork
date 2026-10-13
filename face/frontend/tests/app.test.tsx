@@ -116,6 +116,18 @@ describe("camera lifecycle", () => {
     expect(landmarker.close).toHaveBeenCalled();
   });
 
+  it("explains a missing WebGL context instead of a generic analysis error", async () => {
+    const user = userEvent.setup();
+    const { deps, stop, landmarker } = makeDeps();
+    landmarker.detect.mockRejectedValue(named("WebglUnavailableError"));
+    render(<FaceApp deps={deps} />);
+    await user.click(screen.getByRole("button", { name: "Bật camera" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("WebGL");
+    expect(alert).toHaveTextContent("bên ngoài VS Code");
+    expect(stop).toHaveBeenCalledTimes(2);
+  });
+
   it("releases the stream if stop is pressed while the camera is opening", async () => {
     const user = userEvent.setup();
     const { deps, stop, stream } = makeDeps();

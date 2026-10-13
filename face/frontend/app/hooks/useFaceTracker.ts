@@ -111,8 +111,9 @@ export function useFaceTracker(deps: FaceDeps, drawEnabled: boolean): FaceTracke
         const landmarks = await landmarker.detect(video);
         if (runId.current !== id) return;
         handleFrame(video, landmarks);
-      } catch {
-        if (runId.current === id) halt(ANALYSIS_ERROR);
+      } catch (e) {
+        const webgl = e instanceof Error && e.name === "WebglUnavailableError";
+        if (runId.current === id) halt(webgl ? cameraErrorMessage(e) : ANALYSIS_ERROR);
         return;
       }
     }

@@ -17,6 +17,8 @@ export function cameraErrorMessage(error: unknown): string {
       return "Camera đang được ứng dụng khác sử dụng hoặc không thể mở.";
     case "UnsupportedError":
       return "Trình duyệt này không hỗ trợ camera. Hãy dùng trình duyệt mới hơn và kết nối HTTPS.";
+    case "WebglUnavailableError":
+      return "Trình duyệt này không bật được WebGL (thường gặp trong trình duyệt tích hợp của VS Code hoặc khi tắt tăng tốc phần cứng). Hãy mở trang bằng Chrome hoặc Edge bên ngoài VS Code và bật tăng tốc phần cứng.";
     case "ModelLoadError":
       return "Không tải được mô hình nhận diện khuôn mặt. Hãy tải lại trang và thử lại.";
     default:

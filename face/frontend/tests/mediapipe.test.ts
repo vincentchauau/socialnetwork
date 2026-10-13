@@ -7,6 +7,7 @@ class FakeMesh {
   static emit: "result" | "none" | "never" = "result";
   static initFails = false;
   static sendFails = false;
+  static hang = false;
   listener: ((r: unknown) => void) | null = null;
   options: unknown = null;
   closed = false;
@@ -18,6 +19,7 @@ class FakeMesh {
   async initialize() { if (FakeMesh.initFails) throw new Error("wasm"); }
   async send() {
     if (FakeMesh.sendFails) throw new Error("send");
+    if (FakeMesh.hang) await new Promise<void>(() => undefined);
     if (FakeMesh.emit === "result") this.listener?.({ multiFaceLandmarks: [[{ x: 0.1, y: 0.2 }]] });
     if (FakeMesh.emit === "none") this.listener?.({});
   }
@@ -35,9 +37,15 @@ beforeEach(() => {
   FakeMesh.emit = "result";
   FakeMesh.initFails = false;
   FakeMesh.sendFails = false;
+  FakeMesh.hang = false;
   document.head.innerHTML = "";
+  // jsdom has no WebGL: pretend the browser can create a context unless a test says otherwise
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({} as never);
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("loadFaceMeshScript", () => {
   it("reuses window.FaceMesh when already present", async () => {
@@ -114,6 +122,59 @@ describe("createMediaPipeLandmarker", () => {
     (window as Win).FaceMesh = FakeMesh;
     FakeMesh.initFails = true;
     await expect((await loadModule()).createMediaPipeLandmarker()).rejects.toMatchObject({ name: "ModelLoadError" });
+  });
+});
+
+describe("WebGL handling", () => {
+  const video = document.createElement("video");
+  it("hasWebGL is true with webgl2, true with webgl only, false without, and false when getContext throws", async () => {
+    const mod = await loadModule();
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, "getContext");
+    spy.mockImplementation(((kind: string) => (kind === "webgl2" ? {} : null)) as never);
+    expect(mod.hasWebGL()).toBe(true);
+    spy.mockImplementation(((kind: string) => (kind === "webgl" ? {} : null)) as never);
+    expect(mod.hasWebGL()).toBe(true);
+    spy.mockReturnValue(null);
+    expect(mod.hasWebGL()).toBe(false);
+    spy.mockImplementation((() => {
+      throw new Error("blocked");
+    }) as never);
+    expect(mod.hasWebGL()).toBe(false);
+  });
+
+  it("refuses to load the model without WebGL, before touching the script", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    await expect((await loadModule()).createMediaPipeLandmarker()).rejects.toMatchObject({ name: "WebglUnavailableError" });
+    expect(document.head.querySelector("script")).toBeNull();
+  });
+
+  it("turns MediaPipe's native WebGL alert into a rejected detect() and restores alert on close", async () => {
+    (window as Win).FaceMesh = FakeMesh;
+    const nativeAlert = vi.fn();
+    window.alert = nativeAlert;
+    const landmarker = await (await loadModule()).createMediaPipeLandmarker();
+    expect(window.alert).not.toBe(nativeAlert);
+    FakeMesh.hang = true;
+    const pending = landmarker.detect(video);
+    window.alert("Failed to create WebGL canvas context when passing video frame.");
+    await expect(pending).rejects.toMatchObject({ name: "WebglUnavailableError" });
+    expect(nativeAlert).not.toHaveBeenCalled();
+    window.alert("something else");
+    expect(nativeAlert).toHaveBeenCalledWith("something else");
+    landmarker.close();
+    expect(window.alert).toBe(nativeAlert);
+  });
+
+  it("ignores a WebGL alert when no detection is pending and restores alert if initialisation fails", async () => {
+    (window as Win).FaceMesh = FakeMesh;
+    const nativeAlert = vi.fn();
+    window.alert = nativeAlert;
+    const landmarker = await (await loadModule()).createMediaPipeLandmarker();
+    expect(() => window.alert("WebGL context lost")).not.toThrow();
+    landmarker.close();
+    FakeMesh.initFails = true;
+    await expect((await loadModule()).createMediaPipeLandmarker()).rejects.toMatchObject({ name: "ModelLoadError" });
+    expect(window.alert).toBe(nativeAlert);
   });
 });
 

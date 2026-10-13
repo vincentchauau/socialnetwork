@@ -29,6 +29,34 @@ function namedError(name: string, message: string): Error {
 
 let scriptPromise: Promise<FaceMeshCtor> | null = null;
 
+/** MediaPipe's image pipeline needs WebGL; some embedded browsers (e.g. VS Code's) and GPU-less setups lack it. */
+export function hasWebGL(): boolean {
+  try {
+    const canvas = document.createElement("canvas");
+    return Boolean(canvas.getContext("webgl2") ?? canvas.getContext("webgl"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * MediaPipe reports a missing WebGL context with a native alert(). While a landmarker lives, turn that alert into a
+ * rejected detect() so the UI can explain it instead of showing a modal dialog. Returns the function that restores alert.
+ */
+function interceptWebglAlert(onWebglFailure: () => void): () => void {
+  const original = window.alert;
+  window.alert = (message?: unknown) => {
+    if (/webgl/i.test(String(message ?? ""))) {
+      onWebglFailure();
+      return;
+    }
+    original.call(window, message);
+  };
+  return () => {
+    window.alert = original;
+  };
+}
+
 /** Loads the self-hosted face_mesh.js (a classic script that defines window.FaceMesh). */
 export function loadFaceMeshScript(): Promise<FaceMeshCtor> {
   const win = window as MediaPipeWindow;
@@ -52,9 +80,14 @@ export function loadFaceMeshScript(): Promise<FaceMeshCtor> {
 }
 
 export async function createMediaPipeLandmarker(): Promise<Landmarker> {
+  if (!hasWebGL()) throw namedError("WebglUnavailableError", "WebGL is not available in this browser");
   const Ctor = await loadFaceMeshScript();
   const mesh = new Ctor({ locateFile: (file) => `${MEDIAPIPE_BASE}/${file}` });
   let pending: ((landmarks: Landmark[] | null) => void) | null = null;
+  let failPending: ((error: Error) => void) | null = null;
+  const restoreAlert = interceptWebglAlert(() =>
+    failPending?.(namedError("WebglUnavailableError", "WebGL context could not be created")),
+  );
   mesh.setOptions({ maxNumFaces: 1, refineLandmarks: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
   const emit = (value: Landmark[] | null) => {
     const resolve = pending;
@@ -65,18 +98,21 @@ export async function createMediaPipeLandmarker(): Promise<Landmarker> {
   try {
     await mesh.initialize();
   } catch {
+    restoreAlert();
     throw namedError("ModelLoadError", "FaceMesh initialisation failed");
   }
   return {
     detect: (video) =>
       new Promise<Landmark[] | null>((resolve, reject) => {
         pending = resolve;
+        failPending = reject;
         mesh
           .send({ image: video })
           .then(() => emit(null)) // no-op when onResults already answered
           .catch(reject);
       }),
     close: () => {
+      restoreAlert();
       void mesh.close();
     },
   };
