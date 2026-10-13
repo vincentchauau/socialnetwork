@@ -1,4 +1,5 @@
 import os
+import random
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,6 +19,7 @@ ALLOWED_ORIGIN = "http://localhost:8080"
 
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
+    random.seed(20240607)  # the engine and bots use the global RNG: keep runs reproducible
     install_test_keys(monkeypatch)
     monkeypatch.setenv("ALLOWED_ORIGINS", ALLOWED_ORIGIN)
 

@@ -1,18 +1,24 @@
 import asyncio
-import time
-from collections import defaultdict, deque
+import json
+from collections import defaultdict
 from typing import Any, Callable
 
 from fastapi import WebSocket, status
-
-from app.engine import Game, view_for
 
 DEFAULT_SEND_TIMEOUT_SECONDS = 5.0
 MAX_CONNECTIONS = 500  # global cap on open sockets; further connects are refused with 1013
 
 
+def dumps(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
 class GameHub:
-    """Open sockets per room; each socket only ever receives its own player's redacted view."""
+    """Open sockets per room. Each socket only ever receives its own user's view of the room.
+
+    A state change costs one `state_for` + one JSON encoding per connected user (not per socket), and a socket
+    whose last state frame is byte-identical is skipped.
+    """
 
     def __init__(
         self,
@@ -20,9 +26,9 @@ class GameHub:
         max_connections: int = MAX_CONNECTIONS,
     ) -> None:
         self._rooms: dict[str, dict[WebSocket, int]] = defaultdict(dict)
+        self._last: dict[WebSocket, str] = {}  # last state frame sent per socket
         self._send_timeout = send_timeout
         self._max_connections = max_connections
-        self._limiters: dict[int, "MessageRateLimiter"] = {}
 
     def total(self) -> int:
         return sum(len(sockets) for sockets in self._rooms.values())
@@ -30,18 +36,11 @@ class GameHub:
     def is_full(self) -> bool:
         return self.total() >= self._max_connections
 
-    def limiter_for(self, user_id: int, max_events: int, window: float) -> "MessageRateLimiter":
-        """One shared limiter per user, so extra connections do not multiply the allowance."""
-        self._prune_limiters()
-        limiter = self._limiters.get(user_id)
-        if limiter is None:
-            limiter = self._limiters[user_id] = MessageRateLimiter(max_events, window)
-        return limiter
+    def size(self, room: str) -> int:
+        return len(self._rooms.get(room, ()))
 
-    def _prune_limiters(self) -> None:
-        connected = {uid for sockets in self._rooms.values() for uid in sockets.values()}
-        for user_id in [u for u, lim in self._limiters.items() if u not in connected and lim.idle()]:
-            del self._limiters[user_id]
+    def users(self, room: str) -> set[int]:
+        return set(self._rooms.get(room, {}).values())
 
     async def join(self, room: str, socket: WebSocket, user_id: int) -> None:
         """Accept the socket. At most one socket per (room, user): a newer one replaces the older,
@@ -51,14 +50,13 @@ class GameHub:
         displaced = [s for s, uid in sockets.items() if uid == user_id]
         for old in displaced:
             del sockets[old]
+            self._last.pop(old, None)
         sockets[socket] = user_id
         for old in displaced:
-            try:
-                await old.close(code=status.WS_1008_POLICY_VIOLATION)
-            except Exception:  # already closed
-                pass
+            await self._close(old)
 
     def leave(self, room: str, socket: WebSocket) -> None:
+        self._last.pop(socket, None)
         sockets = self._rooms.get(room)
         if sockets is None:
             return
@@ -66,64 +64,58 @@ class GameHub:
         if not sockets:
             del self._rooms[room]
 
-    def size(self, room: str) -> int:
-        return len(self._rooms.get(room, ()))
+    @staticmethod
+    async def _close(socket: WebSocket, code: int = status.WS_1008_POLICY_VIOLATION) -> None:
+        try:
+            await socket.close(code=code)
+        except Exception:  # already closed
+            pass
 
-    async def send_state(self, room: str, socket: WebSocket, game: Game, user_id: int) -> None:
-        await self._deliver(room, socket, {"type": "state", "state": view_for(game, user_id)})
+    async def send_state(self, room: str, socket: WebSocket, state: dict[str, Any]) -> None:
+        await self._push_state(room, socket, dumps({"type": "state", "state": state}))
 
-    async def broadcast_state(self, room: str, game: Game) -> None:
-        """Send each connected player their own view; evict sockets of players who left."""
-        targets = list(self._rooms.get(room, {}).items())
-        await asyncio.gather(*(self._push_state(room, s, uid, game) for s, uid in targets))
+    async def broadcast(self, room: str, state_for: Callable[[int], dict[str, Any] | None]) -> None:
+        """Send every connected user their own state; users without a seat any more are disconnected."""
+        by_user: dict[int, list[WebSocket]] = defaultdict(list)
+        for socket, user_id in list(self._rooms.get(room, {}).items()):
+            by_user[user_id].append(socket)
+        sends = []
+        for user_id, sockets in by_user.items():
+            state = state_for(user_id)
+            if state is None:
+                for socket in sockets:
+                    self.leave(room, socket)
+                    sends.append(self._close(socket))
+                continue
+            frame = dumps({"type": "state", "state": state})
+            sends.extend(self._push_state(room, socket, frame) for socket in sockets)
+        await asyncio.gather(*sends)
 
-    async def _push_state(self, room: str, socket: WebSocket, user_id: int, game: Game) -> None:
-        if game.member(user_id) is None:
-            self.leave(room, socket)
-            try:
-                await socket.close(code=status.WS_1008_POLICY_VIOLATION)
-            except Exception:  # already closed
-                pass
+    async def _push_state(self, room: str, socket: WebSocket, frame: str) -> None:
+        if self._last.get(socket) == frame:
             return
-        await self.send_state(room, socket, game, user_id)
+        if await self._deliver(room, socket, frame):
+            self._last[socket] = frame
 
-    async def send_chat(self, room: str, recipients: frozenset[int], payload: dict[str, Any]) -> None:
-        targets = [s for s, uid in self._rooms.get(room, {}).items() if uid in recipients]
-        await asyncio.gather(*(self._deliver(room, s, payload) for s in targets))
+    async def send_chat(self, room: str, recipients: list[int], message: dict[str, Any]) -> None:
+        """A chat message goes only to the users allowed to read it (not a whole-state push)."""
+        wanted = set(recipients)
+        frame = dumps({"type": "chat", "message": message})
+        targets = [s for s, uid in self._rooms.get(room, {}).items() if uid in wanted]
+        await asyncio.gather(*(self._deliver(room, s, frame) for s in targets))
 
     async def send_error(self, socket: WebSocket, message: str) -> None:
-        await socket.send_json({"type": "error", "error": message})
+        await socket.send_text(dumps({"type": "error", "error": message}))
 
-    async def _deliver(self, room: str, socket: WebSocket, payload: dict[str, Any]) -> None:
+    async def _deliver(self, room: str, socket: WebSocket, frame: str) -> bool:
         try:
-            await asyncio.wait_for(socket.send_json(payload), self._send_timeout)
+            await asyncio.wait_for(socket.send_text(frame), self._send_timeout)
         except Exception:  # slow or dead socket: drop it, keep delivering to the rest
             self.leave(room, socket)
-
-
-class MessageRateLimiter:
-    """Sliding-window limit on how many messages one connection may send."""
-
-    def __init__(
-        self,
-        max_events: int,
-        window_seconds: float,
-        now: Callable[[], float] = time.monotonic,
-    ) -> None:
-        self._max_events = max_events
-        self._window = window_seconds
-        self._now = now
-        self._events: deque[float] = deque()
-
-    def idle(self) -> bool:
-        current = self._now()
-        return not self._events or self._events[-1] <= current - self._window
-
-    def allow(self) -> bool:
-        current = self._now()
-        while self._events and self._events[0] <= current - self._window:
-            self._events.popleft()
-        if len(self._events) >= self._max_events:
             return False
-        self._events.append(current)
         return True
+
+    async def close_room(self, room: str) -> None:
+        for socket in list(self._rooms.get(room, {})):
+            self.leave(room, socket)
+            await self._close(socket, status.WS_1001_GOING_AWAY)

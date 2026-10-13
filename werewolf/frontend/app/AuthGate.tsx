@@ -15,16 +15,16 @@ export default function AuthGate({
 }) {
   const auth = useSession();
 
-  if (auth.status === "loading") return <p className="muted">Loading…</p>;
+  if (auth.status === "loading") return <p className="muted">Đang tải…</p>;
 
   if (auth.status === "error") {
     return (
       <div className="stack">
         <h1>{title}</h1>
         <p role="alert" className="error">
-          Could not reach the server. Please try again.
+          Không kết nối được máy chủ. Hãy thử lại.
         </p>
-        <a href="/">← Home</a>
+        <a href="/">← Trang chủ</a>
       </div>
     );
   }
@@ -34,9 +34,9 @@ export default function AuthGate({
       <div className="stack">
         <h1>{title}</h1>
         <p>
-          Please <a href="/login">sign in</a> first.
+          Hãy <a href="/login">đăng nhập</a> trước.
         </p>
-        <a href="/">← Home</a>
+        <a href="/">← Trang chủ</a>
       </div>
     );
   }

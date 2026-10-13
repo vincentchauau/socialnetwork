@@ -1,5 +1,4 @@
 import json
-import time
 from contextlib import ExitStack
 
 import pytest
@@ -8,301 +7,212 @@ from starlette.websockets import WebSocketDisconnect
 from app import ws as ws_module
 from sn_shared import COOKIE_NAME, create_token
 from tests.conftest import ALLOWED_ORIGIN, ws_headers
-from tests.test_api import get, make_room, post
+from tests.test_api import get, make_room, name_of, post, seats, start
 
 
-def start_room(client, players: int = 5) -> tuple[str, dict[int, str]]:
-    room_id = make_room(client, players)
-    assert post(client, f"/rooms/{room_id}/start").status_code == 200
-    roles = {}
-    for uid in range(1, players + 1):
-        name = "alice" if uid == 1 else f"user{uid}"
-        roles[uid] = get(client, f"/rooms/{room_id}", uid, name).json()["state"]["you"]["role"]
-    return room_id, roles
+def connect(client, stack: ExitStack, code: str, uid: int = 1):
+    socket = stack.enter_context(client.websocket_connect(f"/ws/{code}", headers=ws_headers(uid, name_of(uid))))
+    return socket
 
 
-def name_of(uid: int) -> str:
-    return "alice" if uid == 1 else f"user{uid}"
+def open_state(client, stack, code, uid=1):
+    socket = connect(client, stack, code, uid)
+    frame = socket.receive_json()
+    assert frame["type"] == "state"
+    return socket, frame["state"]
 
 
-def open_all(client, stack: ExitStack, room_id: str, ids: list[int]) -> dict[int, object]:
-    sockets = {}
-    for uid in ids:
-        sockets[uid] = stack.enter_context(
-            client.websocket_connect(f"/ws/{room_id}", headers=ws_headers(uid, name_of(uid)))
-        )
-        assert sockets[uid].receive_json()["type"] == "state"
-    return sockets
-
-
-def wait_state(socket, predicate=lambda s: True) -> dict:
+def next_frame(socket, kind: str) -> dict:
     while True:
         frame = socket.receive_json()
-        if frame["type"] == "state" and predicate(frame["state"]):
-            return frame["state"]
+        if frame["type"] == kind:
+            return frame
 
 
-def by_role(roles: dict[int, str], role: str) -> list[int]:
-    return [uid for uid, r in roles.items() if r == role]
+def expect_closed(client, code, headers, expected=1008):
+    with pytest.raises(WebSocketDisconnect) as exc:  # refused before the handshake completes
+        with client.websocket_connect(f"/ws/{code}", headers=headers) as socket:
+            socket.receive_json()
+    assert exc.value.code == expected
 
 
 # ---- connection rules ----
-
-def test_ws_without_cookie_is_rejected(client):
-    room_id, _ = start_room(client)
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect(f"/ws/{room_id}", headers={"Origin": ALLOWED_ORIGIN}):
-            pass
-
-
-@pytest.mark.parametrize("origin", ["http://evil.example", None])
-def test_ws_foreign_or_missing_origin_is_rejected(client, origin):
-    room_id, _ = start_room(client)
+def test_connect_needs_origin_cookie_membership_and_a_real_room(client):
+    code = make_room(client)
+    expect_closed(client, code, {**ws_headers(), "Origin": "https://evil.example"})
+    expect_closed(client, code, {"Origin": ALLOWED_ORIGIN})
+    expect_closed(client, code, {"Cookie": f"{COOKIE_NAME}=garbage", "Origin": ALLOWED_ORIGIN})
+    expect_closed(client, code, ws_headers(9, "stranger"))
+    expect_closed(client, "ZZZZZ", ws_headers())
+    expect_closed(client, "bad code!", ws_headers())
     headers = ws_headers()
-    if origin is None:
-        del headers["Origin"]
-    else:
-        headers["Origin"] = origin
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect(f"/ws/{room_id}", headers=headers):
-            pass
+    headers.pop("Origin")
+    expect_closed(client, code, headers)
 
 
-def test_ws_non_member_unknown_room_and_bad_name_rejected(client):
-    room_id, _ = start_room(client)
-    for path, user in [(f"/ws/{room_id}", 99), ("/ws/missing", 1), ("/ws/bad room!", 1)]:
+def test_member_gets_their_own_state_first(client):
+    code = make_room(client, 2, seats=seats(6))
+    with ExitStack() as stack:
+        _, host_state = open_state(client, stack, code, 1)
+        _, guest_state = open_state(client, stack, code, 2)
+    assert host_state["you"]["username"] == "alice" and guest_state["you"]["username"] == "user2"
+    assert host_state["isHost"] and not guest_state["isHost"]
+
+
+def test_state_is_pushed_when_the_room_changes(client):
+    code = make_room(client)
+    with ExitStack() as stack:
+        socket, state = open_state(client, stack, code)
+        assert not state["started"]
+        post(client, f"/rooms/{code}/join", 2, "user2")
+        pushed = next_frame(socket, "state")["state"]
+        assert "user2" in [m["name"] for m in pushed["members"]]
+        post(client, f"/rooms/{code}/start")
+        assert next_frame(socket, "state")["state"]["started"]
+
+
+def test_a_newer_socket_replaces_the_older_one(client):
+    code = make_room(client)
+    with ExitStack() as stack:
+        first, _ = open_state(client, stack, code)
+        open_state(client, stack, code)
+        with pytest.raises(WebSocketDisconnect) as exc:
+            first.receive_json()
+    assert exc.value.code == 1008
+
+
+def test_server_full_refuses_with_try_again_later(client):
+    code = make_room(client)
+    client.app.state.hub._max_connections = 0
+    expect_closed(client, code, ws_headers(), expected=1013)
+
+
+def test_leaving_the_room_closes_the_socket(client):
+    code = make_room(client, 2)
+    with ExitStack() as stack:
+        socket, _ = open_state(client, stack, code, 2)
+        post(client, f"/rooms/{code}/leave", 2, "user2")
         with pytest.raises(WebSocketDisconnect):
-            with client.websocket_connect(path, headers=ws_headers(user, "x")):
-                pass
-
-
-def test_ws_invalid_token_rejected(client):
-    room_id, _ = start_room(client)
-    headers = {"Cookie": f"{COOKIE_NAME}=garbage", "Origin": ALLOWED_ORIGIN}
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect(f"/ws/{room_id}", headers=headers):
-            pass
-
-
-def test_ws_closes_when_token_expires(client):
-    room_id, _ = start_room(client)
-    token = create_token(1, "alice", ttl_seconds=1)
-    headers = {"Cookie": f"{COOKIE_NAME}={token}", "Origin": ALLOWED_ORIGIN}
-    with client.websocket_connect(f"/ws/{room_id}", headers=headers) as socket:
-        socket.receive_json()
-        time.sleep(1.2)
-        with pytest.raises(WebSocketDisconnect) as info:
             socket.receive_json()
-    assert info.value.code == 1008
 
 
-def test_oversized_frame_closes_connection(client):
-    room_id, _ = start_room(client)
-    with client.websocket_connect(f"/ws/{room_id}", headers=ws_headers()) as socket:
-        socket.receive_json()
-        socket.send_text("x" * (ws_module.MAX_FRAME_CHARS + 1))
-        with pytest.raises(WebSocketDisconnect) as info:
+def test_deleting_the_room_closes_every_socket(client):
+    code = make_room(client)
+    with ExitStack() as stack:
+        socket, _ = open_state(client, stack, code)
+        post(client, f"/rooms/{code}/leave")
+        with pytest.raises(WebSocketDisconnect) as exc:
             socket.receive_json()
-    assert info.value.code == 1009
+    assert exc.value.code == 1001
 
 
-def test_rate_limit_closes_connection(client, monkeypatch):
-    monkeypatch.setattr(ws_module, "RATE_LIMIT_MESSAGES", 3)
-    room_id, _ = start_room(client)
-    with client.websocket_connect(f"/ws/{room_id}", headers=ws_headers()) as socket:
-        socket.receive_json()
-        for _ in range(3):
-            socket.send_text("{}")
-            socket.receive_json()
-        socket.send_text("{}")
-        with pytest.raises(WebSocketDisconnect) as info:
-            socket.receive_json()
-    assert info.value.code == 1008
-
-
-@pytest.mark.parametrize(
-    "payload",
-    ["not json", "[]", {"type": "nope"}, {"type": "action"}, {"type": "action", "target": 0},
-     {"type": "action", "target": "x"}, {"type": "vote", "target": -4},
-     {"type": "chat", "content": ""}, {"type": "chat", "content": "   "},
-     {"type": "chat", "content": "x" * 501}],
-)
-def test_invalid_messages_return_error_and_keep_connection(client, payload):
-    room_id, _ = start_room(client)
-    with client.websocket_connect(f"/ws/{room_id}", headers=ws_headers()) as socket:
-        socket.receive_json()
-        socket.send_text(payload if isinstance(payload, str) else json.dumps(payload))
-        assert socket.receive_json()["type"] == "error"
-        socket.send_json({"type": "vote", "target": None})  # valid shape, wrong phase
-        assert socket.receive_json()["type"] == "error"
-
-
-def test_binary_frame_gets_error(client):
-    room_id, _ = start_room(client)
-    with client.websocket_connect(f"/ws/{room_id}", headers=ws_headers()) as socket:
-        socket.receive_json()
+# ---- messages ----
+def test_bad_frames_get_an_error_not_a_crash(client):
+    code = make_room(client)
+    with ExitStack() as stack:
+        socket, _ = open_state(client, stack, code)
+        for raw in ("not json", "[]", '{"type":"nope"}', '{"type":"action"}', '{"type":"action","target":-1}',
+                    '{"type":"action","target":1,"kind":"x"}', '{"type":"chat","text":' + '"x"' * 3 + "}"):
+            socket.send_text(raw)
+            assert socket.receive_json() == {"type": "error", "error": "Invalid message"}
         socket.send_bytes(b"\x00")
-        assert socket.receive_json()["type"] == "error"
+        assert socket.receive_json()["error"] == "Only text frames are supported"
 
 
-def test_lobby_members_can_connect_and_chat(client):
-    room_id = make_room(client, 2)
+def test_oversized_frame_closes_the_socket(client):
+    code = make_room(client)
     with ExitStack() as stack:
-        sockets = open_all(client, stack, room_id, [1, 2])
-        sockets[2].send_json({"type": "chat", "content": "hi all", "username": "admin"})
-        for uid in (1, 2):
-            frame = sockets[uid].receive_json()
-            assert frame["type"] == "chat" and frame["username"] == "user2"
-            assert frame["content"] == "hi all" and frame["scope"] == "all"
+        socket, _ = open_state(client, stack, code)
+        socket.send_text(json.dumps({"type": "chat", "text": "x" * (ws_module.MAX_FRAME_CHARS + 1)}))
+        with pytest.raises(WebSocketDisconnect) as exc:
+            socket.receive_json()
+    assert exc.value.code == 1009
 
 
-# ---- secrecy ----
-
-def visible_roles(state: dict) -> dict[int, str]:
-    return {p["id"]: p["role"] for p in state["players"] if p["role"]}
-
-
-def test_initial_views_never_leak_other_roles(client):
-    room_id, roles = start_room(client, 8)
-    wolves = set(by_role(roles, "werewolf"))
-    for uid in roles:
-        state = get(client, f"/rooms/{room_id}", uid, name_of(uid)).json()["state"]
-        expected = {uid} | (wolves if uid in wolves else set())
-        assert set(visible_roles(state)) == expected
-        assert state["you"]["role"] == roles[uid]
-
-
-def test_every_pushed_frame_is_redacted_through_a_night(client):
-    room_id, roles = start_room(client)
-    wolf, seer, doctor = (by_role(roles, r)[0] for r in ("werewolf", "seer", "doctor"))
-    victim = by_role(roles, "villager")[0]
-    frames: list[tuple[int, dict]] = []
+def test_message_flood_closes_the_socket(client):
+    code = make_room(client)
     with ExitStack() as stack:
-        sockets = open_all(client, stack, room_id, list(roles))
-        sockets[wolf].send_json({"type": "action", "target": victim})
-        sockets[seer].send_json({"type": "action", "target": wolf})
-        sockets[doctor].send_json({"type": "action", "target": victim})
-        for uid, socket in sockets.items():
-            while True:
-                frame = socket.receive_json()
-                frames.append((uid, frame["state"]))
-                if frame["state"]["phase"] == "day":
-                    break
-    for uid, state in frames:
-        assert set(visible_roles(state)) == {uid} | ({wolf} if uid == wolf else set())
-        if uid != seer:
-            assert "inspections" not in state["you"]
-        if uid != doctor:
-            assert "blocked_target" not in state["you"]
+        socket, _ = open_state(client, stack, code)
+        with pytest.raises(WebSocketDisconnect) as exc:
+            for _ in range(60):
+                socket.send_text('{"type":"force"}')
+                socket.receive_json()
+    assert exc.value.code == 1008
 
 
-def test_seer_gets_private_result_and_nobody_else_does(client):
-    room_id, roles = start_room(client)
-    wolf, seer, doctor = (by_role(roles, r)[0] for r in ("werewolf", "seer", "doctor"))
-    villagers = by_role(roles, "villager")
+def test_action_over_the_socket_updates_everyone(client):
+    code = make_room(client, 2, seats=seats(7))
+    start(client, code)
     with ExitStack() as stack:
-        sockets = open_all(client, stack, room_id, list(roles))
-        sockets[wolf].send_json({"type": "action", "target": villagers[0]})
-        sockets[seer].send_json({"type": "action", "target": wolf})
-        sockets[doctor].send_json({"type": "action", "target": villagers[0]})
-        states = {uid: wait_state(s, lambda st: st["phase"] == "day") for uid, s in sockets.items()}
-    assert states[seer]["you"]["inspections"] == [{"id": wolf, "is_werewolf": True}]
-    for uid, state in states.items():
-        if uid != seer:
-            assert "inspections" not in state["you"]
-            roles_seen = {p["id"]: p["role"] for p in state["players"] if p["role"]}
-            expected = {uid} | ({wolf} if uid == wolf else set())
-            assert set(roles_seen) == expected  # protected victim: no death, no reveal
+        host, hs = open_state(client, stack, code, 1)
+        guest, gs = open_state(client, stack, code, 2)
+        for socket, state in ((host, hs), (guest, gs)):
+            todo = [a for a in state["game"]["actions"] if not a["submitted"]]
+            if todo:
+                act = todo[0]
+                socket.send_json({"type": "action", "target": act["options"][0] if act["options"] else 0,
+                                  "kind": "wolf" if act["kind"] == "wolf" else "ability"})
+                pushed = next_frame(socket, "state")["state"]
+                assert pushed["game"] is not None
+        socket.send_json({"type": "action", "target": 999})
+        assert next_frame(socket, "error")["error"]
 
 
-# ---- chat ----
-
-def test_wolf_night_chat_is_private_and_day_chat_is_public(client):
-    room_id, roles = start_room(client, 8)
-    wolves = by_role(roles, "werewolf")
-    others = [u for u in roles if u not in wolves]
+def test_force_over_the_socket_is_host_only(client):
+    code = make_room(client, 2, seats=seats(7))
+    start(client, code)
     with ExitStack() as stack:
-        sockets = open_all(client, stack, room_id, list(roles))
-        sockets[others[0]].send_json({"type": "chat", "content": "psst"})
-        assert sockets[others[0]].receive_json()["type"] == "error"
-        sockets[wolves[0]].send_json({"type": "chat", "content": "kill bob"})
-        for wolf in wolves:
-            frame = sockets[wolf].receive_json()
-            assert frame["scope"] == "wolves" and frame["content"] == "kill bob"
-        # a non-wolf gets nothing: the next frame it sees is the state from the next action
-        sockets[wolves[0]].send_json({"type": "vote", "target": others[0]})
-        assert sockets[wolves[0]].receive_json()["type"] == "error"
-        sockets[others[1]].send_json({"type": "advance"})
-        assert sockets[others[1]].receive_json()["type"] == "error"  # not host (host is user 1)
-        sockets[1].send_json({"type": "advance"})
-        for uid, socket in sockets.items():
-            state = wait_state(socket, lambda s: s["phase"] == "day")
-            assert state["you"]["chat"] in ("all", None)
-        speaker = next(u for u in roles if u != wolves[0] or True)
-        sockets[speaker].send_json({"type": "chat", "content": "good morning"})
-        for socket in sockets.values():
+        host, _ = open_state(client, stack, code, 1)
+        guest, _ = open_state(client, stack, code, 2)
+        guest.send_json({"type": "force"})
+        assert "chủ phòng" in next_frame(guest, "error")["error"]
+        host.send_json({"type": "force"})
+        assert next_frame(host, "state")["state"]["game"]["night"] >= 1
+
+
+def test_chat_before_the_game_starts_is_an_error(client):
+    code = make_room(client)
+    with ExitStack() as stack:
+        socket, _ = open_state(client, stack, code)
+        socket.send_json({"type": "chat", "text": "hi"})
+        assert next_frame(socket, "error")["error"] == "Game chưa bắt đầu"
+
+
+def test_chat_is_delivered_as_a_message_only_to_who_may_read_it(client):
+    roles = [{"faction": "WOLF", "ability": "KILL_ON_DEATH"}, {"faction": "WOLF", "ability": "KILL_ON_DEATH"}] \
+        + [{"faction": "VILLAGER", "ability": "NONE"}] * 5
+    code = make_room(client, 3, seats=roles)
+    state = start(client, code)
+    wolves = [uid for uid in (1, 2, 3) if
+              get(client, f"/rooms/{code}", uid, name_of(uid)).json()["state"]["game"]["me"]["faction"]["code"] == "WOLF"]
+    others = [uid for uid in (1, 2, 3) if uid not in wolves]
+    assert state["game"]["phase"] == "night" and wolves and others
+    with ExitStack() as stack:
+        sockets = {uid: open_state(client, stack, code, uid)[0] for uid in (1, 2, 3)}
+        speaker = wolves[0]
+        sockets[speaker].send_json({"type": "chat", "text": "giết P7 đi"})
+        frame = next_frame(sockets[speaker], "chat")
+        assert frame["message"]["text"] == "giết P7 đi" and frame["message"]["channel"] == "wolf"
+        assert frame["message"]["author"]["name"] == name_of(speaker)  # the author comes from the seat
+        for uid in wolves[1:]:
+            assert next_frame(sockets[uid], "chat")["message"]["channel"] == "wolf"
+        # a non-wolf receives nothing: the next thing it sees is its own later frame
+        sockets[others[0]].send_json({"type": "force"})
+        assert sockets[others[0]].receive_json()["type"] == "error"  # nothing was queued before it
+
+
+def test_chat_over_the_socket_is_rate_limited_and_cleaned(client):
+    code = make_room(client, 1, seats=seats(7, {0: {"faction": "WOLF", "ability": "KILL_ON_DEATH"}}))
+    start(client, code)
+    with ExitStack() as stack:
+        socket, _ = open_state(client, stack, code)
+        socket.send_json({"type": "chat", "text": "a\x00b‮   <b>c</b>\x07"})
+        assert next_frame(socket, "chat")["message"]["text"] == "ab <b>c</b>"  # controls stripped, HTML left as text
+        socket.send_json({"type": "chat", "text": "again"})
+        assert "nhanh" in next_frame(socket, "error")["error"]  # the engine's 0.8 s spacing
+        errors = 0
+        for i in range(12):
+            socket.send_json({"type": "chat", "text": f"m{i}"})
             frame = socket.receive_json()
-            assert frame["scope"] == "all" and frame["username"] == name_of(speaker)
-
-
-def test_dead_player_cannot_chat_or_act(client):
-    room_id, roles = start_room(client)
-    wolf = by_role(roles, "werewolf")[0]
-    victim = by_role(roles, "villager")[0]
-    with ExitStack() as stack:
-        sockets = open_all(client, stack, room_id, list(roles))
-        sockets[wolf].send_json({"type": "action", "target": victim})
-        sockets[1].send_json({"type": "advance"})
-        wait_state(sockets[victim], lambda s: s["phase"] == "day" and not s["you"]["alive"])
-        sockets[victim].send_json({"type": "chat", "content": "boo"})
-        assert sockets[victim].receive_json()["type"] == "error"
-        sockets[victim].send_json({"type": "vote", "target": wolf})
-        assert sockets[victim].receive_json()["type"] == "error"
-
-
-# ---- full game + persistence ----
-
-def test_full_game_finishes_and_is_persisted_in_history(client):
-    room_id, roles = start_room(client)
-    wolf, seer, doctor = (by_role(roles, r)[0] for r in ("werewolf", "seer", "doctor"))
-    villagers = by_role(roles, "villager")
-    with ExitStack() as stack:
-        sockets = open_all(client, stack, room_id, list(roles))
-        sockets[wolf].send_json({"type": "action", "target": villagers[0]})
-        sockets[seer].send_json({"type": "action", "target": wolf})
-        sockets[doctor].send_json({"type": "action", "target": doctor})
-        wait_state(sockets[1], lambda s: s["phase"] == "day")
-        sockets[1].send_json({"type": "advance"})
-        wait_state(sockets[1], lambda s: s["phase"] == "vote")
-        living = [u for u in roles if u != villagers[0]]
-        for uid in living:
-            target = wolf if uid != wolf else seer
-            sockets[uid].send_json({"type": "vote", "target": target})
-        final = wait_state(sockets[1], lambda s: s["phase"] == "finished")
-    assert final["winner"] == "village"
-    assert all(p["role"] for p in final["players"])
-    history = get(client, "/me/history", 1, "alice").json()
-    assert len(history) == 1
-    entry = history[0]
-    assert entry["winner"] == "village" and entry["room_id"] == room_id
-    assert entry["your_role"] == roles[1]
-    assert entry["won"] == (roles[1] != "werewolf")
-    assert {p["username"] for p in entry["players"]} == {name_of(u) for u in roles}
-    assert {p["role"] for p in entry["players"]} >= {"werewolf", "seer", "doctor"}
-    other = get(client, "/me/history", 99, "stranger").json()
-    assert other == []
-    # finished rooms do not trap players
-    assert post(client, "/rooms", 1, "alice").status_code == 201
-
-
-def test_leaving_running_game_closes_socket_and_game_continues(client):
-    room_id, roles = start_room(client)
-    leaver = by_role(roles, "villager")[0]
-    with ExitStack() as stack:
-        sockets = open_all(client, stack, room_id, list(roles))
-        assert post(client, f"/rooms/{room_id}/leave", leaver, name_of(leaver)).status_code == 200
-        other = next(u for u in roles if u != leaver)
-        state = wait_state(sockets[other], lambda s: len(s["players"]) == 4)
-        assert all(p["id"] != leaver for p in state["players"])
-        with pytest.raises(WebSocketDisconnect):
-            sockets[leaver].receive_json()
+            errors += frame["type"] == "error"
+        assert errors >= 8

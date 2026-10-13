@@ -1,9 +1,10 @@
 import asyncio
 import inspect
 import os
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
@@ -11,7 +12,9 @@ from sqlalchemy.orm import sessionmaker
 from app import routes, ws
 from app.db import Base, make_engine
 from app.hub import GameHub
-from app.service import reaper_loop
+from app.limits import UserLimits
+from app.migrate import ensure_columns
+from app.service import reaper_loop, tick_loop
 from app.store import RoomStore
 from sn_shared.jwtkeys import require_verification_keys
 
@@ -38,28 +41,32 @@ async def _stop_account_consumer(handle: Any) -> None:
         await result
 
 
-def create_app(database_url: str | None = None) -> FastAPI:
+def create_app(database_url: str | None = None, clock: Callable[[], float] = time.monotonic) -> FastAPI:
     require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     Base.metadata.create_all(engine)
+    ensure_columns(engine)  # databases created by the old 4-role game get the new result columns
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        reaper = asyncio.create_task(reaper_loop(application))
+        background = [asyncio.create_task(reaper_loop(application)), asyncio.create_task(tick_loop(application))]
         handle = _start_account_consumer(application.state.session_factory)
         try:
             yield
         finally:
             if handle is not None:
                 await _stop_account_consumer(handle)
-            reaper.cancel()
-            with suppress(asyncio.CancelledError):
-                await reaper
+            for task in background:
+                task.cancel()
+            for task in background:
+                with suppress(asyncio.CancelledError):
+                    await task
 
     app = FastAPI(title="socialnetwork werewolf", lifespan=lifespan)
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
     app.state.hub = GameHub()
-    app.state.store = RoomStore(is_connected=lambda room_id: app.state.hub.size(room_id) > 0)
+    app.state.limits = UserLimits(clock)
+    app.state.store = RoomStore(clock=clock, is_connected=lambda code: app.state.hub.size(code) > 0)
 
     @app.get("/health")
     def health() -> dict[str, str]:

@@ -13,7 +13,7 @@ socialnetwork/
   chat/         rooms + realtime messages (WebSocket)
   photos/       share photos, likes, comments (uploads on a volume)
   watch/        upload and stream videos, progress, watchlist (uploads on a volume)
-  werewolf/     realtime social-deduction game (rooms in memory, results in DB)
+  werewolf/     realtime 3-faction werewolf game, 5-40 players with bots (rooms in memory, results in DB; see werewolf/API.md)
   market/       products, cart, orders, reviews (payments are a stub)
   learning/     courses, lessons, quizzes, progress, certificates
   jobs/         postings, applications, saved jobs, candidate profile
@@ -296,4 +296,4 @@ Each service has its own LOGIN role (`sn_center`, `sn_chat`, `sn_photos`, `sn_wa
 - No frontend tests and no CI yet.
 - The watch per-user byte quota is not atomic under concurrent uploads (can overshoot briefly).
 - A multi-seller `market` order has one shared status (any involved seller can mark it shipped).
-- `werewolf` keeps rooms in memory (lost on restart) and omits the old "Ma" faction; `market` has no shipping address.
+- `werewolf` keeps rooms in memory (lost on restart, one process): at most 200 rooms, 3 rooms per user and 40 seats per room, idle rooms are reaped. A game's result is stored once it ends; a game in progress is lost on restart. `market` has no shipping address.

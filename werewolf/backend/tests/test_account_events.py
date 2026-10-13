@@ -18,13 +18,14 @@ def db():
     Base.metadata.create_all(engine)
     with sessionmaker(engine, expire_on_commit=False)() as session:
         for room, players in (
-            ("r1", [(1, "alice", "wolf"), (2, "bob", "villager")]),
-            ("r2", [(1, "alice", "seer"), (3, "carol", "villager")]),
-            ("r3", [(2, "bob", "wolf"), (3, "carol", "villager")]),
+            ("r1", [(1, "alice", "WOLF"), (2, "bob", "VILLAGER")]),
+            ("r2", [(1, "alice", "VILLAGER"), (3, "carol", "VILLAGER")]),
+            ("r3", [(2, "bob", "WOLF"), (3, "carol", "VILLAGER")]),
         ):
-            result = GameResult(room_id=room, winner="village", days=2)
+            result = GameResult(room_id=room, winner="VILLAGER", days=2, size=6)
             result.players = [
-                GamePlayer(user_id=uid, username=name, role=role, survived=True)
+                GamePlayer(user_id=uid, username=name, role=role, faction=role, ability="NONE", outcome="won",
+                           survived=True, days_survived=2)
                 for uid, name, role in players
             ]
             session.add(result)
@@ -33,18 +34,18 @@ def db():
 
 
 def players(db):
-    return [(p.user_id, p.username, p.role) for p in db.scalars(select(GamePlayer).order_by(GamePlayer.id))]
+    return [(p.user_id, p.username, p.faction) for p in db.scalars(select(GamePlayer).order_by(GamePlayer.id))]
 
 
 def test_delete_anonymizes_only_that_users_rows_and_keeps_results(db):
     on_user_deleted(db, 1)
     assert players(db) == [
-        (DELETED_USER_ID, DELETED_USERNAME, "wolf"),
-        (2, "bob", "villager"),
-        (DELETED_USER_ID, DELETED_USERNAME, "seer"),
-        (3, "carol", "villager"),
-        (2, "bob", "wolf"),
-        (3, "carol", "villager"),
+        (DELETED_USER_ID, DELETED_USERNAME, "WOLF"),
+        (2, "bob", "VILLAGER"),
+        (DELETED_USER_ID, DELETED_USERNAME, "VILLAGER"),
+        (3, "carol", "VILLAGER"),
+        (2, "bob", "WOLF"),
+        (3, "carol", "VILLAGER"),
     ]
     assert len(db.scalars(select(GameResult)).all()) == 3
 
@@ -61,6 +62,21 @@ def test_delete_user_without_data_and_tombstone_id_change_nothing(db):
     on_user_deleted(db, 99)
     on_user_deleted(db, DELETED_USER_ID)
     on_user_renamed(db, DELETED_USER_ID, "ghost")
+    assert players(db) == before
+
+
+def test_delete_keeps_the_game_facts_and_only_anonymizes_identity(db):
+    on_user_deleted(db, 1)
+    rows = db.scalars(select(GamePlayer).where(GamePlayer.user_id == DELETED_USER_ID)).all()
+    assert len(rows) == 2 and all(r.outcome == "won" and r.days_survived == 2 and r.ability == "NONE" for r in rows)
+
+
+def test_bogus_ids_are_never_treated_as_users(db):
+    """Bots have no user id and are never stored; a negative or zero id must not touch anything."""
+    before = players(db)
+    on_user_deleted(db, -1)
+    on_user_renamed(db, -1, "bot")
+    on_user_renamed(db, 0, "tombstone")
     assert players(db) == before
 
 

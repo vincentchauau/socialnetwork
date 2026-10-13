@@ -1,10 +1,12 @@
 """Reactions to account events published by `center` (delivered at least once).
 
-Data model: `game_players` (user_id, username) inside `game_results`. Results
-are shared history that the other players still see, so on deletion the rows
-are KEPT and ANONYMIZED: `user_id` becomes the tombstone 0 (center ids start
-at 1) and `username` becomes DELETED_USERNAME. Rename updates every
-`game_players.username` of that user id.
+Data model: `game_players` (user_id, username) inside `game_results`. Only
+HUMAN players are stored (a bot seat has no user), so every row there is a
+user. The other columns (faction, ability, outcome, days_survived...) hold no
+personal data. Results are shared history that the other players still see, so
+on deletion the rows are KEPT and ANONYMIZED: `user_id` becomes the tombstone 0
+(center ids start at 1) and `username` becomes DELETED_USERNAME. Rename updates
+every `game_players.username` of that user id.
 
 In-memory rooms (`RoomStore`) are NOT touched: a handler only receives a DB
 session and the store lives on the app instance, so there is no safe handle to
@@ -24,7 +26,7 @@ DELETED_USER_ID = 0
 
 
 def on_user_deleted(db: Session, user_id: int) -> None:
-    if user_id == DELETED_USER_ID:
+    if user_id <= DELETED_USER_ID:  # the tombstone, or a bogus id: never a real user
         return
     db.execute(
         update(GamePlayer)
@@ -34,6 +36,6 @@ def on_user_deleted(db: Session, user_id: int) -> None:
 
 
 def on_user_renamed(db: Session, user_id: int, new_username: str) -> None:
-    if user_id == DELETED_USER_ID:
+    if user_id <= DELETED_USER_ID:
         return
     db.execute(update(GamePlayer).where(GamePlayer.user_id == user_id).values(username=new_username))
