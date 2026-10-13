@@ -1,6 +1,10 @@
 import { RefObject } from "react";
 
-import { INPUT, LABEL } from "./ui";
+import FieldLabel from "./FieldLabel";
+import { INPUT } from "./ui";
+
+const USERNAME_HINT = "(thường + hoa + số)";
+const USERNAME_EXAMPLE = "Username123";
 
 interface Props {
   value: string;
@@ -14,7 +18,7 @@ interface Props {
 export default function UsernameField({ value, onChange, inputRef, required = true, optionalHint }: Props) {
   return (
     <>
-      <label htmlFor="username" className={LABEL}>{required ? "Tên đăng nhập" : "Tên đăng nhập (không bắt buộc)"}</label>
+      <FieldLabel htmlFor="username" text={required ? "Tên đăng nhập" : "Tên đăng nhập (không bắt buộc)"} hint={USERNAME_HINT} hintId="username-classes" />
       <input
         id="username"
         ref={inputRef}
@@ -27,13 +31,14 @@ export default function UsernameField({ value, onChange, inputRef, required = tr
         minLength={3}
         maxLength={32}
         autoComplete="username"
-        aria-describedby="username-hint"
-        placeholder="vd: nguyenvan"
+        aria-describedby={optionalHint ? "username-hint username-classes" : "username-classes"}
+        placeholder={USERNAME_EXAMPLE}
       />
-      <p id="username-hint" className="text-xs text-gray-600 mb-2">
-        {optionalHint ? `${optionalHint} ` : ""}
-        3-32 ký tự: chữ thường a-z, số, dấu chấm, gạch dưới, gạch ngang (không dùng @).
-      </p>
+      {optionalHint && (
+        <p id="username-hint" className="text-xs text-gray-600 mb-2">
+          {optionalHint}
+        </p>
+      )}
     </>
   );
 }

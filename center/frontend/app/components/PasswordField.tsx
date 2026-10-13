@@ -1,4 +1,5 @@
-import { INPUT, LABEL } from "./ui";
+import FieldLabel from "./FieldLabel";
+import { INPUT } from "./ui";
 import PasswordChecklist from "./PasswordChecklist";
 import { PASSWORD_EXAMPLE } from "../lib/auth";
 
@@ -12,7 +13,7 @@ interface Props {
 export default function PasswordField({ value, onChange, isRegister, label = "Mật khẩu" }: Props) {
   return (
     <>
-      <label htmlFor="password" className={LABEL}>{label}</label>
+      <FieldLabel htmlFor="password" text={label} hint="(thường + hoa + số + đặc biệt)" hintId="password-classes" />
       <input
         id="password"
         type="password"
@@ -22,8 +23,8 @@ export default function PasswordField({ value, onChange, isRegister, label = "M�
         className={INPUT}
         required
         autoComplete={isRegister ? "new-password" : "current-password"}
-        placeholder={isRegister ? `vd: ${PASSWORD_EXAMPLE}` : "Mật khẩu"}
-        aria-describedby={isRegister ? "password-hint" : undefined}
+        placeholder={PASSWORD_EXAMPLE}
+        aria-describedby={isRegister ? "password-classes password-hint" : "password-classes"}
       />
       {isRegister && <PasswordChecklist id="password-hint" password={value} />}
     </>

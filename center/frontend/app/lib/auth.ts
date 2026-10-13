@@ -106,7 +106,7 @@ export const MAX_PASSKEYS = 10;
 export const PASSKEY_LIMIT_MESSAGE = "Tối đa 10 Passkey cho mỗi tài khoản";
 export const RECOVERY_CODE_COUNT = 10;
 
-export const PASSWORD_EXAMPLE = "Hoa-Sen_2026";
+export const PASSWORD_EXAMPLE = "123@Pass";
 export const PASSWORD_MESSAGE = `Mật khẩu cần ${MIN_PASSWORD}-${MAX_PASSWORD} ký tự, gồm chữ thường, chữ hoa, số và ký tự đặc biệt`;
 
 export interface PasswordChecks {
@@ -150,10 +150,11 @@ const VOICE_TAKEN = "This voice is already registered";
 const VOICE_TAKEN_HELP = "Giọng nói này đã được đăng ký cho một tài khoản khác, hãy đăng nhập hoặc dùng giọng khác.";
 
 export const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/;
-export const USERNAME_MESSAGE = "Tên đăng nhập gồm 3-32 ký tự: chữ thường a-z, số, dấu chấm, gạch dưới, gạch ngang";
+export const USERNAME_MESSAGE = "Tên đăng nhập gồm 3-32 ký tự: chữ, số, dấu chấm, gạch dưới, gạch ngang";
 export const USERNAME_COOLDOWN_MESSAGE = "Bạn chỉ có thể đổi tên đăng nhập 30 ngày một lần";
 export const USERNAME_TAKEN_MESSAGE = "Tên đăng nhập này đã có người dùng";
-export const isUsernameValid = (username: string): boolean => USERNAME_PATTERN.test(username);
+/** The server lowercases the name, so capitals are fine here: only the characters and the length matter. */
+export const isUsernameValid = (username: string): boolean => USERNAME_PATTERN.test(username.toLowerCase());
 
 export function errorText(error: unknown): string {
   if (error instanceof ApiError && /once every 30 days|can be changed again after/i.test(error.message)) return USERNAME_COOLDOWN_MESSAGE;

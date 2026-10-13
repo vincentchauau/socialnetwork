@@ -69,7 +69,9 @@ describe("ChangeUsername", () => {
     const form = await openForm();
     expect(form.getByText("ann")).toBeInTheDocument();
     expect(form.getByText(/Mỗi 30 ngày chỉ đổi được một lần/)).toBeInTheDocument();
-    expect(form.getByText(/3-32 ký tự/)).toBeInTheDocument();
+    expect(form.getByText("(thường + hoa + số)")).toBeInTheDocument();
+    expect(form.queryByText(/3-32 ký tự/)).not.toBeInTheDocument();
+    expect(form.getByPlaceholderText("Username123")).toBeInTheDocument();
     expect(form.queryByText(/Có thể đổi lại từ/)).toBeNull();
   });
 

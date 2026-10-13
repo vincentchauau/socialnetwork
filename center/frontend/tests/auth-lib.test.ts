@@ -56,6 +56,18 @@ describe("password policy", () => {
   });
 });
 
+describe("username rule", () => {
+  it("accepts capitals (the server lowercases) but not other characters or bad lengths", () => {
+    expect(auth.isUsernameValid("Username123")).toBe(true);
+    expect(auth.isUsernameValid("an.nguyen_01-x")).toBe(true);
+    expect(auth.isUsernameValid("ab")).toBe(false);
+    expect(auth.isUsernameValid("a".repeat(33))).toBe(false);
+    expect(auth.isUsernameValid("has space")).toBe(false);
+    expect(auth.isUsernameValid("a@b.co")).toBe(false);
+    expect(auth.isUsernameValid("Nguyễn")).toBe(false);
+  });
+});
+
 describe("errorText", () => {
   it("maps 429 and passes through other messages", () => {
     expect(auth.errorText(new ApiError(429, "slow"))).toBe("Thử quá nhiều lần, hãy thử lại sau");
