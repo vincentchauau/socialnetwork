@@ -99,6 +99,12 @@ class RealBiometrics:
         limit = self._s.face_threshold_alone if strict else self._s.face_threshold
         return float(np.linalg.norm(template - sample)) <= limit
 
+    def liveness_actions(self, raw: bytes) -> list[str]:
+        """Ordered actions seen in a webcam clip; [] on any problem (never raises). See app.liveness."""
+        from app.biometrics.liveness_video import liveness_actions
+
+        return liveness_actions(raw)
+
     def face_distance(self, stored: bytes, probe: bytes) -> float:
         import numpy as np
 

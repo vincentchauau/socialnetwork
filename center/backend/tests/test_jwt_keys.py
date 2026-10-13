@@ -119,3 +119,13 @@ def test_gen_jwt_key_makes_a_new_pair_each_time(capsys):
     first = capsys.readouterr().out
     cli.main(["gen-jwt-key"])
     assert capsys.readouterr().out != first
+
+
+def test_redis_without_app_env_and_without_a_private_key_refuses_to_start(monkeypatch):
+    monkeypatch.delenv("JWT_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("JWT_PRIVATE_KEY_FILE", raising=False)
+    monkeypatch.setenv("REDIS_URL", "redis://cache:6379/0")
+    with pytest.raises(ConfigError, match="APP_ENV"):
+        create_app("sqlite://")
+    monkeypatch.setenv("APP_ENV", "development")  # explicit development stays possible (compose does this)
+    create_app("sqlite://")

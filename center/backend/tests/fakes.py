@@ -52,6 +52,15 @@ class FakeBiometrics:
         self.strict_calls.append(strict)
         return stored == probe
 
+    def liveness_actions(self, raw: bytes) -> list[str]:
+        """b'FACE:alice|ACTIONS:blink,turn_left' -> ['blink','turn_left']; a '|STATIC' (still image) or
+        '|SWAP' (another person midway) marker fails the anti-spoof checks -> []."""
+        text = raw.decode("utf-8", "ignore")
+        if "|STATIC" in text or "|SWAP" in text or "|ACTIONS:" not in text:
+            return []
+        listed = text.split("|ACTIONS:", 1)[1].split("|", 1)[0]
+        return [a for a in listed.split(",") if a]
+
 
 def _tagged_value(embedding: bytes, prefix: bytes) -> float | None:
     if not embedding.startswith(prefix):

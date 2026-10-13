@@ -9,7 +9,7 @@ a stolen session of such an account can change its methods (known limitation).
 """
 
 import secrets
-from typing import Annotated
+from typing import Annotated, Callable
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -33,6 +33,7 @@ from app.identify import (
 from app.deps import AuthSession, biometrics_available, check_origin, client_ip, csrf_session, require_reauth, settings_of, too_many
 from app import emailtokens as et
 from app import usernames
+from app.liveness import liveness_ok
 from app.methods import GOOGLE_IN_USE, KEEP_ONE, methods_status, usable_methods
 from app.models import User
 from app.notify import notify, send_link_mail
@@ -239,9 +240,9 @@ def register_voice(
 @methods_router.post("/register/webcam", status_code=status.HTTP_201_CREATED, response_model=SessionOut)
 def register_webcam(
     request: Request, response: Response, username: Annotated[str, Form()], video: Upload = None,
-    db: Session = Depends(get_db),
+    liveness_token: Text = None, db: Session = Depends(get_db),
 ) -> SessionOut:  # fmt: skip
-    if video is None:
+    if video is None or not liveness_ok(request, liveness_token, video):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)  # an `audio` field is ignored
     return _register(request, response, db, username, video_file=video)
 
@@ -251,8 +252,10 @@ def register_combined(
     request: Request, response: Response, username: Annotated[str | None, Form()] = None,
     password: Text = None, google_id_token: Text = None, voice_audio: Upload = None, webcam_video: Upload = None,
     passkey_credential: Text = None, passkey_challenge_token: Text = None, email: Text = None,
-    background: BackgroundTasks = None, db: Session = Depends(get_db),
+    background: BackgroundTasks = None, liveness_token: Text = None, db: Session = Depends(get_db),
 ) -> SessionOut:  # fmt: skip
+    if webcam_video is not None and not liveness_ok(request, liveness_token, webcam_video):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)
     if bool(passkey_credential) != bool(passkey_challenge_token):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, PASSKEY_BOTH)
     passkey = (passkey_credential, passkey_challenge_token) if passkey_credential and passkey_challenge_token else None
@@ -277,20 +280,22 @@ def _face_matches(request: Request, user: User, video: Upload) -> bool:
 
 
 def _biometric_login(
-    request: Request, response: Response, db: Session, username: str, audio: Upload, video: Upload, *, method: str
+    request: Request, response: Response, db: Session, username: str, audio: Upload, video: Upload, *, method: str,
+    live: Callable[[], bool] = lambda: True,
 ) -> SessionOut | MfaRequired:  # fmt: skip
     """Voice (audio only) or webcam (face only) sign-in. Strict thresholds; every failure is the same 401."""
     ip, state, name = client_ip(request), request.app.state, username.strip().lower()
     throttles = [state.alone_throttle, state.alone_account_throttle]
     keys = [f"{ip}|{name}", name]
     _count_attempts(throttles, keys, name, ip)
+    live_ok = live() if method == "webcam" else True  # after the lockout check: a locked key costs no analysis
     user = db.scalar(select(User).where(User.username == name))
     if user is None:
         matched = False
     elif method == "voice":
         matched = user.voice_login and factors_match(request, user, audio, None, True, ("voice",))
     else:
-        matched = user.webcam_login and _face_matches(request, user, video)
+        matched = user.webcam_login and live_ok and _face_matches(request, user, video)
     if not matched:
         audit.warning("%s login failed user=%r ip=%s", method, name, ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_FAILED)
@@ -302,7 +307,8 @@ def _biometric_login(
 
 
 def _identify_login(
-    request: Request, response: Response, db: Session, upload: Upload, *, method: str
+    request: Request, response: Response, db: Session, upload: Upload, *, method: str,
+    live: Callable[[], bool] = lambda: True,
 ) -> SessionOut | MfaRequired:  # fmt: skip
     """Sign-in without a username (1-N), by face (webcam) or voice alone. Every failure is the same 401
     and the same work. Face and voice use separate throttle counters.
@@ -323,8 +329,9 @@ def _identify_login(
     global_throttle.record(IDENTIFY_GLOBAL_KEY)
     if too_many_candidates(db, kind):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, ENTER_USERNAME)
+    live_ok = live() if method == "webcam" else True  # after the throttle check and count
     probe = read(request, upload)
-    user = find(request, db, probe) if probe is not None else None
+    user = find(request, db, probe) if probe is not None and live_ok else None
     if user is None:
         audit.warning("%s identify failed ip=%s", method, ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_FAILED)
@@ -365,12 +372,13 @@ def login_voice(
 @methods_router.post("/login/webcam", response_model=SessionOut | MfaRequired)
 def login_webcam(
     request: Request, response: Response, username: Annotated[str | None, Form(max_length=64)] = None,
-    video: Upload = None, db: Session = Depends(get_db),
+    video: Upload = None, liveness_token: Text = None, db: Session = Depends(get_db),
 ) -> SessionOut | MfaRequired:  # fmt: skip
-    """Face only: an `audio` field, if sent, is ignored."""
+    """Face only: an `audio` field, if sent, is ignored. `liveness_token`: see app.liveness."""
+    live = lambda: liveness_ok(request, liveness_token, video)  # noqa: E731 - run after the throttles
     if username is None or not username.strip():
-        return _identify_login(request, response, db, video, method="webcam")
-    return _biometric_login(request, response, db, username, None, video, method="webcam")
+        return _identify_login(request, response, db, video, method="webcam", live=live)
+    return _biometric_login(request, response, db, username, None, video, method="webcam", live=live)
 
 
 # --- linking and removal --------------------------------------------------------------------------
@@ -407,10 +415,12 @@ def link_voice(
 @methods_router.post("/me/webcam", response_model=MethodsStatus)
 def link_webcam(
     request: Request, background: BackgroundTasks, password: Text = None, video: Upload = None,
-    session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
+    liveness_token: Text = None, session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
     """Face template only; the voice template (if any) is never touched. An `audio` field is ignored."""
     _enroll(request, session, password)
+    if not liveness_ok(request, liveness_token, video):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)
     face = read_face(request, video)
     if face is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)

@@ -200,6 +200,12 @@ services:
       SMTP_PASSWORD: ${{SMTP_PASSWORD:-}}
       SMTP_FROM: ${{SMTP_FROM:-Mạng xã hội <no-reply@localhost>}}
       SMTP_STARTTLS: ${{SMTP_STARTTLS:-0}}
+      SMS_PROVIDER: ${{SMS_PROVIDER:-}}
+      SMS_DAILY_CAP: ${{SMS_DAILY_CAP:-500}}
+      SMS_ALLOWED_PREFIXES: ${{SMS_ALLOWED_PREFIXES:-}}
+      TWILIO_ACCOUNT_SID: ${{TWILIO_ACCOUNT_SID:-}}
+      TWILIO_AUTH_TOKEN: ${{TWILIO_AUTH_TOKEN:-}}
+      TWILIO_FROM: ${{TWILIO_FROM:-}}
       REDIS_URL: redis://:${{REDIS_PASSWORD}}@redis:6379/0
     secrets:
       - jwt_private_key

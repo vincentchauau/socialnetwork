@@ -57,6 +57,7 @@ class Settings:
     allowed_origins: tuple[str, ...] = DEFAULT_ORIGINS
     google_client_id: str = ""
     biometrics_enabled: bool = False
+    liveness_required: bool = False  # LIVENESS_REQUIRED=1: every webcam sign-in/enrolment needs a liveness token
     data_key: str = ""
     audio_threshold: float = 0.8  # minimum cosine similarity of voices
     face_threshold: float = 0.6  # maximum distance between faces
@@ -78,6 +79,16 @@ class Settings:
     smtp_allow_plaintext_auth: bool = False  # let SMTP_USER log in without TLS to a non-local host
     public_url: str = "http://localhost:8080"  # base of every link in a mail; never taken from a request
     redis_url: str = ""  # empty = per-process throttles/challenges; set = shared between replicas
+    sms_provider: str = ""  # '' (phone features off) | 'mailbox' (DEV only) | 'twilio'
+    sms_daily_cap: int = 500  # real SMS sends per 24 h, whole deployment
+    sms_allowed_prefixes: tuple[str, ...] = ()  # e.g. ("+84", "+1"); empty = any E.164 number
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from: str = ""
+
+    @property
+    def phone_enabled(self) -> bool:
+        return bool(self.sms_provider)
 
     @property
     def smtp_plaintext_auth_refused(self) -> bool:
@@ -127,6 +138,7 @@ class Settings:
             allowed_origins=origins or DEFAULT_ORIGINS,
             google_client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
             biometrics_enabled=_flag("BIOMETRICS_ENABLED"),
+            liveness_required=_flag("LIVENESS_REQUIRED"),
             data_key=os.environ.get("DATA_KEY", "").strip(),
             audio_threshold=_float("AUDIO_THRESHOLD", 0.8),
             face_threshold=_float("FACE_THRESHOLD", 0.6),
@@ -146,6 +158,12 @@ class Settings:
             smtp_allow_plaintext_auth=_flag("SMTP_ALLOW_PLAINTEXT_AUTH"),
             public_url=public_url,
             redis_url=redis_url,
+            sms_provider=os.environ.get("SMS_PROVIDER", "").strip().lower(),
+            sms_daily_cap=_positive_int("SMS_DAILY_CAP", 500),
+            sms_allowed_prefixes=tuple(p.strip() for p in os.environ.get("SMS_ALLOWED_PREFIXES", "").split(",") if p.strip()),
+            twilio_account_sid=os.environ.get("TWILIO_ACCOUNT_SID", "").strip(),
+            twilio_auth_token=os.environ.get("TWILIO_AUTH_TOKEN", "").strip(),
+            twilio_from=os.environ.get("TWILIO_FROM", "").strip(),
         )
         if settings.smtp_plaintext_auth_refused:
             audit.error(
@@ -153,6 +171,10 @@ class Settings:
                 "(set SMTP_STARTTLS=1 or SMTP_SSL=1, or SMTP_ALLOW_PLAINTEXT_AUTH=1 to accept the risk)"
             )
         settings.validate()
+        if redis_url and not os.environ.get("APP_ENV", "").strip() and not (
+            os.environ.get("JWT_PRIVATE_KEY", "").strip() or os.environ.get("JWT_PRIVATE_KEY_FILE", "").strip()
+        ):  # a shared deployment that forgot APP_ENV must not quietly fall back to the ephemeral dev key
+            raise ConfigError("REDIS_URL is set but APP_ENV is not: set APP_ENV explicitly (and a JWT_PRIVATE_KEY)")
         try:  # the access-token signing key (ephemeral in development) and any extra verification keys
             jwtkeys.get_signer()
             jwtkeys.get_verification_keys()
@@ -161,6 +183,14 @@ class Settings:
         return settings
 
     def validate(self) -> None:
+        if self.sms_provider not in ("", "mailbox", "twilio"):
+            raise ConfigError("SMS_PROVIDER must be empty, 'mailbox' or 'twilio'")
+        if self.sms_provider == "mailbox" and self.production:
+            raise ConfigError("SMS_PROVIDER=mailbox is for development only and is refused in production")
+        if self.sms_provider == "twilio" and self.production and not self.sms_allowed_prefixes:
+            raise ConfigError("SMS_PROVIDER=twilio in production requires SMS_ALLOWED_PREFIXES (the countries you serve)")
+        if self.sms_provider == "twilio" and not (self.twilio_account_sid and self.twilio_auth_token and self.twilio_from):
+            raise ConfigError("SMS_PROVIDER=twilio requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM")
         if self.production and not self.cookie_secure:
             raise ConfigError("Production requires COOKIE_SECURE=1")
         if self.production and not self.webauthn_rp_id:

@@ -7,7 +7,7 @@ import BiometricCapture from "./BiometricCapture";
 import TotpLoginForm from "./TotpLoginForm";
 import { CARD, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
-import { MfaChallenge, MfaFactor, loginWithBiometrics } from "../lib/auth";
+import { LivenessSetting, MfaChallenge, MfaFactor, loginWithBiometrics } from "../lib/auth";
 import { goTo, postLoginTarget } from "../lib/navigate";
 
 const FACTOR_LABEL: Record<MfaFactor, string> = {
@@ -15,14 +15,15 @@ const FACTOR_LABEL: Record<MfaFactor, string> = {
   biometric: "Sinh trắc học",
 };
 
-function BiometricForm({ mfaToken, onCancel }: { mfaToken: string; onCancel: () => void }) {
+function BiometricForm({ mfaToken, liveness, onCancel }: { mfaToken: string; liveness?: LivenessSetting; onCancel: () => void }) {
   const [audio, setAudio] = useState<Blob>();
   const [video, setVideo] = useState<Blob>();
+  const [livenessToken, setLivenessToken] = useState<string>();
   const { busy, error, run } = useAction();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (await run(async () => void (await loginWithBiometrics(mfaToken, audio, video)))) {
+    if (await run(async () => void (await loginWithBiometrics(mfaToken, audio, video, livenessToken)))) {
       goTo(postLoginTarget());
     }
   }
@@ -32,7 +33,15 @@ function BiometricForm({ mfaToken, onCancel }: { mfaToken: string; onCancel: () 
       <p className="text-sm text-gray-600 mb-2">
         Quay một đoạn ngắn (nhìn camera và nói vài câu) để hoàn tất đăng nhập.
       </p>
-      <BiometricCapture disabled={busy} onVideo={setVideo} onAudio={setAudio} />
+      <BiometricCapture
+        disabled={busy}
+        liveness={liveness}
+        onVideo={(blob, token) => {
+          setVideo(blob);
+          setLivenessToken(token);
+        }}
+        onAudio={setAudio}
+      />
       <button type="submit" disabled={busy || (!audio && !video)} className={PRIMARY_BUTTON}>
         {busy ? "Đang xử lý..." : "Xác minh và đăng nhập"}
       </button>
@@ -45,7 +54,15 @@ function BiometricForm({ mfaToken, onCancel }: { mfaToken: string; onCancel: () 
 }
 
 /** Bước xác minh thêm sau khi mật khẩu/Google đúng: chỉ cần MỘT trong các cách mà tài khoản đã bật. */
-export default function MfaStep({ challenge, onCancel }: { challenge: MfaChallenge; onCancel: () => void }) {
+export default function MfaStep({
+  challenge,
+  liveness,
+  onCancel,
+}: {
+  challenge: MfaChallenge;
+  liveness?: LivenessSetting;
+  onCancel: () => void;
+}) {
   const { mfaToken, factors } = challenge;
   const [factor, setFactor] = useState<MfaFactor>(factors[0]);
   const several = factors.length > 1;
@@ -72,7 +89,7 @@ export default function MfaStep({ challenge, onCancel }: { challenge: MfaChallen
             <button type="button" onClick={onCancel} className={`${SECONDARY_BUTTON} mt-2`}>Hủy</button>
           </>
         ) : (
-          <BiometricForm key="biometric" mfaToken={mfaToken} onCancel={onCancel} />
+          <BiometricForm key="biometric" mfaToken={mfaToken} liveness={liveness} onCancel={onCancel} />
         )}
       </div>
     </main>

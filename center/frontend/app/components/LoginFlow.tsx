@@ -22,7 +22,7 @@ export default function LoginFlow() {
     getAuthConfig().then(setConfig).catch(() => setConfig(NO_CONFIG));
   }, []);
 
-  if (challenge) return <MfaStep challenge={challenge} onCancel={() => setChallenge(null)} />;
+  if (challenge) return <MfaStep challenge={challenge} liveness={config} onCancel={() => setChallenge(null)} />;
 
   const title = mode === "login" ? "Đăng nhập" : "Đăng ký";
   return (

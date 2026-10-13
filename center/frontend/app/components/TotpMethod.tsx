@@ -1,9 +1,9 @@
 "use client";
 
-import QRCode from "qrcode";
 import { FormEvent, useEffect, useState } from "react";
 
 import Alert from "./Alert";
+import SharedQrImage from "./QrImage";
 import RecoveryCodesBox, { CopyButton } from "./RecoveryCodesBox";
 import { digitsOnly, TOTP_LENGTH } from "./TotpLoginForm";
 import { INPUT, LABEL, NOTE, PRIMARY_BUTTON, SECONDARY_BUTTON, SECTION } from "./ui";
@@ -24,24 +24,11 @@ interface Props {
 
 type Done = Props["onDone"];
 
-/** The QR is drawn in the browser: the secret never goes to a third-party service. */
 function QrImage({ uri }: { uri: string }) {
-  const [src, setSrc] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    QRCode.toString(uri, { type: "svg", margin: 1, width: 192 })
-      .then((svg) => !cancelled && setSrc(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`))
-      .catch(() => !cancelled && setFailed(true));
-    return () => {
-      cancelled = true;
-    };
-  }, [uri]);
-
-  if (failed) return <p role="note" className="text-sm text-red-600 mb-2">Không tạo được mã QR, hãy nhập khóa bên dưới thủ công.</p>;
-  if (!src) return null;
-  return <img src={src} alt="Mã QR để thêm tài khoản vào ứng dụng xác thực" width={192} height={192} className="mx-auto mb-2 border" />;
+  return (
+    <SharedQrImage value={uri} alt="Mã QR để thêm tài khoản vào ứng dụng xác thực"
+                   failureText="Không tạo được mã QR, hãy nhập khóa bên dưới thủ công." />
+  );
 }
 
 function PasswordInput({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {

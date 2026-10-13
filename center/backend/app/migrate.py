@@ -24,13 +24,15 @@ _COLUMNS: tuple[tuple[str, TypeEngine, tuple[str, str] | None], ...] = (
     ("biometric_2fa", Boolean(), ("0", "FALSE")),
     ("email_verified", Boolean(), ("0", "FALSE")),
     ("email_from_google", Boolean(), ("0", "FALSE")),
+    ("phone", String(16), None),
+    ("phone_verified", Boolean(), ("0", "FALSE")),
     ("totp_enabled", Boolean(), ("0", "FALSE")),
     ("totp_secret", Text(), None),
     ("totp_pending_secret", Text(), None),
     ("totp_last_step", BigInteger(), None),
     ("username_changed_at", DateTime(timezone=True), None),
 )
-_UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_sub"))
+_UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_sub"), ("uq_users_phone", "phone"))
 
 
 def _column_ddl(engine: Engine, name: str, type_: TypeEngine, default: tuple[str, str] | None) -> str:

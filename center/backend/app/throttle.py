@@ -35,6 +35,9 @@ class AttemptThrottle:
     def is_blocked(self, key: str) -> bool:
         return self._kv.count(self._key(key), self._window) >= self._max_attempts
 
+    def count(self, key: str) -> int:
+        return self._kv.count(self._key(key), self._window)
+
     def record(self, key: str) -> None:
         self._kv.hit(self._key(key), self._window)
 

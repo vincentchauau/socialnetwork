@@ -6,6 +6,7 @@ import Alert from "./Alert";
 import BiometricMethod from "./BiometricMethod";
 import EmailMethod from "./EmailMethod";
 import PasskeyMethod from "./PasskeyMethod";
+import PhoneMethod from "./PhoneMethod";
 import { INPUT, LABEL, SECONDARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
 import { useReauth } from "../hooks/useReauth";
@@ -33,6 +34,8 @@ const NO_USERNAME = "Đăng nhập không cần tên đăng nhập";
 const anchor = (href: string, text: string) => (
   <a href={href} className="text-sm text-blue-700 underline">{text}</a>
 );
+
+const phoneState = (me: Me) => (me.phone ? `${me.phone} (${me.phone_verified ? "đã xác minh" : "chưa xác minh"})` : "chưa có");
 
 /** Hủy liên kết Google: chỉ khi tài khoản đã có mật khẩu (luôn còn một cách đăng nhập chính). */
 function UnlinkGoogle({ hasPassword, onDone }: { hasPassword: boolean; onDone: Props["onDone"] }) {
@@ -82,6 +85,11 @@ export default function LoginMethods({ me, config, onDone }: Props) {
             <EmailMethod me={me} onDone={onDone} />
           </Row>
         )}
+        {config.phone_enabled && (
+          <Row name="Số điện thoại" state={phoneState(me)}>
+            <PhoneMethod me={me} onDone={onDone} />
+          </Row>
+        )}
         <Row name="Google" state={me.google_linked ? `đã liên kết với ${me.email ?? "tài khoản Google"}` : "chưa liên kết"}>
           {me.google_linked && <UnlinkGoogle hasPassword={me.has_password} onDone={onDone} />}
           {!me.google_linked && config.google_client_id && anchor("#lien-ket-google", "Liên kết Google")}
@@ -95,7 +103,7 @@ export default function LoginMethods({ me, config, onDone }: Props) {
         {enrol && (
           <Row name="Webcam (khuôn mặt)" state={me.webcam_login ? "đã bật" : "chưa bật"}>
             {me.webcam_login && <p className="text-xs text-gray-600">{NO_USERNAME}</p>}
-            <BiometricMethod kind="webcam" enabled={me.webcam_login} hasPassword={me.has_password} onDone={onDone} />
+            <BiometricMethod kind="webcam" enabled={me.webcam_login} hasPassword={me.has_password} liveness={config} onDone={onDone} />
           </Row>
         )}
         <Row name="Passkey" state={passkeys.length ? `${passkeys.length} passkey đã đăng ký` : "chưa có"}>

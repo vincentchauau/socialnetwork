@@ -63,6 +63,9 @@ def auth_config(request: Request) -> AuthConfig:
         google_client_id=s.google_client_id or None,
         biometrics_enabled=s.biometrics_enabled,
         email_enabled=s.email_enabled,
+        liveness_enabled=s.biometrics_enabled,
+        liveness_required=s.liveness_required,
+        phone_enabled=s.phone_enabled,
     )
 
 

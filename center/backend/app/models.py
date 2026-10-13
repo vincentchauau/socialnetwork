@@ -17,6 +17,7 @@ class User(Base):
     __table_args__ = (
         Index("uq_users_email", "email", unique=True),
         Index("uq_users_google_sub", "google_sub", unique=True),
+        Index("uq_users_phone", "phone", unique=True),
         {"sqlite_autoincrement": True},  # ids are never reused (dev SQLite); PostgreSQL sequences never reuse
     )
 
@@ -40,6 +41,9 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # True only while `email` is the address Google supplied (unlinking Google then removes it with the link).
     email_from_google: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # E.164, set only once verified (so the unique index guards verified numbers); phone_verified mirrors that.
+    phone: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    phone_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # TOTP second factor. Secrets are Fernet tokens (app.totp), never plain; the pending one waits until enabled.
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -53,6 +57,7 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan", order_by="Passkey.id"
     )
     email_tokens: Mapped[list["EmailToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    phone_codes: Mapped[list["PhoneCode"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     sessions: Mapped[list["UserSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     @property
@@ -107,6 +112,24 @@ class EmailToken(Base):
     user: Mapped[User] = relationship(back_populates="email_tokens")
 
 
+class PhoneCode(Base):
+    """A single-use SMS code (6 digits, keyed HMAC bound to the row id); purpose 'verify' | 'login'."""
+
+    __tablename__ = "phone_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    purpose: Mapped[str] = mapped_column(String(16))
+    phone: Mapped[str] = mapped_column(String(16))
+    code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    user: Mapped[User] = relationship(back_populates="phone_codes")
+
+
 class RecoveryCode(Base):
     """One single-use TOTP recovery code, stored only as a keyed HMAC (see app.totp)."""
 
@@ -157,3 +180,23 @@ class ReservedUsername(Base):
     username: Mapped[str] = mapped_column(String(32), primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, index=True)
     until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class QrLogin(Base):
+    """A QR sign-in request: a new device asks, a signed-in device approves (see app.qr). Short-lived rows."""
+
+    __tablename__ = "qr_logins"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # request_id: 32 random hex characters
+    poll_hash: Mapped[str] = mapped_column(String(64))  # SHA-256 hex of the poll token (never stored in clear)
+    verify_code: Mapped[str] = mapped_column(String(8))
+    status: Mapped[str] = mapped_column(String(12), default="pending")  # pending|approved|denied|consumed|expired
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    approver_sid: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    requester_sid: Mapped[str | None] = mapped_column(String(32), nullable=True)  # cookie session of the requester
+    requester_ip: Mapped[str] = mapped_column(String(64), default="")
+    requester_user_agent: Mapped[str] = mapped_column(String(200), default="")
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # wrong verify codes
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

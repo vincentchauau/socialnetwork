@@ -31,6 +31,8 @@ EVENTS: dict[str, tuple[str, str]] = {
         "Email của tài khoản {username} vừa được đổi sang {new_email}. Địa chỉ này không còn gắn với tài khoản.",
     ),
     "email_removed": ("Email đã được gỡ khỏi tài khoản", "Email của tài khoản {username} vừa được gỡ."),
+    "phone_added": ("Đã thêm số điện thoại đăng nhập", "Số điện thoại {phone} vừa được thêm làm phương thức đăng nhập của tài khoản {username}."),
+    "phone_removed": ("Đã gỡ số điện thoại đăng nhập", "Số điện thoại {phone} vừa được gỡ khỏi tài khoản {username}."),
     "passkey_added": ("Đã thêm một passkey", "Một passkey vừa được thêm vào tài khoản {username}."),
     "passkey_removed": ("Đã xóa một passkey", "Một passkey vừa bị xóa khỏi tài khoản {username}."),
     "google_linked": ("Đã liên kết tài khoản Google", "Tài khoản Google vừa được liên kết với tài khoản {username}."),
@@ -56,6 +58,10 @@ EVENTS: dict[str, tuple[str, str]] = {
         "Tên người dùng của bạn đã thay đổi",
         "Tên người dùng của tài khoản đã được đổi từ {old_username} sang {new_username}. "
         "Tên cũ được giữ riêng cho bạn trong 30 ngày.",
+    ),
+    "qr_login": (
+        "Đăng nhập mới bằng mã QR",
+        "Tài khoản {username} vừa được đăng nhập trên một thiết bị mới bằng mã QR (địa chỉ IP {ip}, trình duyệt {ua}).",
     ),
     "account_deleted": ("Tài khoản của bạn đã bị xóa", "Tài khoản {username} vừa được xóa cùng toàn bộ dữ liệu."),
 }
@@ -109,7 +115,7 @@ def _code_mail(code: str) -> Rendered:
 
 def _notice(kind: str, **ctx: str) -> Rendered:
     subject, template = EVENTS[kind]
-    values = {"username": "", "new_email": "", "old_username": "", "new_username": "", **ctx}
+    values = {"username": "", "phone": "", "new_email": "", "old_username": "", "new_username": "", "ip": "", "ua": "", **ctx}
     what = template.format(**values)
     text = f"{what}\n\n{SECURITY_TIP}"
     escaped = {k: escape(str(v)) for k, v in values.items()}

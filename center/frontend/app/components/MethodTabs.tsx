@@ -2,7 +2,7 @@
 
 import { KeyboardEvent, useRef } from "react";
 
-export type Method = "password" | "google" | "voice" | "webcam" | "passkey" | "email";
+export type Method = "password" | "google" | "voice" | "webcam" | "passkey" | "email" | "phone" | "qr";
 
 export const METHOD_LABEL: Record<Method, string> = {
   password: "Mật khẩu",
@@ -11,6 +11,8 @@ export const METHOD_LABEL: Record<Method, string> = {
   webcam: "Webcam (khuôn mặt)",
   passkey: "Passkey",
   email: "Email",
+  phone: "Điện thoại",
+  qr: "Mã QR",
 };
 
 interface Props {

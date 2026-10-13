@@ -9,7 +9,7 @@ import VideoRecord from "./VideoRecord";
 import { INPUT, LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./ui";
 import { useAction } from "../hooks/useAction";
 import { useReauth } from "../hooks/useReauth";
-import { MethodsStatus, removeVoice, removeWebcam, saveVoice, saveWebcam } from "../lib/auth";
+import { LivenessSetting, MethodsStatus, removeVoice, removeWebcam, saveVoice, saveWebcam } from "../lib/auth";
 
 export type BiometricKind = "voice" | "webcam";
 
@@ -17,6 +17,7 @@ interface Props {
   kind: BiometricKind;
   enabled: boolean;
   hasPassword: boolean;
+  liveness?: LivenessSetting;
   onDone: () => void | Promise<void>;
 }
 
@@ -42,9 +43,10 @@ const TEXT = {
 } as const;
 
 /** Thêm, thay hoặc hủy MỘT cách đăng nhập sinh trắc (giọng nói hoặc webcam); nhập lại mật khẩu nếu tài khoản có. */
-export default function BiometricMethod({ kind, enabled, hasPassword, onDone }: Props) {
+export default function BiometricMethod({ kind, enabled, hasPassword, liveness, onDone }: Props) {
   const text = TEXT[kind];
   const [blob, setBlob] = useState<Blob>();
+  const [livenessToken, setLivenessToken] = useState<string>();
   const [password, setPassword] = useState("");
   const [recordingKey, setRecordingKey] = useState(0);
   const { busy, error, message, run, fail } = useAction();
@@ -52,6 +54,7 @@ export default function BiometricMethod({ kind, enabled, hasPassword, onDone }: 
 
   const reset = () => {
     setBlob(undefined);
+    setLivenessToken(undefined);
     setPassword("");
     setRecordingKey((key) => key + 1); // xóa bản xem trước cũ
   };
@@ -68,7 +71,7 @@ export default function BiometricMethod({ kind, enabled, hasPassword, onDone }: 
   function save(event: FormEvent) {
     event.preventDefault();
     if (!blob) return fail(text.missing);
-    void act(() => (kind === "voice" ? saveVoice(blob, proof) : saveWebcam(blob, proof)), text.saved);
+    void act(() => (kind === "voice" ? saveVoice(blob, proof) : saveWebcam(blob, proof, livenessToken)), text.saved);
   }
 
   const remove = () => void act(() => (kind === "voice" ? removeVoice(proof) : removeWebcam(proof)), text.removed);
@@ -79,7 +82,15 @@ export default function BiometricMethod({ kind, enabled, hasPassword, onDone }: 
       {kind === "voice" ? (
         <AudioRecord key={recordingKey} disabled={busy} onRecorded={setBlob} />
       ) : (
-        <VideoRecord key={recordingKey} disabled={busy} onRecorded={setBlob} />
+        <VideoRecord
+          key={recordingKey}
+          disabled={busy}
+          liveness={liveness}
+          onRecorded={(video, token) => {
+            setBlob(video);
+            setLivenessToken(token);
+          }}
+        />
       )}
       {hasPassword && (
         <>

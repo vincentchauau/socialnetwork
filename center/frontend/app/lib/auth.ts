@@ -31,6 +31,9 @@ export interface Me {
   passkeys: PasskeyItem[];
   totp_enabled: boolean;
   recovery_codes_left: number;
+  /** Masked number (e.g. "+84•••••567") or null; absent on servers without phone sign-in. */
+  phone?: string | null;
+  phone_verified?: boolean;
   csrf_token: string;
   username_changed_at?: string | null;
   can_rename_after?: string | null;
@@ -74,9 +77,22 @@ export interface AuthConfig {
   google_client_id: string | null;
   biometrics_enabled: boolean;
   email_enabled: boolean;
+  phone_enabled: boolean;
+  liveness_enabled: boolean;
+  liveness_required: boolean;
 }
 
-export const NO_CONFIG: AuthConfig = { google_client_id: null, biometrics_enabled: false, email_enabled: false };
+export const NO_CONFIG: AuthConfig = {
+  google_client_id: null,
+  biometrics_enabled: false,
+  email_enabled: false,
+  phone_enabled: false,
+  liveness_enabled: false,
+  liveness_required: false,
+};
+
+/** The part of the config the webcam recorder needs. */
+export type LivenessSetting = Pick<AuthConfig, "liveness_enabled" | "liveness_required">;
 
 export type MfaFactor = "totp" | "biometric";
 export interface MfaChallenge {
@@ -167,8 +183,11 @@ export async function loginWithGoogle(idToken: string): Promise<LoginResult> {
   return toLoginResult(await apiFetch<SessionOrMfa>(`${CENTER_API}/auth/google`, json({ id_token: idToken })));
 }
 
-export const loginWithBiometrics = (mfaToken: string, audio?: Blob, video?: Blob) =>
-  apiForm<Session>(`${CENTER_API}/auth/login/biometric`, biometricForm({ mfa_token: mfaToken }, audio, video));
+export const loginWithBiometrics = (mfaToken: string, audio?: Blob, video?: Blob, livenessToken?: string) =>
+  apiForm<Session>(
+    `${CENTER_API}/auth/login/biometric`,
+    biometricForm({ mfa_token: mfaToken, liveness_token: livenessToken }, audio, video),
+  );
 
 /** Second factor with an authenticator code or (instead) a one-time recovery code. */
 export const loginWithTotp = (mfaToken: string, proof: { code: string } | { recoveryCode: string }) =>
@@ -184,8 +203,8 @@ export async function loginWithVoice(audio: Blob, username?: string): Promise<Lo
 }
 
 /** Sign in with ONE face-only webcam clip (no audio); the username is only sent after the server asked for it. */
-export async function loginWithWebcam(video: Blob, username?: string): Promise<LoginResult> {
-  const form = biometricForm({ username: username?.trim() || undefined }, undefined, video);
+export async function loginWithWebcam(video: Blob, username?: string, livenessToken?: string): Promise<LoginResult> {
+  const form = biometricForm({ username: username?.trim() || undefined, liveness_token: livenessToken }, undefined, video);
   return toLoginResult(await apiForm<SessionOrMfa>(`${CENTER_API}/auth/login/webcam`, form));
 }
 
@@ -240,6 +259,7 @@ export interface CombinedRegistration {
   googleIdToken?: string;
   voiceAudio?: Blob;
   webcamVideo?: Blob;
+  livenessToken?: string;
   passkeyCredential?: unknown;
   passkeyChallengeToken?: string;
 }
@@ -256,6 +276,7 @@ export async function registerCombined(input: CombinedRegistration): Promise<Ses
   if (input.googleIdToken) form.append("google_id_token", input.googleIdToken);
   if (input.voiceAudio) form.append("voice_audio", input.voiceAudio, "voice.webm");
   if (input.webcamVideo) form.append("webcam_video", input.webcamVideo, "webcam.webm");
+  if (input.livenessToken) form.append("liveness_token", input.livenessToken);
   if (input.passkeyCredential !== undefined && input.passkeyChallengeToken) {
     form.append("passkey_credential", JSON.stringify(input.passkeyCredential));
     form.append("passkey_challenge_token", input.passkeyChallengeToken);
@@ -310,8 +331,11 @@ export const deleteAccount = (password?: string) =>
 export const saveVoice = (audio: Blob, password?: string) =>
   apiForm<MethodsStatus>(`${CENTER_API}/auth/me/voice`, biometricForm({ password }, audio));
 
-export const saveWebcam = (video: Blob, password?: string) =>
-  apiForm<MethodsStatus>(`${CENTER_API}/auth/me/webcam`, biometricForm({ password }, undefined, video));
+export const saveWebcam = (video: Blob, password?: string, livenessToken?: string) =>
+  apiForm<MethodsStatus>(
+    `${CENTER_API}/auth/me/webcam`,
+    biometricForm({ password, liveness_token: livenessToken }, undefined, video),
+  );
 
 export const removeVoice = (password?: string) =>
   apiForm<MethodsStatus>(`${CENTER_API}/auth/me/voice`, biometricForm({ password }), { method: "DELETE" });
@@ -477,3 +501,97 @@ export const reauthEmailRequest = () => apiFetch<unknown>(`${CENTER_API}/auth/re
 
 export const reauthEmailVerify = (code: string) =>
   apiFetch<Reauthed>(`${CENTER_API}/auth/reauth/email/verify`, json({ code: code.trim() }));
+
+/* ---- Webcam liveness: a short-lived challenge (2 actions) whose token is sent with the recorded video ---- */
+
+export type LivenessAction = "blink" | "turn_left" | "turn_right" | "open_mouth";
+
+export interface LivenessChallenge {
+  challenge_token: string;
+  actions: LivenessAction[];
+  expires_in: number;
+}
+
+export const LIVENESS_LABEL: Record<LivenessAction, string> = {
+  blink: "Nháy mắt",
+  turn_left: "Quay mặt sang trái",
+  turn_right: "Quay mặt sang phải",
+  open_mouth: "Há miệng",
+};
+
+export const createLivenessChallenge = () =>
+  apiFetch<LivenessChallenge>(`${CENTER_API}/auth/liveness/challenge`, json({}));
+
+/* ---- Phone (SMS): sign-in by a 6-digit code and the account's own number ---- */
+
+export const PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
+export const PHONE_INVALID = "Số điện thoại không hợp lệ, hãy nhập dạng quốc tế, ví dụ +84901234567";
+export const NEUTRAL_PHONE_MESSAGE = "Nếu số điện thoại này thuộc một tài khoản, chúng tôi đã gửi mã đăng nhập qua SMS.";
+export const PHONE_SMS_WARNING = "SMS kém an toàn hơn Passkey hoặc ứng dụng xác thực (có thể bị đánh cắp SIM)";
+
+/** Drops spaces, dots, dashes and brackets people type; the "+" and digits stay. */
+export const normalizePhone = (phone: string): string => phone.replace(/[\s.\-()]/g, "");
+export const isPhoneValid = (phone: string): boolean => PHONE_PATTERN.test(normalizePhone(phone));
+
+export const requestPhoneLogin = (phone: string) =>
+  apiFetch<unknown>(`${CENTER_API}/auth/phone/login/request`, json({ phone: normalizePhone(phone) }));
+
+export async function verifyPhoneLogin(phone: string, code: string): Promise<LoginResult> {
+  return toLoginResult(
+    await apiFetch<SessionOrMfa>(`${CENTER_API}/auth/phone/login/verify`, json({ phone: normalizePhone(phone), code: code.trim() })),
+  );
+}
+
+export const setMyPhone = (phone: string, password?: string) =>
+  apiFetch<unknown>(`${CENTER_API}/auth/me/phone`, json({ phone: normalizePhone(phone), password }));
+
+export const verifyMyPhone = (code: string) =>
+  apiFetch<unknown>(`${CENTER_API}/auth/me/phone/verify`, json({ code: code.trim() }));
+
+export const removeMyPhone = (password?: string) =>
+  apiFetch<unknown>(`${CENTER_API}/auth/me/phone`, { method: "DELETE", body: JSON.stringify({ password }) });
+
+/* ---- QR sign-in: the desktop shows a QR, a signed-in phone approves it ---- */
+
+export interface QrStart {
+  request_id: string;
+  poll_token: string;
+  verify_code: string;
+  expires_in: number;
+  qr_url: string;
+}
+
+export interface QrRequest {
+  requester_ip: string | null;
+  requester_user_agent: string | null;
+  created_at: string;
+  expires_in: number;
+}
+
+export type QrPollStatus = "pending" | "denied" | "expired";
+export type QrPollResult = { kind: "status"; status: QrPollStatus } | LoginResult;
+
+export const QR_EXPIRED_MESSAGE = "Yêu cầu đã hết hạn";
+export const QR_WRONG_CODE_MESSAGE = "Mã xác nhận không đúng";
+
+export const qrStart = () => apiFetch<QrStart>(`${CENTER_API}/auth/qr/start`, json({}));
+
+const POLL_STATUSES: readonly string[] = ["pending", "denied", "expired"];
+
+export async function qrPoll(requestId: string, pollToken: string): Promise<QrPollResult> {
+  const body = await apiFetch<SessionOrMfa | { status: QrPollStatus }>(
+    `${CENTER_API}/auth/qr/poll`,
+    json({ request_id: requestId, poll_token: pollToken }),
+  );
+  if ("status" in body && POLL_STATUSES.includes(body.status)) return { kind: "status", status: body.status };
+  return toLoginResult(body as SessionOrMfa);
+}
+
+const qrPath = (id: string, suffix = "") => `${CENTER_API}/auth/qr/${encodeURIComponent(id)}${suffix}`;
+
+export const qrDetails = (id: string) => apiFetch<QrRequest>(qrPath(id));
+
+export const qrApprove = (id: string, verifyCode: string) =>
+  apiFetch<unknown>(qrPath(id, "/approve"), json({ verify_code: verifyCode.trim() }));
+
+export const qrDeny = (id: string) => apiFetch<unknown>(qrPath(id, "/deny"), json({}));

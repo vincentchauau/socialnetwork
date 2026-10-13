@@ -105,6 +105,8 @@ class MethodsStatus(BaseModel):
     require_biometric_2fa: bool
     passkey_count: int = 0
     email_verified: bool = False
+    phone: str | None = None  # masked, e.g. +84******21
+    phone_verified: bool = False
     totp_enabled: bool = False
     recovery_codes_left: int = 0
 
@@ -159,6 +161,9 @@ class AuthConfig(BaseModel):
     google_client_id: str | None
     biometrics_enabled: bool
     email_enabled: bool = False
+    liveness_enabled: bool = False
+    liveness_required: bool = False
+    phone_enabled: bool = False
 
 
 class EmailBody(BaseModel):
@@ -257,3 +262,35 @@ class TotpLoginBody(BaseModel):
         if (self.code is None) == (self.recovery_code is None):
             raise ValueError("Send either code or recovery_code")
         return self
+
+
+class QrStartOut(BaseModel):
+    request_id: str
+    poll_token: str
+    verify_code: str
+    expires_in: int
+    qr_url: str
+
+
+class QrPollBody(BaseModel):
+    request_id: str = Field(max_length=64)
+    poll_token: str = Field(max_length=128)
+
+
+class QrPollOut(BaseModel):
+    status: str  # pending | denied | expired
+
+
+class QrInfoOut(BaseModel):  # no verify_code: the approver reads it off the NEW device's screen
+    requester_ip: str
+    requester_user_agent: str
+    created_at: datetime
+    expires_in: int
+
+
+class QrApproveBody(BaseModel):
+    verify_code: str = Field(max_length=16)
+
+
+class QrStatusOut(BaseModel):
+    status: str  # approved | denied

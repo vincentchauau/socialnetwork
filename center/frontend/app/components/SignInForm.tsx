@@ -7,6 +7,8 @@ import { ApiError } from "@sn/api";
 import Alert from "./Alert";
 import AudioRecord from "./AudioRecord";
 import EmailLogin from "./EmailLogin";
+import PhoneLogin from "./PhoneLogin";
+import QrLogin from "./QrLogin";
 import BiometricWarning from "./BiometricWarning";
 import GoogleSignInButton from "./GoogleSignInButton";
 import MethodTabs, { Method } from "./MethodTabs";
@@ -47,7 +49,8 @@ export function availableMethods(config: AuthConfig): Method[] {
 /** Các tab đăng nhập: thêm Email (sau Mật khẩu) khi máy chủ bật email. */
 export function signInMethods(config: AuthConfig): Method[] {
   const [password, ...rest] = availableMethods(config);
-  return config.email_enabled ? [password, "email", ...rest] : [password, ...rest];
+  const second: Method[] = [...(config.email_enabled ? (["email"] as const) : []), ...(config.phone_enabled ? (["phone"] as const) : [])];
+  return [password, ...second, ...rest, "qr"];
 }
 
 const PASSKEY_HINT = "Dùng vân tay, Face ID, Windows Hello hoặc khóa bảo mật của thiết bị. Không cần nhập tên đăng nhập.";
@@ -66,6 +69,7 @@ export default function SignInForm({ config, onMfa }: Props) {
   const [password, setPassword] = useState("");
   const [audio, setAudio] = useState<Blob>();
   const [video, setVideo] = useState<Blob>();
+  const [livenessToken, setLivenessToken] = useState<string>();
   const [needUsername, setNeedUsername] = useState(false); // chỉ hiện khi máy chủ yêu cầu (hệ thống rất lớn)
   const [recordingKey, setRecordingKey] = useState(0); // đổi key để ô ghi âm/quay trở về trạng thái trống
   const { busy, error, run, fail } = useAction();
@@ -74,6 +78,7 @@ export default function SignInForm({ config, onMfa }: Props) {
   const clearRecordings = () => {
     setAudio(undefined);
     setVideo(undefined);
+    setLivenessToken(undefined);
     setRecordingKey((key) => key + 1);
   };
 
@@ -118,7 +123,7 @@ export default function SignInForm({ config, onMfa }: Props) {
     }
     if (method === "webcam") {
       if (!video) return fail("Hãy quay khuôn mặt trước khi đăng nhập");
-      return void signIn(() => withUsernameFallback(() => loginWithWebcam(video, needUsername ? username : undefined)));
+      return void signIn(() => withUsernameFallback(() => loginWithWebcam(video, needUsername ? username : undefined, livenessToken)));
     }
     if (method === "passkey") {
       if (!passkeySupported) return fail(PASSKEY_UNSUPPORTED);
@@ -145,6 +150,10 @@ export default function SignInForm({ config, onMfa }: Props) {
           </div>
         ) : method === "email" && config.email_enabled ? (
           <EmailLogin signIn={signIn} busy={busy} />
+        ) : method === "phone" && config.phone_enabled ? (
+          <PhoneLogin signIn={signIn} busy={busy} />
+        ) : method === "qr" ? (
+          <QrLogin signIn={signIn} />
         ) : (
           <form onSubmit={submit} aria-label="Đăng nhập">
             {(method === "password" || needUsername) && (
@@ -162,7 +171,17 @@ export default function SignInForm({ config, onMfa }: Props) {
             {method === "password" && <PasswordField value={password} onChange={setPassword} isRegister={false} />}
             {(method === "voice" || method === "webcam") && <BiometricWarning kinds={[method]} />}
             {method === "voice" && <AudioRecord key={recordingKey} disabled={busy} onRecorded={setAudio} />}
-            {method === "webcam" && <VideoRecord key={recordingKey} disabled={busy} onRecorded={setVideo} />}
+            {method === "webcam" && (
+              <VideoRecord
+                key={recordingKey}
+                disabled={busy}
+                liveness={config}
+                onRecorded={(blob, token) => {
+                  setVideo(blob);
+                  setLivenessToken(token);
+                }}
+              />
+            )}
             {method === "password" && config.email_enabled && (
               <p className="text-sm text-right mb-2">
                 <a href="/forgot-password" className="text-blue-700 underline">Quên mật khẩu?</a>

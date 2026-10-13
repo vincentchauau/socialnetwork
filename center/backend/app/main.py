@@ -18,6 +18,11 @@ from app.mailer import SmtpMailer
 from app.middleware import SecurityHeadersMiddleware
 from app.migrate import ensure_columns, force_relogin, sessions_table_is_new
 from app.passkeys import ChallengeStore
+from app.liveness import ANALYSES_MAX_PER_IP as LIVENESS_ANALYSES_MAX_PER_IP
+from app.liveness import ANALYSES_WINDOW_SECONDS as LIVENESS_ANALYSES_WINDOW_SECONDS
+from app.liveness import warn_if_optional
+from app.routes_liveness import liveness_router
+from app.phones import install_phone
 from app.routes_account import router as account_router
 from app.routes_auth import router as auth_router
 from app.routes_biometrics import router as biometrics_router
@@ -25,6 +30,8 @@ from app.routes_email import router as email_router
 from app.routes_methods import combined_router, methods_router
 from app.reauth import ReauthRequired, reauth_response
 from app.routes_passkeys import router as passkeys_router
+from app.routes_phone import router as phone_router
+from app.routes_qr import router as qr_router
 from app.routes_reauth import router as reauth_router
 from app.routes_sessions import router as sessions_router
 from app.routes_totp import router as totp_router
@@ -68,8 +75,12 @@ FRESH_MAX_FAILURES = 5  # failed step-up proofs (passkey, Google, mailed code), 
 FRESH_WINDOW_SECONDS = 900.0
 FRESH_MAX_FAILURES = 5  # failed step-up proofs (passkey, Google, mailed code), per user
 FRESH_WINDOW_SECONDS = 900.0
+LIVENESS_CHALLENGES_MAX_PER_IP = 20  # liveness challenges per address per minute
 RENAME_MAX_PER_DAY = 10  # username change attempts per user (the 30-day rule is separate)
 REGISTER_MAIL_MAX_PER_ADDRESS = 3  # verification mails triggered by sign-ups, per target address
+QR_START_MAX_PER_IP = 10  # QR sign-in requests per address per window
+QR_POLL_MAX_PER_IP = 200  # polls (every ~2 s while a code is shown) per address per window
+QR_WINDOW_SECONDS = 300.0
 
 
 def _install_throttles(app: FastAPI, kv: Kv) -> None:
@@ -93,6 +104,10 @@ def _install_throttles(app: FastAPI, kv: Kv) -> None:
     state.voice_identify_global_throttle = AttemptThrottle(IDENTIFY_GLOBAL_MAX, window, name="voice_identify_global_throttle", kv=kv)
     state.passkey_options_throttle = AttemptThrottle(PASSKEY_OPTIONS_MAX_PER_IP, PASSKEY_OPTIONS_WINDOW_SECONDS, name="passkey_options_throttle", kv=kv)
     state.passkey_login_throttle = AttemptThrottle(PASSKEY_LOGIN_MAX_FAILURES_PER_IP, PASSKEY_LOGIN_WINDOW_SECONDS, name="passkey_login_throttle", kv=kv)
+    state.liveness_throttle = AttemptThrottle(LIVENESS_CHALLENGES_MAX_PER_IP, 60.0, name="liveness_throttle", kv=kv)
+    state.liveness_analysis_throttle = AttemptThrottle(
+        LIVENESS_ANALYSES_MAX_PER_IP, LIVENESS_ANALYSES_WINDOW_SECONDS, name="liveness_analysis_throttle", kv=kv
+    )
     state.passkey_challenges = ChallengeStore(kv)  # consumed challenge ids; shared like the throttles
     state.enroll_throttle = AttemptThrottle(ENROLL_MAX_PER_HOUR, 3600.0, name="enroll_throttle", kv=kv)
     window = EMAIL_REQUEST_WINDOW_SECONDS
@@ -115,6 +130,8 @@ def _install_throttles(app: FastAPI, kv: Kv) -> None:
     state.reauth_mail_ip_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_IP_ADDRESS, window, name="reauth_mail_ip_addr_throttle", kv=kv)
     state.reauth_mail_addr_throttle = AttemptThrottle(EMAIL_REQUEST_MAX_PER_ADDRESS, window, name="reauth_mail_addr_throttle", kv=kv)
     state.rename_throttle = AttemptThrottle(RENAME_MAX_PER_DAY, 86400.0, name="rename_throttle", kv=kv)
+    state.qr_start_throttle = AttemptThrottle(QR_START_MAX_PER_IP, QR_WINDOW_SECONDS, name="qr_start_throttle", kv=kv)
+    state.qr_poll_throttle = AttemptThrottle(QR_POLL_MAX_PER_IP, QR_WINDOW_SECONDS, name="qr_poll_throttle", kv=kv)
     state.biometric_slots = threading.BoundedSemaphore(MAX_CONCURRENT_BIOMETRICS)
 
 
@@ -126,6 +143,7 @@ def _install_biometrics(app: FastAPI, settings: Settings) -> None:
 
         app.state.cipher = TemplateCipher(settings.data_key)  # fails at startup on a bad key
         app.state.biometrics = RealBiometrics(settings)
+        warn_if_optional(settings)
 
 
 def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
@@ -180,18 +198,22 @@ def create_app(database_url: str | None = None) -> FastAPI:
         if settings.email_enabled
         else None
     )
+    install_phone(app, settings, app.state.kv)  # SMS provider + throttles (refuses SMS_PROVIDER=mailbox in production)
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.add_exception_handler(ReauthRequired, reauth_response)
     app.include_router(auth_router)
     app.include_router(account_router)
     app.include_router(email_router)
+    app.include_router(phone_router)
     app.include_router(biometrics_router)
     app.include_router(methods_router)
+    app.include_router(liveness_router)
     app.include_router(combined_router)
     app.include_router(passkeys_router)
     app.include_router(totp_router)
     app.include_router(sessions_router)
     app.include_router(reauth_router)
+    app.include_router(qr_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

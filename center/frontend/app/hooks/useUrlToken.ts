@@ -28,3 +28,24 @@ export function useUrlToken(): UrlToken {
 
   return state;
 }
+
+export type FragmentValue = { ready: false } | { ready: true; value: string | null };
+
+/** One `name=value` pair of the URL fragment (`#r=abc`), or null. Never read from the query string. */
+export function parseFragmentParam(hash: string, name: string): string | null {
+  return new URLSearchParams(hash.replace(/^#/, "")).get(name) || null;
+}
+
+/** Reads `#name=value` once and clears the fragment from the address bar, like useUrlToken. */
+export function useFragmentParam(name: string): FragmentValue {
+  const [state, setState] = useState<FragmentValue>({ ready: false });
+
+  useEffect(() => {
+    const { hash, search, pathname } = window.location;
+    const value = parseFragmentParam(hash, name);
+    if (hash) window.history.replaceState(window.history.state, "", pathname + search);
+    setState({ ready: true, value });
+  }, [name]);
+
+  return state;
+}

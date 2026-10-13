@@ -115,7 +115,32 @@ One `users` row per account; six methods, **each usable on its own**, plus an op
 - Lesson kept in the tests: the real engine must never raise on malformed or placeholder templates (a
   placeholder of the wrong length once made username-less sign-in a 500 when no account existed).
 - Voice and webcam are only available when `BIOMETRICS_ENABLED=1` (image built with `WITH_BIOMETRICS=1`,
-  `DATA_KEY` set). They have **no liveness check**: anyone with a recording of the owner can pass.
+  `DATA_KEY` set). Voice has **no liveness check** (it would need speech recognition): anyone with a recording of
+  the owner can pass. Webcam has an optional best-effort liveness challenge, see below.
+- **Webcam liveness (best effort)** (`app/liveness.py`, `routes_liveness.py`, `biometrics/liveness_video.py`):
+  `GET|POST /auth/liveness/challenge` (Origin check, 20/min per IP) -> `{challenge_token, actions: [a, b], expires_in: 60}`
+  with two distinct random actions from `blink`, `turn_left`, `turn_right`, `open_mouth`, in order. The token is signed,
+  bound to the action list, valid 60 s and single use (same consumed-marker store as passkey challenges, purpose
+  `liveness`). Webcam register (`/auth/register/webcam`, `/auth/register/combined` with a `webcam_video`), sign-in
+  (`/auth/login/webcam`, with or without username) and link (`/auth/me/webcam`) take an optional form field
+  `liveness_token`; when present, the clip must show the actions in that order (extra movements are tolerated) or the
+  endpoint gives its usual generic failure (401 for sign-in, 422 for register/link); the reason is only logged.
+  `LIVENESS_REQUIRED=1` makes the token mandatory (default 0: back-compatible). `GET /auth/config` reports
+  `liveness_enabled` (= `BIOMETRICS_ENABLED`) and `liveness_required`. Detection (dlib landmarks, ~12 fps, at most 90
+  frames): blink = eye aspect ratio < 0.2 then > 0.25; open_mouth = inner mouth ratio > 0.35 then < 0.2; turns = nose
+  offset from the jaw middle beyond 0.12 of the face width relative to the first frames. Sanity checks: exactly one face
+  in >= 80% of frames, the face box must move (a still image fails), first and last frame embeddings within 0.5.
+  **Directions are as seen by the user: the frontend must NOT mirror the recorded stream** (only the preview);
+  `turn_left` = the user turns to their own left = the nose moves toward the image right edge.
+  **Production should set `LIVENESS_REQUIRED=1`**: while it is unset a client can simply omit the token (a startup
+  WARNING is logged when `APP_ENV=production` and biometrics are on). The clip may contain at most 1 detected action
+  event beyond the two requested (`MAX_EXTRA_ACTION_EVENTS`), so one generic clip performing all four actions fails
+  (a clip with exactly the requested actions, possibly in several attempts, is what a targeted attacker needs).
+  Video analysis runs inside the 2 global biometric slots, after the endpoint's own throttles, and is capped at 20
+  per IP per 5 min (429); a failed liveness counts as a failed attempt in the sign-in throttles.
+  **Does NOT**: stop a live deepfake or a person holding a screen with a targeted real-time video; it is not a
+  certified PAD (ISO 30107); thresholds were not tested with real people in this environment (no dlib/camera here),
+  tune them on real data. Voice liveness is out of scope.
 - **Passkeys** (`py_webauthn` on the server, `@simplewebauthn/browser` in the UI): the server stores only the public
   key; the device verifies the user (biometrics or PIN) and signs a challenge, so there is nothing to spoof with a
   photo or a recording and no username to type (discoverable credentials). A user can have several (one per
@@ -157,6 +182,27 @@ One `users` row per account; six methods, **each usable on its own**, plus an op
   - **Step-up**: sensitive actions (method link/removal, email change/removal, TOTP setup/enable/disable/regenerate, account deletion) accept the password or a fresh proof (cookie `sn_fresh`, 5 min, bound to user + session). Accounts WITHOUT a password need the proof: otherwise `401 {"detail":"Re-authentication required","reauth":["passkey","google","email"]}`. Obtain it with `POST /auth/reauth/passkey/options|verify` (a passkey of the current user), `/auth/reauth/google {id_token}`, `/auth/reauth/email/request` + `/email/verify {code}` (6-digit code to the VERIFIED email, 10 min); `GET /auth/reauth/methods`. Failures are one generic 401, throttled per user. A Google ID token buys one proof only. Known limit: accounts with only voice/webcam have no step-up method and are not asked. New env: none beyond `REDIS_URL`.
 - Optional advanced setting `biometric_2fa` (off by default): after password/Google, also require a sample.
 - Sessions: `sn_token` (60 min) + `sn_refresh` (14 d), CSRF header on writes, `token_version` revocation.
+
+### QR sign-in (log in on a new device by approving on a signed-in one)
+
+Not an account sign-in method (nothing to link or remove): it lends an existing session to a new device. `POST /auth/qr/start` -> `{request_id, poll_token, verify_code, expires_in: 120, qr_url}`; the new device polls `POST /auth/qr/poll`; the signed-in device opens `GET /auth/qr/{request_id}` and calls `/approve {verify_code}` or `/deny`. Approval is consumed once (atomic conditional UPDATE) through the normal login flow, so a TOTP account still gets `mfa_required`; the session method is `qr`; a verified email gets a notice.
+
+Anti-phishing (QRLjacking: an attacker shows their own QR on a fake page and tricks a victim into approving it):
+the 4-character verify code on the new device must be read off the new device's screen and typed on the approving device (the server never sends it to the approver, `GET /auth/qr/{id}` omits it; every try is counted before the comparison and the 3rd wrong one denies the request); the approving device shows the requester's IP and browser before approval; requests live 120 s; the request id travels only in the URL fragment (`/login/qr#r=...`, never sent to servers or logs) and the poll token never leaves the requesting browser; the requesting browser cannot approve itself; start/poll are throttled per IP. Users should approve only a request they started themselves, and only when the code matches.
+
+### Phone number + SMS code (7th sign-in method)
+
+Off unless `SMS_PROVIDER` is set (`GET /auth/config` -> `phone_enabled`; phone routes answer 503 otherwise). Providers (`app/smsproviders.py`, `send(phone, text)`): `mailbox` (DEV only: mails the text to `<digits>@sms.local`, visible in Mailpit; the app refuses to start with it when `APP_ENV=production`) and `twilio` (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`; 5 s timeout; failures log the exception class only). Sending happens in a background task. Env: `SMS_PROVIDER`, `SMS_DAILY_CAP` (default 500 real sends / 24 h, whole deployment), `SMS_ALLOWED_PREFIXES` (e.g. `+84,+1`; empty = any), `TWILIO_*`. `docker compose` passes them through (`${SMS_PROVIDER:-}`); with Mailpit use `SMS_PROVIDER=mailbox`.
+
+- `POST /auth/me/phone {phone, password?}` -> 202 `{"ok":true}` (CSRF, Origin, step-up like email change). Strict E.164 (`^\+[1-9][0-9]{7,14}$` after removing spaces and dashes), 422 otherwise. A number verified by another account still answers 202 and sends nothing (409 only at verify).
+- `POST /auth/me/phone/verify {code}` -> the methods status (below). `DELETE /auth/me/phone {password?}` -> methods status; 409 `Keep at least one sign-in method` when it is the last usable method.
+- `POST /auth/phone/login/request {phone}` -> always 202 `{"ok":true}`; an SMS only for a VERIFIED number. `POST /auth/phone/login/verify {phone, code}` -> `SessionOut` or `MfaRequired` (TOTP accounts still get `mfa_required`); any failure is one generic 401; session method `phone`.
+- Status and `GET /auth/me` gain `phone` (masked `+84*******21` or null) and `phone_verified`. `users.phone` is set only when verified (unique index `uq_users_phone`). Table `phone_codes`: 6 digits, HMAC bound to the row id, verify 10 min / login 5 min, 5 attempts, at most 3 live per (user, purpose). A security mail goes to the verified email when a number is added or removed.
+- SMS-pumping/cost controls (kv-backed, shared via Redis): per IP 10 / 15 min, per (IP, number) 2 / 15 min, per number 3 / 15 min (each request counts, known or not), per user 5 / h for changes, failed codes 10 / h per number, and the global `SMS_DAILY_CAP` (429 for everyone once spent; only real sends count). Logs show only the last two digits.
+
+Cost/fraud controls added on top: per-user (10/day) and per-number (10/day) send limits; the daily cap is split (login sends at most 70% of `SMS_DAILY_CAP`, verification the rest) with a warning log at 80%; failed login codes are counted per (IP, number) (10/h) plus 30/h per number across IPs, so one IP cannot lock the owner out; premium-rate/satellite/high-fraud prefixes (`phonenum.DENIED_PREFIXES`: +882, +883, +878, +979, +1900, +1976, several Caribbean ranges, ...) are always refused with 422; in production with `twilio`, `SMS_ALLOWED_PREFIXES` is REQUIRED at startup - the operator must choose the countries they serve (toll fraud / SMS pumping).
+
+Honest limits: SMS is a weak factor (SIM swap, SS7, number recycling, phishing relays); use it for convenience and recovery, not as the only protection of a valuable account (add TOTP or a passkey). The Twilio sender is unit-tested with a mocked transport only: it has NOT been verified against a live provider.
 
 ## Security notes
 
@@ -227,6 +273,7 @@ Each service has its own LOGIN role (`sn_center`, `sn_chat`, `sn_photos`, `sn_wa
 
 ## Known limits (intentional for now)
 
+- SMS sign-in: SMS is the weakest factor (SIM swap, SS7 interception, and recycled numbers handed to a new owner can all yield valid codes); treat it as convenience/recovery and combine it with TOTP or a passkey for valuable accounts. Remove numbers you no longer control. Daily caps bound cost but cannot tell fraud from load.
 - Chat rooms (and `werewolf` rooms) are in-memory, per process: the chat service cannot run several replicas yet.
 - `center` throttles, email budgets and passkey single-use challenges live in Redis when `REDIS_URL` is set
   (compose sets it from `REDIS_PASSWORD`; keys are `sn:*`, all with a TTL, nothing is persisted). Without

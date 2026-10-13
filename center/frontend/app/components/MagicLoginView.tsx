@@ -1,18 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import MfaStep from "./MfaStep";
 import TokenConfirm from "./TokenConfirm";
 import { PRIMARY_BUTTON } from "./ui";
-import { MfaChallenge, loginWithMagicLink } from "../lib/auth";
+import { AuthConfig, MfaChallenge, NO_CONFIG, getAuthConfig, loginWithMagicLink } from "../lib/auth";
 import { goTo, postLoginTarget } from "../lib/navigate";
 
 /** Đăng nhập bằng liên kết trong email. Nếu cần xác minh thêm thì chuyển về /login kèm ghi chú. */
 export default function MagicLoginView() {
   const [challenge, setChallenge] = useState<MfaChallenge | null>(null);
+  const [config, setConfig] = useState<AuthConfig>(NO_CONFIG);
 
-  if (challenge) return <MfaStep challenge={challenge} onCancel={() => goTo("/login")} />;
+  useEffect(() => {
+    // Only the biometric second factor needs the liveness setting: read it once the challenge exists.
+    if (!challenge) return;
+    getAuthConfig().then(setConfig).catch(() => setConfig(NO_CONFIG));
+  }, [challenge]);
+
+  if (challenge) return <MfaStep challenge={challenge} liveness={config} onCancel={() => goTo("/login")} />;
 
   return (
     <TokenConfirm

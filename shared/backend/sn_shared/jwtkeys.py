@@ -35,7 +35,7 @@ _PUBLIC_BLOCK = re.compile(
 )
 _lock = threading.RLock()
 _cache: dict[str, tuple[str, object]] = {}
-_file_cache: dict[str, tuple[int, str]] = {}
+_file_cache: dict[str, tuple[tuple[int, int, int], str]] = {}
 _ephemeral: "Signer | None" = None
 
 
@@ -58,12 +58,17 @@ def thumbprint(public_key: Ed25519PublicKey) -> str:
     return base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")[:KID_LENGTH]
 
 
+def _raw(public_key: Ed25519PublicKey) -> bytes:
+    return public_key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+
+
 def _read(name: str) -> str:
     """The value of NAME, or the contents of the file named by NAME_FILE ('' when neither is set)."""
     path = os.environ.get(f"{name}_FILE", "").strip()
     if path:
         try:
-            stamp = os.stat(path).st_mtime_ns  # re-read only when the file changes (this runs on every request)
+            info = os.stat(path)  # re-read only when the file changes (this runs on every request)
+            stamp = (info.st_mtime_ns, info.st_size, info.st_ino)  # a same-mtime atomic replace changes size/inode
             cached = _file_cache.get(path)
             if cached is not None and cached[0] == stamp:
                 return cached[1]
@@ -147,7 +152,10 @@ def parse_public_keys(text: str) -> dict[str, Ed25519PublicKey]:
             raise RuntimeError("JWT_PUBLIC_KEYS contains an unreadable PEM public key") from None
         if not isinstance(key, Ed25519PublicKey):
             raise RuntimeError("JWT_PUBLIC_KEYS must contain Ed25519 public keys only")
-        keys[match.group("kid") or thumbprint(key)] = key
+        kid = match.group("kid") or thumbprint(key)
+        if kid in keys and _raw(keys[kid]) != _raw(key):
+            raise RuntimeError(f"JWT_PUBLIC_KEYS lists the key id {kid!r} more than once")
+        keys[kid] = key
     return keys
 
 
@@ -161,6 +169,8 @@ def get_verification_keys() -> dict[str, Ed25519PublicKey]:
             raise RuntimeError("JWT_PUBLIC_KEYS holds no PEM public key")
     if _read("JWT_PRIVATE_KEY") or _ephemeral is not None:
         signer = get_signer()
+        if signer.kid in keys and _raw(keys[signer.kid]) != _raw(signer.public_key):
+            raise RuntimeError(f"JWT_KEY_ID {signer.kid!r} collides with a key id listed in JWT_PUBLIC_KEYS")
         keys[signer.kid] = signer.public_key
     return keys
 

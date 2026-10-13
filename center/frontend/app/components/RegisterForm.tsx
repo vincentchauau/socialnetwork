@@ -31,7 +31,16 @@ import { PASSKEY_UNSUPPORTED, createPasskeyCredential } from "../lib/passkey";
 
 type Chosen = Record<Method, boolean>;
 
-const DEFAULT_CHOSEN: Chosen = { password: true, google: false, voice: false, webcam: false, passkey: false, email: false };
+const DEFAULT_CHOSEN: Chosen = {
+  password: true,
+  google: false,
+  voice: false,
+  webcam: false,
+  passkey: false,
+  email: false,
+  phone: false,
+  qr: false,
+};
 
 const OPTIONAL_HINT = "Không bắt buộc nếu chỉ dùng Google, Giọng nói, Webcam hoặc Passkey: hệ thống sẽ tự tạo tên (ví dụ user-7f3a2c).";
 
@@ -52,6 +61,7 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
   const [googleToken, setGoogleToken] = useState<string>();
   const [audio, setAudio] = useState<Blob>();
   const [video, setVideo] = useState<Blob>();
+  const [livenessToken, setLivenessToken] = useState<string>();
   const [recordingKey, setRecordingKey] = useState(0);
   const { busy, error, run, fail } = useAction();
   const passkeySupported = usePasskeySupport();
@@ -69,7 +79,10 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
     if (method === "password") setPassword("");
     if (method === "google") setGoogleToken(undefined);
     if (method === "voice") setAudio(undefined);
-    if (method === "webcam") setVideo(undefined);
+    if (method === "webcam") {
+      setVideo(undefined);
+      setLivenessToken(undefined);
+    }
   }
 
   async function submit(event: FormEvent) {
@@ -94,12 +107,14 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
         googleIdToken: chosen.google ? googleToken : undefined,
         voiceAudio: chosen.voice ? audio : undefined,
         webcamVideo: chosen.webcam ? video : undefined,
+        livenessToken: chosen.webcam ? livenessToken : undefined,
       });
       created = session.username;
     });
     // Bản ghi đã dùng (hoặc lỗi) không được giữ lại.
     setAudio(undefined);
     setVideo(undefined);
+    setLivenessToken(undefined);
     setRecordingKey((key) => key + 1);
     if (!ok) return;
     setPassword("");
@@ -163,7 +178,15 @@ export default function RegisterForm({ config }: { config: AuthConfig }) {
       )}
       {chosen.webcam && (
         <div className="mb-2">
-          <VideoRecord key={`v${recordingKey}`} disabled={busy} onRecorded={setVideo} />
+          <VideoRecord
+            key={`v${recordingKey}`}
+            disabled={busy}
+            liveness={config}
+            onRecorded={(blob, token) => {
+              setVideo(blob);
+              setLivenessToken(token);
+            }}
+          />
         </div>
       )}
       <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>

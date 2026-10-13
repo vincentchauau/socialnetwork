@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 from app.models import User
+from app.phonenum import mask_phone
 from app.schemas import MethodsStatus, PasskeyOut
 
 KEEP_ONE = "Keep at least one sign-in method"
@@ -26,6 +27,8 @@ def methods_status(user: User) -> MethodsStatus:
         require_biometric_2fa=user.biometric_2fa,
         passkey_count=len(user.passkeys),
         email_verified=has_verified_email(user),
+        phone=mask_phone(user.phone) if user.phone and user.phone_verified else None,
+        phone_verified=bool(user.phone and user.phone_verified),
         totp_enabled=user.totp_enabled,
         recovery_codes_left=sum(1 for c in user.recovery_codes if c.used_at is None),
     )
@@ -60,6 +63,7 @@ def usable_methods(user: User, without: str | tuple[str, ...] | None = None) -> 
         "password": user.has_password,
         "google": user.google_linked,
         "email": has_verified_email(user),
+        "phone": bool(user.phone and user.phone_verified),
         "voice": user.voice_login,
         "webcam": user.webcam_login,
         "passkey": bool(user.passkeys),
