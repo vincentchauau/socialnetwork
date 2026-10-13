@@ -149,12 +149,25 @@ export const USERNAME_NEEDED = "Enter your username";
 const VOICE_TAKEN = "This voice is already registered";
 const VOICE_TAKEN_HELP = "Giọng nói này đã được đăng ký cho một tài khoản khác, hãy đăng nhập hoặc dùng giọng khác.";
 
-export const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/;
-export const USERNAME_MESSAGE = "Tên đăng nhập gồm 3-32 ký tự: chữ, số, dấu chấm, gạch dưới, gạch ngang";
+/** Same set as the server's ALLOWED_SPECIALS. Not '@', spaces, separators (: | / \\ " ' < > ` * ? [ ] { } ( ) , ;) or non-ASCII. */
+export const USERNAME_SPECIALS = "._-!#$%&+=^~";
+const escapeForClass = (chars: string): string => chars.replace(/[\\\]^-]/g, "\\$&");
+export const USERNAME_PATTERN = new RegExp(`^[A-Za-z0-9${escapeForClass(USERNAME_SPECIALS)}]{3,32}$`);
+const USERNAME_ALNUM = /[A-Za-z0-9]/;
+export const USERNAME_MESSAGE = `Tên đăng nhập gồm 3-32 ký tự: chữ, số và ${USERNAME_SPECIALS.split("").join(" ")} (cần ít nhất một chữ hoặc số)`;
+export const USERNAME_AT_MESSAGE = "Tên đăng nhập không được chứa @ (để không bị nhầm với email)";
+export const USERNAME_SPACE_MESSAGE = "Tên đăng nhập không được chứa khoảng trắng";
 export const USERNAME_COOLDOWN_MESSAGE = "Bạn chỉ có thể đổi tên đăng nhập 30 ngày một lần";
 export const USERNAME_TAKEN_MESSAGE = "Tên đăng nhập này đã có người dùng";
-/** The server lowercases the name, so capitals are fine here: only the characters and the length matter. */
-export const isUsernameValid = (username: string): boolean => USERNAME_PATTERN.test(username.toLowerCase());
+/** Capitals are kept as typed (uniqueness ignores case): only the characters and the length matter. */
+export const isUsernameValid = (username: string): boolean => USERNAME_PATTERN.test(username) && USERNAME_ALNUM.test(username);
+
+/** The message to show for a bad username, or null when it is fine. */
+export function usernameProblem(username: string): string | null {
+  if (username.includes("@")) return USERNAME_AT_MESSAGE;
+  if (/\s/.test(username)) return USERNAME_SPACE_MESSAGE;
+  return isUsernameValid(username) ? null : USERNAME_MESSAGE;
+}
 
 export function errorText(error: unknown): string {
   if (error instanceof ApiError && /once every 30 days|can be changed again after/i.test(error.message)) return USERNAME_COOLDOWN_MESSAGE;

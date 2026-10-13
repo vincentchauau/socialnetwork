@@ -69,9 +69,9 @@ describe("ChangeUsername", () => {
     const form = await openForm();
     expect(form.getByText("ann")).toBeInTheDocument();
     expect(form.getByText(/Mỗi 30 ngày chỉ đổi được một lần/)).toBeInTheDocument();
-    expect(form.getByText("(thường + hoa + số)")).toBeInTheDocument();
+    expect(form.getByText("(thường + hoa + số + đặc biệt)")).toBeInTheDocument();
     expect(form.queryByText(/3-32 ký tự/)).not.toBeInTheDocument();
-    expect(form.getByPlaceholderText("Username123")).toBeInTheDocument();
+    expect(form.getByPlaceholderText("User_123!")).toBeInTheDocument();
     expect(form.queryByText(/Có thể đổi lại từ/)).toBeNull();
   });
 
@@ -131,15 +131,20 @@ describe("ChangeUsername", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("validates the name before calling the server", async () => {
+  it.each([
+    ["Bad@Name", "không được chứa @"],
+    ["Bad Name", "không được chứa khoảng trắng"],
+    ["!!!", "Tên đăng nhập gồm 3-32 ký tự"],
+    ["Bad:Name", "Tên đăng nhập gồm 3-32 ký tự"],
+  ])("validates the name %j before calling the server", async (name, expected) => {
     const fn = setup();
     const user = userEvent.setup();
     render(<AccountView />);
     const form = await openForm();
-    await user.type(form.getByLabelText(NAME), "Bad@Name");
+    await user.type(form.getByLabelText(NAME), name);
     await user.type(form.getByLabelText(PASSWORD), "Secret-123");
     await user.click(form.getByRole("button", { name: "Đổi tên" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Tên đăng nhập gồm 3-32 ký tự");
+    expect(await screen.findByRole("alert")).toHaveTextContent(expected);
     expect(renameCalls(fn)).toHaveLength(0);
   });
 

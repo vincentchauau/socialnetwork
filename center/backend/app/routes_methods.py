@@ -30,6 +30,7 @@ from app.identify import (
     identify_voice,
     too_many_candidates,
 )
+from app.throttle import pair_key
 from app.deps import AuthSession, biometrics_available, check_origin, client_ip, csrf_session, require_reauth, settings_of, too_many
 from app import emailtokens as et
 from app import usernames
@@ -286,7 +287,7 @@ def _biometric_login(
     """Voice (audio only) or webcam (face only) sign-in. Strict thresholds; every failure is the same 401."""
     ip, state, name = client_ip(request), request.app.state, key_of(username)
     throttles = [state.alone_throttle, state.alone_account_throttle]
-    keys = [f"{ip}|{name}", name]
+    keys = [pair_key(ip, name), name]
     _count_attempts(throttles, keys, name, ip)
     live_ok = live() if method == "webcam" else True  # after the lockout check: a locked key costs no analysis
     user = db.scalar(select(User).where(User.username_key == name))

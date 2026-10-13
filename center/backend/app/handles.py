@@ -3,10 +3,20 @@
 import re
 from typing import Callable
 
-HANDLE_RE = re.compile(r"^[A-Za-z0-9._-]{3,32}$")  # capitalisation is kept for display only
-_INVALID = re.compile(r"[^a-z0-9._-]")
 MAX_LEN = 32
 MIN_LEN = 3
+# Besides ASCII letters and digits. Deliberately NOT '@' (never confusable with an email), whitespace, control or
+# non-ASCII characters (homoglyphs), nor the separators/metacharacters : | / \ " ' < > ` * ? [ ] { } ( ) , ;
+# (Redis keys and globs, `|`-joined throttle keys, URLs, HTML/mail text, shell and SQL LIKE patterns).
+ALLOWED_SPECIALS = "._-!#$%&+=^~"
+HANDLE_RE = re.compile(rf"^[A-Za-z0-9{re.escape(ALLOWED_SPECIALS)}]{{{MIN_LEN},{MAX_LEN}}}$")  # case kept for display
+_ALNUM = re.compile(r"[A-Za-z0-9]")
+_INVALID = re.compile(r"[^a-z0-9._-]")  # generated handles stay within the conservative core
+
+
+def is_valid_username(name: str) -> bool:
+    """3-32 allowed characters, at least one of them a letter or digit ('...' or '!!!' are refused)."""
+    return HANDLE_RE.fullmatch(name) is not None and _ALNUM.search(name) is not None
 
 
 def key_of(name: str) -> str:

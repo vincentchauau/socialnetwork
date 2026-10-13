@@ -3,7 +3,7 @@ import { LABEL } from "./ui";
 interface Props {
   htmlFor: string;
   text: string;
-  /** Ghi chú ngắn cạnh nhãn, ví dụ "(thường + hoa + số)". Không nằm trong nhãn để tên truy cập của ô giữ nguyên. */
+  /** Ghi chú ngắn cạnh nhãn, ví dụ "(thường + hoa + số + đặc biệt)". Không nằm trong nhãn để tên truy cập của ô giữ nguyên. */
   hint?: string;
   hintId?: string;
 }

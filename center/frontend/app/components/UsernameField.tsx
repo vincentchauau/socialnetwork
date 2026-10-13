@@ -3,8 +3,8 @@ import { RefObject } from "react";
 import FieldLabel from "./FieldLabel";
 import { INPUT } from "./ui";
 
-const USERNAME_HINT = "(thường + hoa + số)";
-const USERNAME_EXAMPLE = "Username123";
+const USERNAME_HINT = "(thường + hoa + số + đặc biệt)";
+const USERNAME_EXAMPLE = "User_123!";
 
 interface Props {
   value: string;

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.audit import audit
 from app.biometrics import BiometricError, BiometricUnavailable
 from app.db import get_db
+from app.throttle import pair_key
 from app.deps import AuthSession, biometrics_available, check_origin, client_ip, csrf_session, require_reauth, settings_of, too_many
 from app.methods import methods_status
 from app.models import User
@@ -159,7 +160,7 @@ def login_biometric(
     if user is None or user.token_version != int(claims["ver"]) or user.totp_enabled or not (user.biometric_2fa and user.has_biometrics):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA)  # also: switched off meanwhile, or TOTP is on (it never accepts a biometric instead)
     throttles = [state.bio_throttle, state.bio_account_throttle]
-    keys = [f"{ip}|{user.username_key}", user.username_key]
+    keys = [pair_key(ip, user.username_key), user.username_key]
     _count_attempts(throttles, keys, user.username, ip)
     if not factors_match(request, user, audio, video):
         audit.warning("mfa biometric failed user=%r ip=%s", user.username, ip)

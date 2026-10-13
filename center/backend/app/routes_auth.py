@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import audit
 from app.db import get_db
+from app.throttle import pair_key
 from app.deps import (
     AuthSession,
     biometrics_available,
@@ -97,7 +98,7 @@ def _login_throttles(request: Request, ip: str, name: str) -> tuple[list, list[s
     state = request.app.state
     return (
         [state.login_throttle, state.login_ip_throttle, state.login_account_throttle],
-        [f"{ip}|{name}", ip, name],
+        [pair_key(ip, name), ip, name],
     )
 
 

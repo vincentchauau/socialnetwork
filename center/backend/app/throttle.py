@@ -4,6 +4,11 @@ from typing import Callable
 from app.kv import DEFAULT_MAX_KEYS, Kv, MemoryKv
 
 
+def pair_key(*parts: str) -> str:
+    """One throttle key from several parts, injective whatever the parts contain (length-prefixed)."""
+    return "|".join(f"{len(part)}:{part}" for part in parts)
+
+
 class AttemptThrottle:
     """Blocks a key (an IP, an IP+username pair...) after too many recent attempts.
 

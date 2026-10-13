@@ -4,10 +4,13 @@ from typing import Any
 from email_validator import EmailNotValidError, validate_email
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.handles import HANDLE_RE
+from app.handles import ALLOWED_SPECIALS, is_valid_username
 
 MAX_INPUT = 1024  # hard cap on any submitted secret; the policy limit is passwords.MAX_PASSWORD
-USERNAME_HINT = "Username must be 3-32 characters: A-Z, a-z, 0-9, '.', '_' or '-'"
+USERNAME_HINT = (
+    f"Username must be 3-32 characters: A-Z, a-z, 0-9 or {' '.join(ALLOWED_SPECIALS)} "
+    "(at least one letter or digit; no '@', spaces or other symbols)"
+)
 
 
 def _normalize_username(value: str) -> str:
@@ -17,7 +20,7 @@ def _normalize_username(value: str) -> str:
 def checked_username(value: str) -> str:
     """Normalise and validate a username (raises ValueError with the user-facing hint)."""
     value = _normalize_username(value)
-    if not HANDLE_RE.match(value):
+    if not is_valid_username(value):
         raise ValueError(USERNAME_HINT)
     return value
 

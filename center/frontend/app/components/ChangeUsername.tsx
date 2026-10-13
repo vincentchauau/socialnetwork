@@ -8,7 +8,7 @@ import UsernameField from "./UsernameField";
 import { INPUT, LABEL, NOTE, PRIMARY_BUTTON, SECTION } from "./ui";
 import { useAction } from "../hooks/useAction";
 import { useReauth } from "../hooks/useReauth";
-import { USERNAME_MESSAGE, changeUsername, isUsernameValid } from "../lib/auth";
+import { changeUsername, usernameProblem } from "../lib/auth";
 
 export const USERNAME_NOTE =
   "Mỗi 30 ngày chỉ đổi được một lần. Tên cũ được giữ chỗ 30 ngày. Các phiên đăng nhập khác sẽ bị đăng xuất.";
@@ -37,7 +37,8 @@ export default function ChangeUsername({ username, hasPassword, canRenameAfter, 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const name = next.trim();
-    if (!isUsernameValid(name)) return fail(USERNAME_MESSAGE);
+    const problem = usernameProblem(name);
+    if (problem) return fail(problem);
     const ok = await run(() =>
       withReauth(async () => {
         const session = await changeUsername(name, hasPassword ? password : undefined);

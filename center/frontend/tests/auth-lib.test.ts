@@ -66,6 +66,35 @@ describe("username rule", () => {
     expect(auth.isUsernameValid("a@b.co")).toBe(false);
     expect(auth.isUsernameValid("Nguyễn")).toBe(false);
   });
+
+  it("accepts every allowed special character, anywhere", () => {
+    for (const char of auth.USERNAME_SPECIALS) {
+      expect(auth.isUsernameValid(`Us${char}er9`)).toBe(true);
+      expect(auth.isUsernameValid(`${char}ab`)).toBe(true);
+    }
+    expect(auth.USERNAME_SPECIALS).toBe("._-!#$%&+=^~");
+    expect(auth.isUsernameValid("User_123!")).toBe(true);
+  });
+
+  it("refuses separators, metacharacters, control and look-alike characters", () => {
+    for (const bad of ["a@bc", "a:bc", "a|bc", "a/bc", "a\\bc", 'a"bc', "a'bc", "a<b>", "a`bc", "a*bc", "a?bc", "a[b]", "a{b}", "a(b)", "a,bc", "a;bc", "a\tb", "a\nb", "аdmin"]) {
+      expect(auth.isUsernameValid(bad)).toBe(false);
+    }
+  });
+
+  it("needs at least one letter or digit", () => {
+    for (const bad of ["...", "---", "!!!", "_._", "~~~"]) expect(auth.isUsernameValid(bad)).toBe(false);
+    expect(auth.isUsernameValid("..1")).toBe(true);
+  });
+
+  it("explains a rejected name: @, spaces, then the general rule", () => {
+    expect(auth.usernameProblem("a@b.co")).toBe(auth.USERNAME_AT_MESSAGE);
+    expect(auth.usernameProblem("has space")).toBe(auth.USERNAME_SPACE_MESSAGE);
+    expect(auth.usernameProblem("ab")).toBe(auth.USERNAME_MESSAGE);
+    expect(auth.usernameProblem("!!!")).toBe(auth.USERNAME_MESSAGE);
+    expect(auth.usernameProblem("Ok!name")).toBeNull();
+    expect(auth.USERNAME_MESSAGE).toContain("! # $ % & + = ^ ~");
+  });
 });
 
 describe("errorText", () => {
