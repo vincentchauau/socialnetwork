@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package lab.user;
+
+// The demo user directory served by lab-user (internal network only).
+service UserService {
+  rpc GetUser (GetUserRequest) returns (User);
+}
+
+message GetUserRequest {
+  string id = 1;
+}
+
+message User {
+  string id = 1;
+  string name = 2;
+}

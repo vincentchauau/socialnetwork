@@ -18,6 +18,7 @@ socialnetwork/
   learning/     courses, lessons, quizzes, progress, certificates
   jobs/         postings, applications, saved jobs, candidate profile
   face/         face-symmetry measurements (computed in the browser; only numeric scores saved on opt-in; see face/API.md)
+  lab/          microservice lab: gRPC + Redis cache-aside, RabbitMQ work queue, Kafka event log (see lab/API.md and "Lab" below)
                 (each app = backend/ FastAPI + frontend/ Next.js, served at /<app>)
 ```
 
@@ -33,7 +34,7 @@ socialnetwork/
 ```
 browser -> gateway :8080
   /              -> center-frontend
-  /<app>         -> <app>-frontend   (chat, photos, watch, werewolf, market, learning, jobs, face)
+  /<app>         -> <app>-frontend   (chat, photos, watch, werewolf, market, learning, jobs, face, lab)
   /api/center/*  -> center-backend   (prefix stripped)
   /api/<app>/*   -> <app>-backend    (prefix stripped; WebSocket upgrade for chat and werewolf)
 ```
@@ -77,11 +78,46 @@ cd center/frontend && npm install && npm run dev
 
 1. Copy an existing app (`chat/` is the smallest) to `<app>/`, rename, and replace the domain code.
 2. Add it to `APPS` in `shared/infra/generate_infra.py` (set `volume`, `websocket`, `max_body`... as needed).
+   An app that needs more containers declares them as data: `backend_env` (extra backend environment) and
+   `services=(Service(...),)` (a worker built from the same Dockerfile with another `command`, or a stock `image`;
+   `profiles=("messaging",)` keeps a service off unless that compose profile is enabled; see `lab`).
 3. Run `python shared/infra/generate_infra.py`. It rewrites `docker-compose.yml`, `nginx.conf`,
    `postgres/init-roles.sh` / `apply-roles.sh` and `center/frontend/app/apps.ts` (the home-page app list).
 4. Add `DB_PASSWORD_<APP>` (hex) to `.env`. `init-roles.sh` only runs on a **fresh** Postgres volume; for an
    existing one recreate postgres and run `apply-roles.sh` (see "Database roles").
 5. Protect routes with `Depends(get_current_user)` from `sn_shared.deps`.
+
+## Lab (microservice patterns)
+
+`lab/` shows three ways services talk to each other, with real services (API contract: `lab/API.md`):
+
+| Pattern | What you see |
+|---|---|
+| **gRPC + Redis cache-aside** | `GET /users/{id}`: Redis first, on a miss a gRPC call to `lab-user`; the answer says `cache` or `grpc` and how long it took |
+| **RabbitMQ work queue** | a notification is stored, queued (durable, confirms), processed by `lab-worker` with manual ack; a title starting with `[fail]` is retried 3 times with backoff, then lands in the dead-letter queue |
+| **Kafka event log** | a log line is produced to topic `lab.logs` (keyed by user), stored by the worker's consumer group, and can be replayed from the beginning by a fresh consumer |
+
+Services (one image built from `lab/backend`, different commands): `lab-backend` (FastAPI), `lab-user` (gRPC server
+on :50051, internal network only), `lab-worker` (RabbitMQ consumer + Kafka log writer in one process), plus the stock
+images `rabbitmq` (management UI on `127.0.0.1:15672` only) and `kafka` (single node KRaft, no ZooKeeper, internal
+only, 1 h retention). The generated protobuf stubs are not committed: the Dockerfile creates them at build time.
+
+**Messaging is off by default** to save RAM: `rabbitmq`, `kafka` and `lab-worker` have the compose profile
+`messaging`; `lab-backend` and `lab-user` always run. RabbitMQ + Kafka cost roughly **0.7-1.3 GB** of RAM
+(the Kafka heap is capped at 384 MB). Without them the Lab status shows them down and their endpoints answer 503;
+the gRPC + Redis part keeps working. To enable them, set in `.env`:
+
+```
+COMPOSE_PROFILES=mail-dev,messaging
+RABBITMQ_USER=lab
+RABBITMQ_PASSWORD=<hex>
+```
+
+then `docker compose --env-file .env -f shared/infra/docker-compose.yml up -d --build` (or pass `--profile messaging`).
+Turn it off again by removing `messaging` and running `up -d --remove-orphans`. Kafka messages are keyed by the numeric
+user id only; deleting an account removes the user's rows in the Lab database, while messages already in Kafka
+expire by retention (1 h). Integration tests against the real stack: `lab/backend/tests/test_integration.py`
+(`LAB_INTEGRATION=1`).
 
 ## Sign-in methods (center)
 
@@ -258,7 +294,7 @@ next `/auth/refresh` issues an EdDSA one). Tokens without a session id keep the 
 ## Database roles
 
 Each service has its own LOGIN role (`sn_center`, `sn_chat`, `sn_photos`, `sn_watch`, `sn_werewolf`, `sn_market`,
-`sn_learning`, `sn_jobs`, `sn_face`) with the password `DB_PASSWORD_<APP>` from `.env`. The role owns its database (so
+`sn_learning`, `sn_jobs`, `sn_face`, `sn_lab`) with the password `DB_PASSWORD_<APP>` from `.env`. The role owns its database (so
 `create_all` / `ensure_columns` keep working), is not superuser and cannot create databases or roles, and
 `CONNECT` is revoked from `PUBLIC`, so a service role cannot even connect to another service's database (or to
 `postgres` / `template1`). Only the `postgres` container knows `POSTGRES_PASSWORD`.

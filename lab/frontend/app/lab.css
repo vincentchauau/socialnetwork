@@ -1,0 +1,32 @@
+/* Lab playground on top of the shared theme (tokens: --bg --fg --muted --border --accent --danger --surface). */
+main { max-width: 960px; }
+p { margin: 0; }
+h2 { font-size: 1.1rem; margin: 0 0 8px; }
+button, a { min-height: 44px; }
+input, select, textarea { font: inherit; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); min-width: 0; }
+textarea { resize: vertical; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.muted { color: var(--muted); font-size: 0.9rem; }
+.error { color: var(--danger); }
+button.danger { background: var(--danger); border-color: var(--danger); color: var(--bg); }
+
+.lab-field { display: flex; flex-direction: column; gap: 4px; }
+.lab-counter { color: var(--muted); font-size: 0.85rem; align-self: flex-end; }
+.lab-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.lab-status { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.lab-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); font-size: 0.9rem; }
+.lab-badge::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.lab-badge.on { border-color: #2e7d32; }
+.lab-badge.on::before { background: #2e7d32; }
+.lab-chip { display: inline-block; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border); font-size: 0.85rem; }
+.lab-chip.done, .lab-chip.cache, .lab-chip.info { border-color: #2e7d32; }
+.lab-chip.dead, .lab-chip.error { border-color: var(--danger); color: var(--danger); }
+.lab-chip.retrying, .lab-chip.warn { border-color: #b26a00; }
+.lab-scroll { overflow-x: auto; }
+.lab-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.lab-table caption { text-align: left; color: var(--muted); padding-bottom: 4px; }
+.lab-table th, .lab-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.lab-list { margin: 0; padding-left: 20px; }
+.lab-panels { display: grid; gap: 16px; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .lab-panels { grid-template-columns: 1fr 1fr; } .lab-wide { grid-column: 1 / -1; } }

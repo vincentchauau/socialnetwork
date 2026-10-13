@@ -5,6 +5,8 @@ Run from anywhere:  python shared/infra/generate_infra.py [--apps all|none|chat,
 apps are left out of compose, nginx and the home-page app list, so nginx still starts. Run with
 `--apps all` (the default) to bring them back, then `docker compose up -d --remove-orphans`.
 Add an app by appending to ALL_APPS (and creating <slug>/backend and <slug>/frontend).
+An App can declare extra backend environment (`backend_env`) and extra compose services (`services`: a worker built
+from the same Dockerfile, or stock images such as brokers), each optionally behind a compose profile (see `lab`).
 """
 
 import argparse
@@ -13,6 +15,38 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
+
+
+@dataclass(frozen=True)
+class Health:
+    """A container healthcheck (CMD-SHELL). Write `$` as `$$`: the text goes into compose as-is."""
+
+    command: str
+    interval: str = "15s"
+    timeout: str = "5s"
+    retries: int = 5
+    start_period: str = "0s"
+
+
+@dataclass(frozen=True)
+class Service:
+    """An extra compose service declared by an App (see `lab`). Emitted by `render_service`.
+
+    `image` makes it a stock image; an empty `image` builds the owning app's backend Dockerfile (the same
+    image with another `command`). `profiles` keeps it off unless that compose profile is enabled.
+    """
+
+    name: str
+    image: str = ""
+    command: tuple[str, ...] = ()
+    environment: tuple[tuple[str, str], ...] = ()
+    uses_db: bool = False  # adds DATABASE_URL (the owning app's role) and waits for postgres
+    profiles: tuple[str, ...] = ()
+    ports: tuple[str, ...] = ()
+    depends_on: tuple[tuple[str, str], ...] = ()  # (service, condition)
+    health: Health | None = None
+    drop_all_caps: bool = True  # False: keep the default capabilities (entrypoints that chown / change user)
+    comment: str = ""
 
 
 @dataclass(frozen=True)
@@ -27,6 +61,87 @@ class App:
     max_body: str = ""  # client_max_body_size for the upload path
     stream: bool = False  # serves large ranged responses: no response buffering
     tmp_mb: int = 0  # size cap for the backend's tmpfs /tmp (multipart spool)
+    backend_env: tuple[tuple[str, str], ...] = ()  # extra environment for <slug>-backend
+    services: tuple[Service, ...] = ()  # extra services (workers, brokers, ...), see Service
+    backend_starts_after: tuple[str, ...] = ()  # extra services <slug>-backend waits for (started, not healthy)
+
+
+_LAB_BROKERS = (
+    ("RABBITMQ_HOST", "rabbitmq"),
+    ("RABBITMQ_USER", "${RABBITMQ_USER:-lab}"),
+    ("RABBITMQ_PASSWORD", "${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env (hex)}"),
+    ("KAFKA_BOOTSTRAP", "kafka:9092"),
+)
+_KAFKA_ENV = (
+    ("KAFKA_NODE_ID", "1"),
+    ("KAFKA_PROCESS_ROLES", "broker,controller"),
+    ("KAFKA_LISTENERS", "PLAINTEXT://:9092,CONTROLLER://:9093"),
+    ("KAFKA_ADVERTISED_LISTENERS", "PLAINTEXT://kafka:9092"),
+    ("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER"),
+    ("KAFKA_LISTENER_SECURITY_PROTOCOL_MAP", "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"),
+    ("KAFKA_CONTROLLER_QUORUM_VOTERS", "1@kafka:9093"),
+    ("KAFKA_INTER_BROKER_LISTENER_NAME", "PLAINTEXT"),
+    ("KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", "1"),
+    ("KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", "1"),
+    ("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "1"),
+    ("KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS", "0"),
+    ("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "false"),  # the lab backend / worker create lab.logs
+    ("KAFKA_LOG_RETENTION_MS", "3600000"),
+    ("KAFKA_LOG_RETENTION_BYTES", "52428800"),
+    ("KAFKA_LOG_SEGMENT_BYTES", "16777216"),
+    ("KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS", "60000"),
+    ("KAFKA_HEAP_OPTS", "-Xms256m -Xmx384m"),
+)
+_LAB_SERVICES = (
+    Service(
+        "lab-user",
+        command=("python", "-m", "app.user_server"),
+        health=Health(
+            "python -c \"import socket; socket.create_connection(('127.0.0.1', 50051), 2)\"", interval="10s", timeout="3s"
+        ),
+        comment="gRPC user directory (fixed demo data). Internal network only: no ports, no database, no secrets.",
+    ),
+    Service(
+        "lab-worker",
+        command=("python", "-m", "app.worker"),
+        environment=_LAB_BROKERS,
+        uses_db=True,
+        profiles=("messaging",),
+        depends_on=(
+            ("lab-backend", "service_healthy"),
+            ("rabbitmq", "service_healthy"),
+            ("kafka", "service_healthy"),
+        ),
+        health=Health('test -n "$$(find /tmp/worker-alive -mmin -1 2>/dev/null)"', timeout="3s", start_period="30s"),
+        comment="RabbitMQ notification consumer + Kafka log writer in one process (touches /tmp/worker-alive).",
+    ),
+    Service(
+        "rabbitmq",
+        image="rabbitmq:4-management-alpine",
+        environment=(
+            ("RABBITMQ_DEFAULT_USER", "${RABBITMQ_USER:-lab}"),
+            ("RABBITMQ_DEFAULT_PASS", "${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env (hex)}"),
+        ),
+        profiles=("messaging",),
+        ports=("127.0.0.1:15672:15672",),  # management UI on this machine only; AMQP (5672) is not published
+        health=Health("rabbitmq-diagnostics -q ping", timeout="10s", start_period="40s"),
+        drop_all_caps=False,  # the entrypoint chowns /var/lib/rabbitmq and drops to the rabbitmq user
+        comment="Work queue broker. Management UI: http://localhost:15672 (user RABBITMQ_USER).",
+    ),
+    Service(
+        "kafka",
+        image="apache/kafka:3.9.0",
+        environment=_KAFKA_ENV,
+        profiles=("messaging",),
+        health=Health(
+            "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1",
+            interval="30s",
+            timeout="10s",
+            start_period="60s",
+        ),
+        comment="Single-node KRaft broker (no ZooKeeper), PLAINTEXT on the internal network only, not published.",
+    ),
+)
 
 
 ALL_APPS: tuple[App, ...] = (
@@ -38,6 +153,14 @@ ALL_APPS: tuple[App, ...] = (
     App("learning", "Learning", "Học và dạy các khóa kỹ năng"),
     App("jobs", "Jobs", "Tìm việc hoặc tuyển người"),
     App("face", "Face", "Đo cân đối khuôn mặt"),
+    App(
+        "lab",
+        "Lab",
+        "Phòng thí nghiệm microservice",
+        backend_env=(("GRPC_USER_TARGET", "lab-user:50051"), *_LAB_BROKERS),
+        services=_LAB_SERVICES,
+        backend_starts_after=("lab-user",),
+    ),
 )
 
 # The apps that are generated into compose/nginx/apps.ts; narrowed by --apps in main().
@@ -63,6 +186,48 @@ def database_url(slug: str) -> str:
     return f"postgresql+psycopg://{role_name(slug)}:${{{var}:?set {var} in .env (hex)}}@postgres:5432/{slug}"
 
 
+def _q(value: str) -> str:
+    """A YAML double-quoted scalar (compose still interpolates ${VAR} inside it)."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def render_service(app: App, svc: Service) -> str:
+    lines = [f"  # {svc.comment}"] if svc.comment else []
+    lines += [f"  {svc.name}:", "    <<: *hardening"]
+    if not svc.drop_all_caps:
+        lines.append("    cap_drop: []")
+    if svc.image:
+        lines.append(f"    image: {svc.image}")
+    else:
+        lines += ["    build:", "      context: ../..", f"      dockerfile: {app.slug}/backend/Dockerfile"]
+    if svc.command:
+        lines.append("    command: [" + ", ".join(_q(part) for part in svc.command) + "]")
+    if svc.profiles:
+        lines.append("    profiles: [" + ", ".join(_q(p) for p in svc.profiles) + "]")
+    if svc.ports:
+        lines += ["    ports:", *(f"      - {_q(port)}" for port in svc.ports)]
+    env = [("DATABASE_URL", database_url(app.slug)), *svc.environment] if svc.uses_db else list(svc.environment)
+    if env:
+        lines += ["    environment:", *(f"      {key}: {_q(value)}" for key, value in env)]
+    deps = [("postgres", "service_healthy")] if svc.uses_db else []
+    deps += svc.depends_on
+    if deps:
+        lines.append("    depends_on:")
+        for name, condition in deps:
+            lines += [f"      {name}:", f"        condition: {condition}"]
+    if svc.health:
+        h = svc.health
+        lines += [
+            "    healthcheck:",
+            f"      test: [\"CMD-SHELL\", {_q(h.command)}]",
+            f"      interval: {h.interval}",
+            f"      timeout: {h.timeout}",
+            f"      retries: {h.retries}",
+            f"      start_period: {h.start_period}",
+        ]
+    return "\n".join(lines)
+
+
 def compose() -> str:
     services = []
     for app in APPS:
@@ -72,6 +237,7 @@ def compose() -> str:
                "      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0"]  # revocation checks (sn_shared.revocation)
         if app.needs_origin:
             env.append("      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}")
+        env += [f"      {key}: {_q(value)}" for key, value in app.backend_env]
         backend = [
             f"  {app.slug}-backend:",
             "    <<: *hardening",
@@ -88,6 +254,8 @@ def compose() -> str:
             "      redis:",
             "        condition: service_healthy",
         ]
+        for name in app.backend_starts_after:
+            backend += [f"      {name}:", "        condition: service_started"]
         if app.volume:
             backend += ["    volumes:", f"      - {app.slug}-data:/data"]
         if app.tmp_mb:
@@ -101,6 +269,7 @@ def compose() -> str:
         ]
         services.append("\n".join(backend))
         services.append("\n".join(frontend))
+        services += [render_service(app, svc) for svc in app.services]
 
     gateway_deps = ["      - center-backend", "      - center-frontend"]
     for app in APPS:

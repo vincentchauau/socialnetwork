@@ -96,3 +96,58 @@ def test_role_scripts_cover_every_service_and_lock_the_roles_down(infra):
 def test_secrets_are_files_outside_the_repository_tree_of_keys(compose_text):
     secrets = yaml.safe_load(compose_text)["secrets"]
     assert set(secrets) == {"jwt_private_key", "jwt_public_keys"}
+
+
+# --- extra services (lab): brokers behind the `messaging` profile ---------------------------------------
+
+
+def test_lab_extra_services_are_data_driven_and_profile_gated(services):
+    for name in ("lab-worker", "rabbitmq", "kafka"):
+        assert services[name]["profiles"] == ["messaging"], name
+    for name in ("lab-backend", "lab-frontend", "lab-user"):
+        assert "profiles" not in services[name], name
+    assert services["lab-user"]["command"] == ["python", "-m", "app.user_server"]
+    assert services["lab-worker"]["command"] == ["python", "-m", "app.worker"]
+    assert services["lab-backend"]["depends_on"]["lab-user"]["condition"] == "service_started"
+    assert not any("messaging" in str(services[n].get("depends_on", "")) for n in ("lab-backend",))
+
+
+def test_lab_backends_share_one_dockerfile_and_never_get_jwt_or_broker_ports(services):
+    for name in ("lab-backend", "lab-user", "lab-worker"):
+        assert services[name]["build"]["dockerfile"] == "lab/backend/Dockerfile"
+        assert "secrets" not in services[name] or services[name]["secrets"] == ["jwt_public_keys"]
+        assert "JWT_SECRET" not in (services[name].get("environment") or {})
+    assert "ports" not in services["lab-user"] and "ports" not in services["kafka"]
+    assert services["rabbitmq"]["ports"] == ["127.0.0.1:15672:15672"]  # management UI only, loopback; no AMQP port
+
+
+def test_lab_worker_waits_for_brokers_and_uses_its_own_role(services):
+    deps = services["lab-worker"]["depends_on"]
+    assert {n: deps[n]["condition"] for n in ("postgres", "lab-backend", "rabbitmq", "kafka")} == {
+        "postgres": "service_healthy", "lab-backend": "service_healthy",
+        "rabbitmq": "service_healthy", "kafka": "service_healthy",
+    }
+    assert services["lab-worker"]["environment"]["DATABASE_URL"] == services["lab-backend"]["environment"]["DATABASE_URL"]
+
+
+def test_lab_kafka_is_single_node_kraft_with_small_retention(services):
+    env = services["kafka"]["environment"]
+    assert env["KAFKA_PROCESS_ROLES"] == "broker,controller" and "ZOOKEEPER" not in str(env)
+    assert env["KAFKA_AUTO_CREATE_TOPICS_ENABLE"] == "false"
+    assert env["KAFKA_LOG_RETENTION_MS"] == "3600000"
+    assert "-Xmx384m" in env["KAFKA_HEAP_OPTS"]
+    assert env["KAFKA_ADVERTISED_LISTENERS"].startswith("PLAINTEXT://kafka:")
+
+
+def test_lab_extra_services_are_hardened_and_healthchecked(services):
+    for name in ("lab-user", "lab-worker", "rabbitmq", "kafka"):
+        svc = services[name]
+        assert svc["security_opt"] == ["no-new-privileges:true"] and svc["restart"] == "unless-stopped", name
+        assert svc["healthcheck"]["test"][0] == "CMD-SHELL", name
+    assert services["kafka"]["cap_drop"] == ["ALL"] and services["rabbitmq"]["cap_drop"] == []
+
+
+def test_lab_broker_password_is_required_and_in_the_gateway_routes(infra, services):
+    assert "?set RABBITMQ_PASSWORD" in services["rabbitmq"]["environment"]["RABBITMQ_DEFAULT_PASS"]
+    assert "location /api/lab/ {" in infra.nginx() and "location ~ ^/lab(/|$) {" in infra.nginx()
+    assert '"/lab"' in infra.apps_ts()

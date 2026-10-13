@@ -30,6 +30,7 @@ services:
       DB_PASSWORD_LEARNING: ${DB_PASSWORD_LEARNING:?set DB_PASSWORD_LEARNING in .env (hex)}
       DB_PASSWORD_JOBS: ${DB_PASSWORD_JOBS:?set DB_PASSWORD_JOBS in .env (hex)}
       DB_PASSWORD_FACE: ${DB_PASSWORD_FACE:?set DB_PASSWORD_FACE in .env (hex)}
+      DB_PASSWORD_LAB: ${DB_PASSWORD_LAB:?set DB_PASSWORD_LAB in .env (hex)}
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Runs on a FRESH volume only; on an existing one use postgres/apply-roles.sh (see README).
@@ -322,6 +323,130 @@ services:
       context: ../..
       dockerfile: face/frontend/Dockerfile
 
+  lab-backend:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: lab/backend/Dockerfile
+    environment:
+      <<: *backend-env
+      DATABASE_URL: postgresql+psycopg://sn_lab:${DB_PASSWORD_LAB:?set DB_PASSWORD_LAB in .env (hex)}@postgres:5432/lab
+      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      GRPC_USER_TARGET: "lab-user:50051"
+      RABBITMQ_HOST: "rabbitmq"
+      RABBITMQ_USER: "${RABBITMQ_USER:-lab}"
+      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env (hex)}"
+      KAFKA_BOOTSTRAP: "kafka:9092"
+    secrets:
+      - jwt_public_keys
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      lab-user:
+        condition: service_started
+
+  lab-frontend:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: lab/frontend/Dockerfile
+
+  # gRPC user directory (fixed demo data). Internal network only: no ports, no database, no secrets.
+  lab-user:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: lab/backend/Dockerfile
+    command: ["python", "-m", "app.user_server"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; socket.create_connection(('127.0.0.1', 50051), 2)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 0s
+
+  # RabbitMQ notification consumer + Kafka log writer in one process (touches /tmp/worker-alive).
+  lab-worker:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: lab/backend/Dockerfile
+    command: ["python", "-m", "app.worker"]
+    profiles: ["messaging"]
+    environment:
+      DATABASE_URL: "postgresql+psycopg://sn_lab:${DB_PASSWORD_LAB:?set DB_PASSWORD_LAB in .env (hex)}@postgres:5432/lab"
+      RABBITMQ_HOST: "rabbitmq"
+      RABBITMQ_USER: "${RABBITMQ_USER:-lab}"
+      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env (hex)}"
+      KAFKA_BOOTSTRAP: "kafka:9092"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      lab-backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -n \"$$(find /tmp/worker-alive -mmin -1 2>/dev/null)\""]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+
+  # Work queue broker. Management UI: http://localhost:15672 (user RABBITMQ_USER).
+  rabbitmq:
+    <<: *hardening
+    cap_drop: []
+    image: rabbitmq:4-management-alpine
+    profiles: ["messaging"]
+    ports:
+      - "127.0.0.1:15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-lab}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env (hex)}"
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # Single-node KRaft broker (no ZooKeeper), PLAINTEXT on the internal network only, not published.
+  kafka:
+    <<: *hardening
+    image: apache/kafka:3.9.0
+    profiles: ["messaging"]
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_MS: "3600000"
+      KAFKA_LOG_RETENTION_BYTES: "52428800"
+      KAFKA_LOG_SEGMENT_BYTES: "16777216"
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: "60000"
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx384m"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
   # Development mail sink: catches every email the app sends (nothing leaves this machine).
   # Enabled by COMPOSE_PROFILES=mail-dev in .env; in production point SMTP_* at a real server instead.
   # Web inbox: http://localhost:8025 (bound to this machine only).
@@ -365,6 +490,8 @@ services:
       - jobs-frontend
       - face-backend
       - face-frontend
+      - lab-backend
+      - lab-frontend
 
 # Access-token keys (Ed25519). Create with `python -m app.cli gen-jwt-key` in center/backend (see README);
 # the files are NOT in the repository. Only center-backend gets the private key.

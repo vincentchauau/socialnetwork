@@ -12,3 +12,4 @@ next-env.d.ts
 *.tsbuildinfo
 coverage/
 shared/infra/secrets/
+lab/backend/app/proto/*_pb2*.py
