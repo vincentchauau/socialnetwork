@@ -255,6 +255,10 @@ Honest limits: SMS is a weak factor (SIM swap, SS7, number recycling, phishing r
   rate-limits `/api/center/auth/`. Backends run with `--proxy-headers` so they see the real client.
 - The chat socket requires a valid cookie **and** an allowed `Origin`, caps frame size (8 KB) and rate
   (20 msgs / 10 s), and closes itself when the JWT expires.
+- Chat presence (who is in a room, join/leave notices, live room list at `GET /rooms` and `/ws-lobby`) is
+  ephemeral, in memory and per process; caps: 200 members/room, 500 live rooms, 5 sockets/user, 2 lobby
+  sockets/user. Contract: `chat/API.md`. The original ChatWork file manager, database manager (arbitrary
+  file read / SQL execution) and telnyx webhook were deliberately not ported.
 - Containers drop privileges (`no-new-privileges`; backends and frontends also `cap_drop: ALL`).
 
 ## Access-token keys (Ed25519) and rotation

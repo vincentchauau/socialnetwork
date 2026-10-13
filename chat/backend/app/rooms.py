@@ -19,6 +19,10 @@ class RoomHub:
         await socket.accept()
         self._rooms[room].add(socket)
 
+    def add(self, room: str, socket: WebSocket) -> None:
+        """Register an already accepted socket."""
+        self._rooms[room].add(socket)
+
     def leave(self, room: str, socket: WebSocket) -> None:
         sockets = self._rooms.get(room)
         if sockets is None:

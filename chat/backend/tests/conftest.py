@@ -33,3 +33,15 @@ def auth_cookie(user_id: int = 1, username: str = "alice") -> dict[str, str]:
 
 def ws_headers(user_id: int = 1, username: str = "alice", origin: str = ALLOWED_ORIGIN):
     return {**auth_cookie(user_id, username), "Origin": origin}
+
+
+def frame_of(socket, kind: str) -> dict:
+    """Next frame of the given type, skipping presence/system frames."""
+    while True:
+        received = socket.receive_json()
+        if received.get("type") == kind:
+            return received
+
+
+def next_message(socket) -> dict:
+    return frame_of(socket, "message")
