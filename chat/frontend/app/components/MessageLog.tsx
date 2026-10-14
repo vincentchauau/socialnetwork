@@ -10,6 +10,7 @@ interface Props {
   messages: ChatMessage[];
   system: SystemLine[];
   username: string;
+  columns: number;
 }
 
 function formatTime(iso: string): string {
@@ -18,7 +19,7 @@ function formatTime(iso: string): string {
   return date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function MessageLog({ messages, system, username }: Props) {
+export default function MessageLog({ messages, system, username, columns }: Props) {
   const items = useMemo(() => buildTimeline(messages, system), [messages, system]);
   const logRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -43,12 +44,13 @@ export default function MessageLog({ messages, system, username }: Props) {
       aria-relevant="additions"
       aria-label="Tin nhắn"
       tabIndex={0}
+      style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}
       onScroll={handleScroll}
     >
-      {items.length === 0 && <p className="muted">Chưa có tin nhắn nào.</p>}
+      {items.length === 0 && <p className="muted span-all">Chưa có tin nhắn nào.</p>}
       {items.map((item) =>
         item.kind === "system" ? (
-          <p key={item.key} className="system-line">
+          <p key={item.key} className="system-line span-all">
             {systemText(item.line)}
           </p>
         ) : (

@@ -15,8 +15,8 @@ vi.mock("@sn/api", async (importOriginal) => ({
 
 const fetchMock = vi.mocked(apiFetch);
 const ROOMS = [
-  { room: "general", users: 3 },
-  { room: "dev", users: 1 },
+  { room: "general", users: 3, members: ["alice", "bob", "carol"] },
+  { room: "dev", users: 1, members: ["dave"] },
 ];
 let history: unknown = [];
 let roomsReply: unknown = ROOMS;
@@ -61,8 +61,8 @@ async function renderChat() {
 
 async function joinViaInput(name: string) {
   const user = userEvent.setup();
-  await user.type(screen.getByLabelText("Tạo hoặc vào phòng"), name);
-  await user.click(screen.getByRole("button", { name: "Vào" }));
+  await user.type(screen.getByLabelText("Join or filter by room name..."), name);
+  await user.click(screen.getByRole("button", { name: "Join In" }));
   return user;
 }
 
@@ -80,35 +80,30 @@ describe("lobby", () => {
     const lobby = await renderChat();
     lobby.frame({ type: "rooms", rooms: ROOMS });
     const list = screen.getByRole("list", { name: "Danh sách phòng" });
-    expect(within(list).getByRole("button", { name: /general/ })).toHaveTextContent("3 người");
+    expect(within(list).getByRole("button", { name: /^general/ })).toHaveTextContent("3 người");
     expect(screen.getByText("Cập nhật trực tiếp")).toBeInTheDocument();
 
-    lobby.frame({ type: "rooms", rooms: [{ room: "new", users: 9 }] });
+    lobby.frame({ type: "rooms", rooms: [{ room: "new", users: 9, members: [] }] });
     expect(within(list).queryByText("general")).not.toBeInTheDocument();
-    expect(within(list).getByRole("button", { name: /new/ })).toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: /^new/ })).toBeInTheDocument();
     lobby.frame({ type: "message" }); // ignored
     lobby.frame("garbage");
   });
 
-  it("shows an empty state, and a select that lists rooms for narrow screens", async () => {
+  it("shows an empty state, and a no-match state when filters hide everything", async () => {
     const lobby = await renderChat();
     expect(screen.getByText("Chưa có phòng nào đang mở.")).toBeInTheDocument();
     lobby.frame({ type: "rooms", rooms: ROOMS });
-    const select = screen.getByRole("combobox", { name: "Chọn phòng" });
-    expect(within(select).getByRole("option", { name: "general (3)" })).toBeInTheDocument();
-    fireEvent.change(select, { target: { value: "dev" } });
-    expect(await screen.findByRole("heading", { name: "#dev" })).toBeInTheDocument();
-    expect(select).toHaveValue("dev");
-    fireEvent.change(select, { target: { value: "" } }); // placeholder: no join
-    expect(screen.getByRole("heading", { name: "#dev" })).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Filter by user name..."), "zzz");
+    expect(screen.getByText("Không có phòng nào khớp bộ lọc.")).toBeInTheDocument();
   });
 
   it("joins a room by clicking it and marks it current", async () => {
     const lobby = await renderChat();
     lobby.frame({ type: "rooms", rooms: ROOMS });
-    await userEvent.click(screen.getByRole("button", { name: /general/ }));
-    expect(await screen.findByRole("heading", { name: "#general" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /general/ })).toHaveAttribute("aria-current", "true");
+    await userEvent.click(screen.getByRole("button", { name: "Join general" }));
+    expect(await screen.findByRole("heading", { name: "Room: general" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^general/ }).closest("li")).toHaveAttribute("aria-current", "true");
     expect(FakeSocket.byPath("/ws/general")).toHaveLength(1);
   });
 
@@ -119,22 +114,22 @@ describe("lobby", () => {
     FakeSocket.last("/ws-lobby").drop(1006);
     await flush();
     expect(screen.getByText("Cập nhật mỗi 10 giây")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /general/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^general/ })).toBeInTheDocument();
 
     const roomCalls = () => fetchMock.mock.calls.filter(([p]) => String(p).endsWith("/rooms")).length;
     const before = roomCalls();
-    roomsReply = [{ room: "later", users: 2 }];
+    roomsReply = [{ room: "later", users: 2, members: [] }];
     await act(async () => {
       vi.advanceTimersByTime(10_000);
     });
     expect(roomCalls()).toBe(before + 1);
-    expect(screen.getByRole("button", { name: /later/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^later/ })).toBeInTheDocument();
 
     roomsReply = new ApiError(500, "down");
     await act(async () => {
       vi.advanceTimersByTime(10_000);
     });
-    expect(screen.getByRole("button", { name: /later/ })).toBeInTheDocument(); // last list kept
+    expect(screen.getByRole("button", { name: /^later/ })).toBeInTheDocument(); // last list kept
 
     // backoff reconnect (1 s, then 2 s) and polling stops once the socket is back
     await act(async () => {
@@ -186,14 +181,14 @@ describe("create or join by name", () => {
     await renderChat();
     const user = await joinViaInput("bad name!");
     expect(screen.getByRole("alert")).toHaveTextContent("Tên phòng chỉ gồm");
-    expect(screen.getByLabelText("Tạo hoặc vào phòng")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Join or filter by room name...")).toHaveAttribute("aria-invalid", "true");
     expect(FakeSocket.byPath("/ws/bad name!")).toHaveLength(0);
 
-    const input = screen.getByLabelText("Tạo hoặc vào phòng");
+    const input = screen.getByLabelText("Join or filter by room name...");
     await user.clear(input);
     await user.type(input, "  my-room_1 ");
-    await user.click(screen.getByRole("button", { name: "Vào" }));
-    expect(await screen.findByRole("heading", { name: "#my-room_1" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Join In" }));
+    expect(await screen.findByRole("heading", { name: "Room: my-room_1" })).toBeInTheDocument();
     expect(screen.queryByText(/Tên phòng chỉ gồm/)).not.toBeInTheDocument();
     expect(input).toHaveValue("");
   });
@@ -203,7 +198,7 @@ describe("room view", () => {
   async function openRoom(name = "g") {
     const lobby = await renderChat();
     await joinViaInput(name);
-    await screen.findByRole("heading", { name: `#${name}` });
+    await screen.findByRole("heading", { name: `Room: ${name}` });
     return { lobby, ws: FakeSocket.last(`/ws/${name}`) };
   }
 
@@ -283,7 +278,7 @@ describe("room view", () => {
   it("sends trimmed text with Enter, keeps Shift+Enter as newline, counts characters", async () => {
     const { ws } = await openRoom();
     const box = screen.getByLabelText("Tin nhắn", { selector: "textarea" });
-    expect(screen.getByRole("button", { name: "Gửi" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
     ws.open();
     const user = userEvent.setup();
     await user.type(box, "  hello{Shift>}{Enter}{/Shift}world  ");
@@ -296,7 +291,7 @@ describe("room view", () => {
 
     await user.keyboard("{Enter}"); // empty: nothing sent
     await user.type(box, "via button");
-    await user.click(screen.getByRole("button", { name: "Gửi" }));
+    await user.click(screen.getByRole("button", { name: "Send" }));
     expect(ws.sent).toHaveLength(2);
   });
 
@@ -329,9 +324,9 @@ describe("room view", () => {
   it("disables sending while disconnected", async () => {
     const { ws } = await openRoom();
     fireEvent.change(screen.getByRole("textbox", { name: "Tin nhắn" }), { target: { value: "x" } });
-    expect(screen.getByRole("button", { name: "Gửi" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
     ws.open();
-    expect(screen.getByRole("button", { name: "Gửi" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
   });
 
   it("autoscrolls only when the reader is at the bottom", async () => {
@@ -372,7 +367,7 @@ describe("connection handling", () => {
   async function openRoom() {
     await renderChat();
     await joinViaInput("g");
-    await screen.findByRole("heading", { name: "#g" });
+    await screen.findByRole("heading", { name: "Room: g" });
     return FakeSocket.last("/ws/g");
   }
 
@@ -381,8 +376,8 @@ describe("connection handling", () => {
     render(<ChatPage />);
     await settle();
     FakeSocket.last("/ws-lobby").open();
-    fireEvent.change(screen.getByLabelText("Tạo hoặc vào phòng"), { target: { value: "g" } });
-    fireEvent.click(screen.getByRole("button", { name: "Vào" }));
+    fireEvent.change(screen.getByLabelText("Join or filter by room name..."), { target: { value: "g" } });
+    fireEvent.click(screen.getByRole("button", { name: "Join In" }));
     const first = FakeSocket.last("/ws/g");
     first.open();
     first.frame(msg(1, "bob", "old"));
@@ -478,8 +473,8 @@ describe("connection handling", () => {
     vi.useFakeTimers();
     render(<ChatPage />);
     await settle();
-    fireEvent.change(screen.getByLabelText("Tạo hoặc vào phòng"), { target: { value: "g" } });
-    fireEvent.click(screen.getByRole("button", { name: "Vào" }));
+    fireEvent.change(screen.getByLabelText("Join or filter by room name..."), { target: { value: "g" } });
+    fireEvent.click(screen.getByRole("button", { name: "Join In" }));
     FakeSocket.last("/ws/g").drop(1009);
     expect(screen.getByRole("alert")).toHaveTextContent("quá lớn");
     await act(async () => {
@@ -492,13 +487,13 @@ describe("connection handling", () => {
     const ws = await openRoom();
     ws.open();
     ws.frame(msg(1, "bob", "stale"));
-    await userEvent.click(screen.getByRole("button", { name: "Rời phòng" }));
+    await userEvent.click(screen.getByRole("button", { name: "Join Out" }));
     expect(ws.closeCalls).toBe(1);
     expect(screen.getByText(/Chọn một phòng hoặc tạo phòng mới/)).toBeInTheDocument();
     expect(ws.onmessage).toBeNull();
     act(() => ws.onclose?.({ code: 1006, reason: "" })); // late event: ignored
     await joinViaInput("g");
-    await screen.findByRole("heading", { name: "#g" });
+    await screen.findByRole("heading", { name: "Room: g" });
     expect(screen.queryByText("stale")).not.toBeInTheDocument();
   });
 
@@ -509,10 +504,10 @@ describe("connection handling", () => {
     fetchMock.mockImplementationOnce(
       () => new Promise((resolve) => (release = resolve)) as never,
     ); // general's history stays pending
-    await userEvent.click(screen.getByRole("button", { name: /general/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Join general" }));
     const general = FakeSocket.last("/ws/general");
     general.open();
-    await userEvent.click(screen.getByRole("button", { name: /dev/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Join dev" }));
     const dev = FakeSocket.last("/ws/dev");
     expect(general.closeCalls).toBe(1);
     dev.open();
@@ -530,8 +525,8 @@ describe("connection handling", () => {
     vi.useFakeTimers();
     const { unmount } = render(<ChatPage />);
     await settle();
-    fireEvent.change(screen.getByLabelText("Tạo hoặc vào phòng"), { target: { value: "g" } });
-    fireEvent.click(screen.getByRole("button", { name: "Vào" }));
+    fireEvent.change(screen.getByLabelText("Join or filter by room name..."), { target: { value: "g" } });
+    fireEvent.click(screen.getByRole("button", { name: "Join In" }));
     const ws = FakeSocket.last("/ws/g");
     const lobby = FakeSocket.last("/ws-lobby");
     ws.drop(1006); // retry pending

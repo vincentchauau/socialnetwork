@@ -36,6 +36,8 @@ export interface Presence {
 export interface RoomInfo {
   room: string;
   users: number;
+  /** Sorted, capped by the server (shorter than `users` when capped). */
+  members: string[];
 }
 
 export type ServerFrame =
@@ -89,7 +91,9 @@ function toRooms(value: unknown): RoomInfo[] | null {
     if (!isRecord(item) || typeof item.room !== "string" || typeof item.users !== "number") {
       return null;
     }
-    rooms.push({ room: item.room, users: item.users });
+    const members = item.members ?? [];
+    if (!Array.isArray(members) || !members.every((name) => typeof name === "string")) return null;
+    rooms.push({ room: item.room, users: item.users, members });
   }
   return rooms;
 }
@@ -141,6 +145,21 @@ export function parseHistory(data: unknown): ChatMessage[] {
     const message = isRecord(item) ? toMessage(item) : null;
     return message ? [message] : [];
   });
+}
+
+/** ChatWork filter: room name contains the room text AND (no user text OR a member name contains it). */
+export function filterRooms(
+  rooms: readonly RoomInfo[],
+  roomFilter: string,
+  userFilter: string,
+): RoomInfo[] {
+  const roomText = roomFilter.trim().toLowerCase();
+  const userText = userFilter.trim().toLowerCase();
+  return rooms.filter(
+    (info) =>
+      info.room.toLowerCase().includes(roomText) &&
+      (userText === "" || info.members.some((name) => name.toLowerCase().includes(userText))),
+  );
 }
 
 export function parseRooms(data: unknown): RoomInfo[] {

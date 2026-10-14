@@ -16,23 +16,17 @@ const STATUS_TEXT: Record<ConnStatus, string> = {
 interface Props {
   room: string;
   username: string;
-  onLeave: () => void;
+  columns: number;
 }
 
-export default function RoomView({ room, username, onLeave }: Props) {
+export default function RoomView({ room, username, columns }: Props) {
   const chat = useRoomChat(room);
 
   return (
-    <section className="room-view stack" aria-label={`Phòng ${room}`}>
-      <div className="room-header">
-        <h2>{`#${room}`}</h2>
-        <span className={`status status-${chat.status}`} role="status">
-          {STATUS_TEXT[chat.status]}
-        </span>
-        <button type="button" className="secondary" onClick={onLeave}>
-          Rời phòng
-        </button>
-      </div>
+    <div className="room-view stack">
+      <span className={`status status-${chat.status}`} role="status">
+        {STATUS_TEXT[chat.status]}
+      </span>
 
       {chat.notice && (
         <p role="alert" className="error">
@@ -50,9 +44,9 @@ export default function RoomView({ room, username, onLeave }: Props) {
         </button>
       )}
 
-      <MembersPanel presence={chat.presence} />
-      <MessageLog messages={chat.messages} system={chat.system} username={username} />
       <Composer disabled={chat.status !== "open"} onSend={chat.send} />
-    </section>
+      <MessageLog messages={chat.messages} system={chat.system} username={username} columns={columns} />
+      <MembersPanel presence={chat.presence} />
+    </div>
   );
 }

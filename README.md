@@ -298,7 +298,7 @@ Honest limits: SMS is a weak factor (SIM swap, SS7, number recycling, phishing r
   (20 msgs / 10 s), and closes itself when the JWT expires.
 - Chat presence (who is in a room, join/leave notices, live room list at `GET /rooms` and `/ws-lobby`) is
   ephemeral, in memory and per process; caps: 200 members/room, 500 live rooms, 5 sockets/user, 2 lobby
-  sockets/user. Contract: `chat/API.md`. The original ChatWork file manager, database manager (arbitrary
+  sockets/user. The room list also carries member usernames (max 30/room, sorted, no ids), visible to every logged-in user, so the UI can filter rooms by user name. The chat UI mirrors the original ChatWork layout (nav bar, room/user filters, Join In/Out, Columns grid, random Theme palettes with an AA contrast guard). Contract: `chat/API.md`. The original ChatWork file manager, database manager (arbitrary
   file read / SQL execution) and telnyx webhook were deliberately not ported.
 - Containers drop privileges (`no-new-privileges`; backends and frontends also `cap_drop: ALL`).
 

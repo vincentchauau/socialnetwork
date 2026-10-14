@@ -1,14 +1,15 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useState } from "react";
 
 import type { LobbyMode } from "../useLobby";
-import { ROOM_NAME_HINT, RoomInfo, isValidRoom } from "../protocol";
+import { RoomInfo } from "../protocol";
 
 interface Props {
   rooms: RoomInfo[];
   mode: LobbyMode;
   current: string | null;
+  totalRooms: number;
   onJoin: (room: string) => void;
 }
 
@@ -18,83 +19,63 @@ const MODE_TEXT: Record<LobbyMode, string> = {
   polling: "Cập nhật mỗi 10 giây",
 };
 
-export default function RoomList({ rooms, mode, current, onJoin }: Props) {
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
+export default function RoomList({ rooms, mode, current, totalRooms, onJoin }: Props) {
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    const value = name.trim();
-    if (!isValidRoom(value)) {
-      setError(ROOM_NAME_HINT);
-      return;
-    }
-    setError(null);
-    setName("");
-    onJoin(value);
+  function toggle(room: string) {
+    const next = new Set(expanded);
+    if (!next.delete(room)) next.add(room);
+    setExpanded(next);
   }
 
   return (
-    <nav className="room-list stack" aria-label="Phòng chat">
-      <h2>Phòng đang mở</h2>
+    <div className="stack">
+      <h2>Rooms:</h2>
       <p className="muted small">{MODE_TEXT[mode]}</p>
-
       {rooms.length === 0 ? (
-        <p className="muted">Chưa có phòng nào đang mở.</p>
+        <p className="muted">
+          {totalRooms === 0 ? "Chưa có phòng nào đang mở." : "Không có phòng nào khớp bộ lọc."}
+        </p>
       ) : (
-        <>
-          <select
-            className="room-select"
-            aria-label="Chọn phòng"
-            value={current !== null && rooms.some((r) => r.room === current) ? current : ""}
-            onChange={(event) => event.target.value && onJoin(event.target.value)}
-          >
-            <option value="">Chọn một phòng…</option>
-            {rooms.map((r) => (
-              <option key={r.room} value={r.room}>
-                {`${r.room} (${r.users})`}
-              </option>
-            ))}
-          </select>
-          <ul className="room-items" aria-label="Danh sách phòng">
-            {rooms.map((r) => (
-              <li key={r.room}>
-                <button
-                  type="button"
-                  className="secondary room-button"
-                  aria-current={r.room === current ? "true" : undefined}
-                  onClick={() => onJoin(r.room)}
-                >
-                  <span>{r.room}</span>
-                  <span className="muted">{`${r.users} người`}</span>
-                </button>
+        <ul className="room-items" aria-label="Danh sách phòng">
+          {rooms.map((info) => {
+            const open = expanded.has(info.room);
+            const hidden = Math.max(0, info.users - info.members.length);
+            return (
+              <li key={info.room} className="room-item" aria-current={info.room === current ? "true" : undefined}>
+                <div className="room-row">
+                  <button
+                    type="button"
+                    className="room-toggle"
+                    aria-expanded={open}
+                    aria-controls={`members-${info.room}`}
+                    onClick={() => toggle(info.room)}
+                  >
+                    <span>{info.room}</span>
+                    <span className="muted">{`${info.users} người`}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="room-join"
+                    aria-label={`Join ${info.room}`}
+                    onClick={() => onJoin(info.room)}
+                  >
+                    Join
+                  </button>
+                </div>
+                {open && (
+                  <ul id={`members-${info.room}`} className="room-members" aria-label={`Thành viên ${info.room}`}>
+                    {info.members.map((name) => (
+                      <li key={name}>{name}</li>
+                    ))}
+                    {hidden > 0 && <li className="muted">{`+${hidden} người khác`}</li>}
+                  </ul>
+                )}
               </li>
-            ))}
-          </ul>
-        </>
+            );
+          })}
+        </ul>
       )}
-
-      <form className="stack" onSubmit={submit} noValidate>
-        <label htmlFor="new-room">Tạo hoặc vào phòng</label>
-        <div className="row">
-          <input
-            id="new-room"
-            value={name}
-            maxLength={32}
-            autoComplete="off"
-            placeholder="ten-phong"
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? "new-room-error" : undefined}
-            onChange={(event) => setName(event.target.value)}
-          />
-          <button type="submit">Vào</button>
-        </div>
-        {error && (
-          <p id="new-room-error" role="alert" className="error">
-            {error}
-          </p>
-        )}
-      </form>
-    </nav>
+    </div>
   );
 }

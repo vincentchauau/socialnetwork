@@ -8,6 +8,7 @@ import {
   mergeMessages,
   parseFrame,
   parseHistory,
+  filterRooms,
   parseRooms,
   socketUrl,
   systemText,
@@ -44,9 +45,9 @@ describe("parseFrame", () => {
       parseFrame('{"type":"presence","members":[{"userId":1,"username":"a"}],"total":3}'),
     ).toEqual({ type: "presence", members: [{ userId: 1, username: "a" }], total: 3 });
     expect(parseFrame('{"type":"error","error":"boom"}')).toEqual({ type: "error", error: "boom" });
-    expect(parseFrame('{"type":"rooms","rooms":[{"room":"g","users":2}]}')).toEqual({
+    expect(parseFrame('{"type":"rooms","rooms":[{"room":"g","users":2,"members":["a","b"]}]}')).toEqual({
       type: "rooms",
-      rooms: [{ room: "g", users: 2 }],
+      rooms: [{ room: "g", users: 2, members: ["a", "b"] }],
     });
   });
 
@@ -65,6 +66,8 @@ describe("parseFrame", () => {
     '{"type":"error","error":5}',
     '{"type":"rooms","rooms":[{"room":1,"users":1}]}',
     '{"type":"rooms","rooms":null}',
+    '{"type":"rooms","rooms":[{"room":"g","users":1,"members":"x"}]}',
+    '{"type":"rooms","rooms":[{"room":"g","users":1,"members":[1]}]}',
   ])("ignores malformed frame %j", (raw) => {
     expect(parseFrame(raw)).toBeNull();
   });
@@ -76,7 +79,7 @@ describe("REST payloads", () => {
     expect(parseHistory({})).toEqual([]);
   });
   it("parses rooms and tolerates garbage", () => {
-    expect(parseRooms([{ room: "g", users: 1 }])).toEqual([{ room: "g", users: 1 }]);
+    expect(parseRooms([{ room: "g", users: 1 }])).toEqual([{ room: "g", users: 1, members: [] }]);
     expect(parseRooms([{ room: "g" }])).toEqual([]);
     expect(parseRooms("x")).toEqual([]);
   });
@@ -144,5 +147,32 @@ describe("texts and helpers", () => {
     });
     expect(socketUrl("/ws-lobby")).toBe("wss://x.test/api/chat/ws-lobby");
     Object.defineProperty(window, "location", { configurable: true, value: original });
+  });
+});
+
+describe("filterRooms", () => {
+  const rooms = [
+    { room: "General", users: 2, members: ["Alice", "bob"] },
+    { room: "dev", users: 1, members: ["Carol"] },
+    { room: "gaming", users: 0, members: [] },
+  ];
+  const names = (room: string, user: string) => filterRooms(rooms, room, user).map((r) => r.room);
+
+  it("returns everything with empty filters", () => {
+    expect(names("", "")).toEqual(["General", "dev", "gaming"]);
+    expect(names("  ", " ")).toEqual(["General", "dev", "gaming"]);
+  });
+  it("matches the room name as a case-insensitive substring", () => {
+    expect(names("GEN", "")).toEqual(["General"]);
+    expect(names("g", "")).toEqual(["General", "gaming"]);
+  });
+  it("matches member names as a case-insensitive substring", () => {
+    expect(names("", "ali")).toEqual(["General"]);
+    expect(names("", "CAR")).toEqual(["dev"]);
+    expect(names("", "nobody")).toEqual([]);
+  });
+  it("needs both filters to match", () => {
+    expect(names("g", "bob")).toEqual(["General"]);
+    expect(names("dev", "bob")).toEqual([]);
   });
 });

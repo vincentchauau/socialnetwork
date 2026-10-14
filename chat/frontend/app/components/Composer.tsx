@@ -40,19 +40,17 @@ export default function Composer({ disabled, onSend }: Props) {
         rows={2}
         value={draft}
         maxLength={MAX_MESSAGE_LENGTH}
-        placeholder="Nhập tin nhắn (Enter để gửi, Shift+Enter xuống dòng)"
+        placeholder="Enter message..."
         aria-describedby="composer-count"
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={handleKeyDown}
       />
-      <div className="composer-bar">
-        <span id="composer-count" className="muted small">
-          {`${draft.length}/${MAX_MESSAGE_LENGTH}`}
-        </span>
-        <button type="submit" disabled={!canSend}>
-          Gửi
-        </button>
-      </div>
+      <button type="submit" disabled={!canSend}>
+        Send
+      </button>
+      <span id="composer-count" className="muted small composer-count">
+        {`${draft.length}/${MAX_MESSAGE_LENGTH}`}
+      </span>
     </form>
   );
 }

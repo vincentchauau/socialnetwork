@@ -12,7 +12,7 @@ Room name: `^[A-Za-z0-9_-]{1,32}$`.
 |---|---|---|
 | `GET /health` | none | `{"status":"ok"}` |
 | `GET /rooms/{room}/messages?limit=50` (1-200) | cookie, else 401 | `[{"id":int,"room":str,"username":str,"content":str,"created_at":ISO}]`, oldest first, latest `limit`. Invalid room: 422. Only real messages: system and presence frames are never in it. |
-| `GET /rooms` | cookie, else 401 | `[{"room":str,"users":int}]` rooms with >= 1 member now, sorted by users desc then room asc, at most 100. Names of members are never included. |
+| `GET /rooms` | cookie, else 401 | `[{"room":str,"users":int,"members":[str,...]}]` rooms with >= 1 member now, sorted by users desc then room asc, at most 100. `members` are usernames only (no ids), sorted case-insensitively, capped at 30 per room; `users` stays exact, so the list is capped when `members.length < users`. |
 
 ## WebSocket `/ws/{room}`
 
@@ -55,13 +55,16 @@ Same cookie and Origin check, same 8 KB / rate / token-expiry limits (client fra
 sockets per user (3rd: accepted then closed `1013` `Too many lobby connections`).
 
 ```json
-{"type":"rooms","rooms":[{"room":"g","users":2}]}
+{"type":"rooms","rooms":[{"room":"g","users":2,"members":["alice","bob"]}]}
 ```
 
 Sent on connect, then whenever the set of live rooms or any count changes; coalesced to at most 2 per second
 (leading push immediately, changes inside the 0.5 s window collapse into one trailing push with the latest
-state). Same order/cap (100) as `GET /rooms`. The lobby never carries member names; names are only seen
-inside a room you joined.
+state). Same order/cap (100) and same room shape as `GET /rooms`.
+
+Privacy: usernames of room members are visible to every logged-in user (usernames are public handles on the
+platform; the owner accepted this so the UI can filter rooms by user name). Nothing else is exposed: no user
+ids, no per-socket data. Names are the JWT username at connect time (stale after a rename until reconnect).
 
 ## Ephemeral vs stored
 

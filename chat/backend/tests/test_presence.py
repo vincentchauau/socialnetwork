@@ -51,9 +51,9 @@ def test_rooms_ordered_by_users_then_name_and_capped():
     presence.join("c", 3, "c")
     presence.join("c", 4, "d")
     assert presence.rooms() == [
-        {"room": "c", "users": 2},
-        {"room": "a", "users": 1},
-        {"room": "b", "users": 1},
+        {"room": "c", "users": 2, "members": ["c", "d"]},
+        {"room": "a", "users": 1, "members": ["b"]},
+        {"room": "b", "users": 1, "members": ["a"]},
     ]
     many = Presence()
     for i in range(150):
@@ -102,7 +102,7 @@ def test_second_tab_gets_snapshot_without_join_broadcast(client):
             assert tab1.receive_json()["type"] == "message"  # no join frame came first
         tab1.send_json({"content": "still member"})
         assert tab1.receive_json()["content"] == "still member"  # no leave frame either
-        assert client.get("/rooms", headers=auth_cookie()).json() == [{"room": "g", "users": 1}]
+        assert client.get("/rooms", headers=auth_cookie()).json() == [{"room": "g", "users": 1, "members": ["alice"]}]
     assert client.get("/rooms", headers=auth_cookie()).json() == []
 
 
@@ -163,8 +163,8 @@ def test_rooms_lists_live_rooms_by_users(client):
     with connect(client, "quiet", 1, "alice"), connect(client, "busy", 2, "bob"), \
          connect(client, "busy", 3, "carol"):
         assert client.get("/rooms", headers=auth_cookie()).json() == [
-            {"room": "busy", "users": 2},
-            {"room": "quiet", "users": 1},
+            {"room": "busy", "users": 2, "members": ["bob", "carol"]},
+            {"room": "quiet", "users": 1, "members": ["alice"]},
         ]
 
 
@@ -174,13 +174,28 @@ def test_lobby_pushes_snapshot_and_changes(client):
     with lobby(client) as watcher:
         assert watcher.receive_json() == {"type": "rooms", "rooms": []}
         with connect(client, "g", 2, "bob"):
-            assert watcher.receive_json() == {"type": "rooms", "rooms": [{"room": "g", "users": 1}]}
+            assert watcher.receive_json() == {
+                "type": "rooms",
+                "rooms": [{"room": "g", "users": 1, "members": ["bob"]}],
+            }
 
 
-def test_lobby_never_exposes_member_names(client):
+def test_lobby_lists_member_names_but_no_ids(client):
     with connect(client, "g", 2, "bob"):
         with lobby(client) as watcher:
-            assert "bob" not in str(watcher.receive_json())
+            frame = watcher.receive_json()
+            assert frame["rooms"] == [{"room": "g", "users": 1, "members": ["bob"]}]
+            assert "userId" not in str(frame) and "user_id" not in str(frame)
+
+
+def test_lobby_members_sorted_case_insensitively_and_capped(monkeypatch):
+    monkeypatch.setattr(presence_module, "MAX_LOBBY_MEMBERS", 3)
+    presence = Presence()
+    for uid, name in enumerate(["bob", "Alice", "carol", "Dave"], start=1):
+        presence.join("g", uid, name)
+    (entry,) = presence.rooms()
+    assert entry["users"] == 4  # the count stays exact
+    assert entry["members"] == ["Alice", "bob", "carol"]
 
 
 @pytest.mark.parametrize("headers", [

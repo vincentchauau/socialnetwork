@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 MAX_MEMBERS_PER_ROOM = 200
 MAX_LIVE_ROOMS = 500
 MAX_ROOMS_LISTED = 100
+MAX_LOBBY_MEMBERS = 30
 MAX_SOCKETS_PER_USER = 5
 MAX_LOBBY_SOCKETS_PER_USER = 2
 
@@ -63,7 +64,14 @@ class Presence:
         return listed, len(names)
 
     def rooms(self) -> list[dict]:
-        entries = [{"room": room, "users": len(names)} for room, names in self._names.items()]
+        entries = [
+            {
+                "room": room,
+                "users": len(names),
+                "members": sorted(names.values(), key=lambda name: (name.lower(), name))[:MAX_LOBBY_MEMBERS],
+            }
+            for room, names in self._names.items()
+        ]
         entries.sort(key=lambda entry: (-entry["users"], entry["room"]))
         return entries[:MAX_ROOMS_LISTED]
 
