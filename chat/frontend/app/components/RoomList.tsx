@@ -39,9 +39,9 @@ export default function RoomList({ rooms, mode, current, totalRooms, onJoin }: P
   return (
     <div className="maxColumnContainer">
       <h3>Rooms:</h3>
-      <p style={{ fontSize: "0.8em", lineHeight: 1, margin: "0 0 4px 10px" }}>{MODE_TEXT[mode]}</p>
+      <p style={{ fontSize: "0.8em", lineHeight: 1.5, margin: "0 0 4px 10px" }}>{MODE_TEXT[mode]}</p>
       {rooms.length === 0 ? (
-        <p style={{ marginLeft: 10 }}>
+        <p style={{ marginLeft: 10, lineHeight: 1.5 }}>
           {totalRooms === 0 ? "Chưa có phòng nào đang mở." : "Không có phòng nào khớp bộ lọc."}
         </p>
       ) : (

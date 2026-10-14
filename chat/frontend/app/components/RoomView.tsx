@@ -35,7 +35,7 @@ function Frame({ columns, control, grid, bottom }: FrameProps) {
       id="messageSplitter"
       direction="vertical"
       percent={60}
-      containerClass="columnContainer"
+      containerClass="fullColumnContainer"
       firstClass="columnContainer"
       secondClass="columnContainer"
       first={
@@ -79,7 +79,7 @@ export function IdleView({ columns, control }: { columns: number; control: Colum
           </div>
           <div className="maxColumnContainer">
             <h3 id="room">Room:</h3>
-            <p>Chọn một phòng hoặc tạo phòng mới để bắt đầu chat.</p>
+            <p style={{ lineHeight: 1.5 }}>Chọn một phòng hoặc tạo phòng mới để bắt đầu chat.</p>
           </div>
         </>
       }
@@ -124,10 +124,10 @@ export default function RoomView({ room, columns, control }: Props) {
           <Composer disabled={chat.status !== "open"} onSend={chat.send} />
           <div className="maxColumnContainer">
             <h3 id="room">{`Room: ${room}`}</h3>
-            <p role="status" style={{ fontSize: "0.8em", lineHeight: 1 }}>
+            <p role="status" style={{ fontSize: "0.8em", lineHeight: 1.5, margin: 0 }}>
               {STATUS_TEXT[chat.status]}
             </p>
-            {chat.notice && <p role="alert">{chat.notice}</p>}
+            {chat.notice && <p role="alert" style={{ lineHeight: 1.5 }}>{chat.notice}</p>}
             {chat.stopped === "session" && (
               <p>
                 Hãy <a href="/login">đăng nhập</a> lại để tiếp tục chat.
