@@ -15,13 +15,13 @@ export default function AuthGate({
 }) {
   const auth = useSession();
 
-  if (auth.status === "loading") return <p className="muted">Đang tải…</p>;
+  if (auth.status === "loading") return <p style={{ lineHeight: 1.5 }}>Đang tải…</p>;
 
   if (auth.status === "error") {
     return (
-      <div className="stack">
+      <div className="columnContainer">
         <h1>{title}</h1>
-        <p role="alert" className="error">
+        <p role="alert" style={{ lineHeight: 1.5 }}>
           Không kết nối được máy chủ. Hãy thử lại.
         </p>
         <a href="/">← Trang chủ</a>
@@ -31,7 +31,7 @@ export default function AuthGate({
 
   if (auth.status === "anonymous") {
     return (
-      <div className="stack">
+      <div className="columnContainer">
         <h1>{title}</h1>
         <p>
           Hãy <a href="/login">đăng nhập</a> trước.

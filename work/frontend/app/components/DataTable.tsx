@@ -4,7 +4,7 @@ import type { Cell } from "../lib/types";
 export default function DataTable({ columns, rows, caption }: { columns: string[]; rows: Cell[][]; caption: string }) {
   if (columns.length === 0) return null;
   return (
-    <div className="table-wrap">
+    <div style={{ overflow: "auto" }}>
       <table>
         <caption className="sr-only">{caption}</caption>
         <thead>
@@ -19,7 +19,7 @@ export default function DataTable({ columns, rows, caption }: { columns: string[
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={columns.length} className="muted">
+              <td colSpan={columns.length}>
                 Không có dòng nào.
               </td>
             </tr>
@@ -27,7 +27,7 @@ export default function DataTable({ columns, rows, caption }: { columns: string[
           {rows.map((row, r) => (
             <tr key={r}>
               {row.map((cell, i) => (
-                <td key={i}>{cell === null ? <span className="muted">NULL</span> : String(cell)}</td>
+                <td key={i}>{cell === null ? <span style={{ opacity: 0.6 }}>NULL</span> : String(cell)}</td>
               ))}
             </tr>
           ))}

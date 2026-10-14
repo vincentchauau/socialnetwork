@@ -18,23 +18,23 @@ export default function CallsPanel() {
 
   if (error) {
     return (
-      <p role="alert" className="error">
+      <p role="alert" className="text-line">
         {error}
       </p>
     );
   }
   if (!calls) {
     return (
-      <p className="muted" role="status">
+      <p className="text-line" role="status">
         Đang tải…
       </p>
     );
   }
-  if (calls.length === 0) return <p className="muted">Chưa có cuộc gọi nào.</p>;
+  if (calls.length === 0) return <p className="text-line">Chưa có cuộc gọi nào.</p>;
   return (
-    <div className="table-wrap">
+    <div style={{ overflow: "auto" }}>
       <table>
-        <caption className="muted">Sự kiện cuộc gọi gần đây (số điện thoại đã được che)</caption>
+        <caption className="text-line">Sự kiện cuộc gọi gần đây (số điện thoại đã được che)</caption>
         <thead>
           <tr>
             <th scope="col">Thời gian</th>

@@ -65,8 +65,8 @@ describe("FilesPanel", () => {
     const { container } = render(<FilesPanel />);
     expect(await screen.findByText(hostile)).toBeInTheDocument();
     expect(container.querySelector("img")).toBeNull();
-    const names = Array.from(container.querySelectorAll(".entry-name, button.link")).map((n) => n.textContent);
-    expect(names.slice(-4, -2)).toEqual(expect.arrayContaining([]));
+    const names = Array.from(container.querySelectorAll("#fileGridView .file-name")).map((n) => n.textContent);
+    expect(names).toEqual(["alpha", "zeta", hostile, "b.txt"].sort((x, y) => (x === "alpha" || x === "zeta" ? -1 : 1) - (y === "alpha" || y === "zeta" ? -1 : 1) || x.localeCompare(y, "vi")));
     expect(names.indexOf("alpha")).toBeLessThan(names.indexOf("b.txt"));
     expect(fetchMock).toHaveBeenCalledWith("/api/work/files?path=%2F");
   });
@@ -76,11 +76,14 @@ describe("FilesPanel", () => {
       url.includes("%2Fdocs") ? listing("/docs", []) : listing("/", [folder("docs")]),
     );
     render(<FilesPanel />);
-    await userEvent.click(await screen.findByRole("button", { name: "docs" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Mở thư mục docs" }));
     expect(await screen.findByText("Thư mục này đang trống.")).toBeInTheDocument();
     expect(screen.getByText("docs", { selector: "[aria-current]" })).toBeInTheDocument();
+    expect(screen.getByText("Current Path: /docs")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Thư mục gốc" }));
-    expect(await screen.findByRole("button", { name: "docs" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Mở thư mục docs" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "📁 docs" })); // the folder tree on the left
+    expect(await screen.findByText("Current Path: /docs")).toBeInTheDocument();
   });
 
   it("shows a load error", async () => {
@@ -89,20 +92,32 @@ describe("FilesPanel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("không có quyền");
   });
 
-  it("controls grid columns and layout", async () => {
+  it("controls the grid columns from 1 to 10, clamping and ignoring junk", async () => {
     fetchMock.mockResolvedValue(listing("/", [file("a")]));
     const { container } = render(<FilesPanel />);
     await screen.findByText("a");
-    const input = screen.getByLabelText(/Số cột/);
-    fireEvent.change(input, { target: { value: "9" } });
-    expect(input).toHaveValue(6);
-    fireEvent.change(input, { target: { value: "0" } });
+    const grid = container.querySelector("#fileGridView") as HTMLElement;
+    const input = screen.getByLabelText("Columns:");
     expect(input).toHaveValue(1);
+    expect(grid.style.gridTemplateColumns).toBe("repeat(1, 1fr)");
+    fireEvent.change(input, { target: { value: "99" } });
+    expect(grid.style.gridTemplateColumns).toBe("repeat(10, 1fr)");
+    fireEvent.change(input, { target: { value: "0" } });
+    expect(grid.style.gridTemplateColumns).toBe("repeat(1, 1fr)");
     fireEvent.change(input, { target: { value: "4" } });
-    expect((container.querySelector("ul.entries") as HTMLElement).style.gridTemplateColumns).toBe("repeat(4, minmax(0, 1fr))");
-    await userEvent.click(screen.getByRole("button", { name: "Chuyển sang danh sách" }));
-    expect(screen.queryByLabelText(/Số cột/)).toBeNull();
-    expect(container.querySelector("ul.entries.list")).not.toBeNull();
+    fireEvent.change(input, { target: { value: "" } }); // mid-edit keeps the last valid value
+    expect(grid.style.gridTemplateColumns).toBe("repeat(4, 1fr)");
+    fireEvent.blur(input);
+    expect(input).toHaveValue(4);
+  });
+
+  it("splits Folders and Files like the original (30/70)", async () => {
+    fetchMock.mockResolvedValue(listing("/", []));
+    const { container } = render(<FilesPanel />);
+    await screen.findByText("Thư mục này đang trống.");
+    expect(screen.getByRole("heading", { name: "Folders" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Files & Subfolders" })).toBeInTheDocument();
+    expect((container.querySelector("#fileSplitter > div:first-child") as HTMLElement).style.width).toBe("30%");
   });
 
   it("shows usage and warns at 90%", async () => {
@@ -141,7 +156,7 @@ describe("FilesPanel", () => {
       return listing(p, p === "/a/b/c/d/e" ? [folder("f")] : p === "/a/b/c/d" ? [folder("e")] : p === "/a/b/c" ? [folder("d")] : p === "/a/b" ? [folder("c")] : p === "/a" ? [folder("b")] : p === "/" ? [folder("a")] : []);
     });
     render(<FilesPanel />);
-    for (const n of ["a", "b", "c", "d", "e", "f"]) await userEvent.click(await screen.findByRole("button", { name: n }));
+    for (const n of ["a", "b", "c", "d", "e", "f"]) await userEvent.click(await screen.findByRole("button", { name: `Mở thư mục ${n}` }));
     await waitFor(() => expect(current).toBe("/a/b/c/d/e/f"));
     await userEvent.type(await screen.findByLabelText("Tên thư mục mới"), "g");
     await userEvent.click(screen.getByRole("button", { name: "Tạo thư mục" }));
@@ -197,9 +212,9 @@ describe("FilesPanel", () => {
     await screen.findByText("Thư mục này đang trống.");
     const zone = screen.getByTestId("dropzone");
     fireEvent.dragOver(zone);
-    expect(zone).toHaveClass("over");
+    expect(zone).toHaveStyle({ borderStyle: "solid" });
     fireEvent.dragLeave(zone);
-    expect(zone).not.toHaveClass("over");
+    expect(zone).toHaveStyle({ borderStyle: "dashed" });
     fireEvent.drop(zone, { dataTransfer: { files: [] } });
     expect(formMock).not.toHaveBeenCalled();
     fireEvent.drop(zone, { dataTransfer: { files: [fileOf("d.txt", 1)] } });

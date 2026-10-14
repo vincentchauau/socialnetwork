@@ -1,36 +1,7 @@
-main { max-width: 960px; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.work-tabs { flex-wrap: wrap; }
-a.btn {
-  display: inline-block; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
-  color: var(--fg); text-decoration: none;
-}
-button.danger { background: var(--danger); border-color: var(--danger); color: var(--accent-fg); }
-button.link { background: none; border: none; padding: 0; color: var(--accent); text-decoration: underline; }
-button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-textarea {
-  font: 14px/1.4 ui-monospace, Menlo, Consolas, monospace; padding: 8px; width: 100%;
-  border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg);
-}
-.crumbs { list-style: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; }
-.crumbs li + li::before { content: "/"; margin-right: 4px; color: var(--muted); }
-progress.usage { width: 100%; height: 12px; accent-color: var(--accent); }
-progress.usage.warn { accent-color: var(--danger); }
-.dropzone { border: 2px dashed var(--border); border-radius: 8px; padding: 16px; }
-.dropzone.over { border-color: var(--accent); background: var(--surface); }
-.toolbar { flex-wrap: wrap; align-items: center; }
-.cols input { width: 4.5rem; }
-.entries { list-style: none; margin: 0; padding: 0; gap: 8px; display: grid; }
-.entries.list { grid-template-columns: 1fr; }
-.entry { overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 8px; }
-.entry-title { display: flex; flex-direction: column; gap: 2px; }
-.entry-actions { flex-wrap: wrap; }
-.table-wrap { overflow-x: auto; }
+/* Only what the original ChatWork style.css does not cover: plain tables and the quota bar. */
 table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
-th, td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
-th { background: var(--surface); }
-.tables { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.pager { align-items: center; flex-wrap: wrap; }
-@media (max-width: 600px) {
-  .entries.grid { grid-template-columns: 1fr !important; }
-}
+th, td { border: 1px solid; padding: 4px 8px; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+progress.usage { width: 100%; height: 12px; }
+textarea { width: 100%; font: 14px/1.4 ui-monospace, Menlo, Consolas, monospace; padding: 8px; border: 1px solid; }
+.status-line { font-size: 0.85em; line-height: 1.5; margin: 0 0 4px 0; }
+.text-line { line-height: 1.5; margin: 0 0 4px 0; }

@@ -21,8 +21,9 @@ export default function UploadZone({ busy, onFiles }: Props) {
 
   return (
     <div
-      className={over ? "dropzone over" : "dropzone"}
+      className="rowContainer"
       data-testid="dropzone"
+      style={{ borderStyle: over ? "solid" : "dashed", justifyContent: "flex-start", alignItems: "center" }}
       onDragOver={(e) => {
         e.preventDefault();
         setOver(true);
@@ -42,10 +43,10 @@ export default function UploadZone({ busy, onFiles }: Props) {
           if (files.length > 0) onFiles(files);
         }}
       />
-      <button type="button" disabled={busy} onClick={() => inputRef.current?.click()}>
+      <button type="button" style={{ flex: "0 0 auto", padding: "0 12px" }} disabled={busy} onClick={() => inputRef.current?.click()}>
         {busy ? "Đang tải lên…" : "Tải tệp lên"}
       </button>
-      <span className="muted"> hoặc kéo thả tệp vào đây (tối đa 20 MB mỗi tệp)</span>
+      <span style={{ marginLeft: 8 }}> hoặc kéo thả tệp vào đây (tối đa 20 MB mỗi tệp)</span>
     </div>
   );
 }

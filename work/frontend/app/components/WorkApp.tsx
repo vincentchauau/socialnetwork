@@ -1,44 +1,57 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { shuffleTheme } from "../theme";
 import CallsPanel from "./CallsPanel";
 import DatabasePanel from "./DatabasePanel";
 import FilesPanel from "./FilesPanel";
+import NavBar, { View } from "./NavBar";
 
-type Tab = "files" | "db" | "calls";
+const VIEW_FROM_HASH: Record<string, View> = { "#file": "file", "#database": "database", "#calls": "calls" };
 
-export default function WorkApp({ isAdmin }: { isAdmin: boolean }) {
-  const [tab, setTab] = useState<Tab>("files");
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "files", label: "Tệp" },
-    { id: "db", label: "Cơ sở dữ liệu" },
-    ...(isAdmin ? [{ id: "calls" as const, label: "Cuộc gọi" }] : []),
-  ];
+function Banner({ id }: { id: string }) {
   return (
-    <div className="stack">
-      <h1>Tệp &amp; cơ sở dữ liệu</h1>
-      <div role="tablist" aria-label="Khu vực làm việc" className="row work-tabs">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            id={`tab-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls={`panel-${t.id}`}
-            className={tab === t.id ? undefined : "secondary"}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
-        {tab === "files" && <FilesPanel />}
-        {tab === "db" && <DatabasePanel />}
-        {tab === "calls" && isAdmin && <CallsPanel />}
-      </div>
-    </div>
+    <header id={id} style={{ textAlign: "center" }}>
+      <p>Tệp &amp; cơ sở dữ liệu · mỗi người dùng có thư mục và SQLite riêng.</p>
+    </header>
+  );
+}
+
+export default function WorkApp({ username, isAdmin }: { username: string; isAdmin: boolean }) {
+  const [view, setView] = useState<View>("file");
+  const [headerShown, setHeaderShown] = useState(false);
+
+  // Like the original: a random theme on every load, header hidden at first.
+  useEffect(() => {
+    shuffleTheme();
+    const fromHash = VIEW_FROM_HASH[window.location.hash];
+    if (fromHash && (fromHash !== "calls" || isAdmin)) setView(fromHash);
+  }, [isAdmin]);
+
+  function changeView(next: View) {
+    setView(next);
+    window.history.replaceState(null, "", `#${next}`);
+  }
+
+  return (
+    <>
+      {headerShown && <Banner id="page-header" />}
+      <main className="maxColumnContainer">
+        <NavBar
+          username={username}
+          view={view}
+          isAdmin={isAdmin}
+          headerShown={headerShown}
+          onToggleHeader={() => setHeaderShown(!headerShown)}
+          onTheme={() => shuffleTheme()}
+          onView={changeView}
+        />
+        {view === "file" && <FilesPanel />}
+        {view === "database" && <DatabasePanel />}
+        {view === "calls" && isAdmin && <CallsPanel />}
+      </main>
+      {headerShown && <Banner id="page-footer" />}
+    </>
   );
 }

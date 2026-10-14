@@ -15,7 +15,7 @@ interface Props {
 
 type Mode = "view" | "rename" | "delete";
 
-/** One file or folder. Names are always rendered as plain text. */
+/** One grid tile (preview + name) like the original ChatWork file explorer. Names are plain text. */
 export default function EntryItem({ entry, dir, onOpen, onRename, onDelete }: Props) {
   const [mode, setMode] = useState<Mode>("view");
   const [name, setName] = useState(entry.name);
@@ -40,73 +40,72 @@ export default function EntryItem({ entry, dir, onOpen, onRename, onDelete }: Pr
   }
 
   return (
-    <li className="card entry">
-      <div className="entry-title">
-        <span aria-hidden="true">{isFolder ? "📁" : "📄"}</span>{" "}
+    <div className="grid-item">
+      <div className="file-preview" style={{ background: "inherit", aspectRatio: "auto", height: 90 }}>
         {isFolder ? (
-          <button type="button" className="link" onClick={() => onOpen(entry.name)}>
-            {entry.name}
-          </button>
+          <span
+            role="button"
+            tabIndex={0}
+            className="emoji folder"
+            aria-label={`Mở thư mục ${entry.name}`}
+            onClick={() => onOpen(entry.name)}
+            onKeyDown={(event) => (event.key === "Enter" || event.key === " ") && onOpen(entry.name)}
+          >
+            📁
+          </span>
         ) : (
-          <span className="entry-name">{entry.name}</span>
+          <a href={downloadUrl(joinPath(dir, entry.name))} download={entry.name} aria-label={`Tải xuống ${entry.name}`}>
+            <span className="emoji">📄</span>
+          </a>
         )}
-        <span className="muted entry-meta">
-          {isFolder ? "Thư mục" : formatBytes(entry.size)} · {entry.modifiedAt}
-        </span>
+      </div>
+      <div className="file-name">{entry.name}</div>
+      <div className="text-line" style={{ fontSize: "0.8em" }}>
+        {isFolder ? "Thư mục" : formatBytes(entry.size)} · {entry.modifiedAt}
       </div>
       {mode === "view" && (
-        <div className="row entry-actions">
-          {!isFolder && (
-            <a
-              className="btn secondary"
-              href={downloadUrl(joinPath(dir, entry.name))}
-              download={entry.name}
-              aria-label={`Tải xuống ${entry.name}`}
-            >
-              Tải xuống
-            </a>
-          )}
-          <button type="button" className="secondary" aria-label={`Đổi tên ${entry.name}`} onClick={() => setMode("rename")}>
+        <div className="rowContainer" style={{ width: "100%" }}>
+          <button type="button" aria-label={`Đổi tên ${entry.name}`} onClick={() => setMode("rename")}>
             Đổi tên
           </button>
-          <button type="button" className="secondary" aria-label={`Xoá ${entry.name}`} onClick={() => setMode("delete")}>
+          <button type="button" aria-label={`Xoá ${entry.name}`} onClick={() => setMode("delete")}>
             Xoá
           </button>
         </div>
       )}
       {mode === "rename" && (
-        <form className="stack" onSubmit={submitRename} aria-label={`Đổi tên ${entry.name}`}>
+        <form className="columnContainer" style={{ width: "100%" }} onSubmit={submitRename} aria-label={`Đổi tên ${entry.name}`}>
           <label htmlFor={`rename-${entry.name}`}>Tên mới</label>
           <input id={`rename-${entry.name}`} value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
           {problem && (
-            <p role="alert" className="error">
+            <p role="alert" className="text-line">
               {problem}
             </p>
           )}
-          <div className="row">
+          <div className="rowContainer">
             <button type="submit">Lưu</button>
-            <button type="button" className="secondary" onClick={() => setMode("view")}>
+            <button type="button" onClick={() => setMode("view")}>
               Huỷ
             </button>
           </div>
         </form>
       )}
       {mode === "delete" && (
-        <div className="stack" role="group" aria-label="Xác nhận xoá">
-          <p>
+        <div className="columnContainer" style={{ width: "100%" }} role="group" aria-label="Xác nhận xoá">
+          <p className="text-line">
             Xoá <strong>{entry.name}</strong>
             {isFolder ? " và toàn bộ nội dung bên trong" : ""}?
           </p>
-          <div className="row">
-            <button type="button" className="danger" onClick={confirmDelete}>
+          <div className="rowContainer">
+            <button type="button" onClick={confirmDelete}>
               Xác nhận xoá
             </button>
-            <button type="button" className="secondary" onClick={() => setMode("view")}>
+            <button type="button" onClick={() => setMode("view")}>
               Huỷ
             </button>
           </div>
         </div>
       )}
-    </li>
+    </div>
   );
 }

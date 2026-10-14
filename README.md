@@ -122,6 +122,8 @@ expire by retention (1 h). Integration tests against the real stack: `lab/backen
 
 ## Work (files, SQLite playground, Telnyx calls)
 
+The `work` UI (File and Database) uses the same ChatWork look as `chat`: original `style.css`, palette and Theme, 30/70 splitter with Folders and Files & Subfolders, Columns tiles, the database toolbar rows (Import, Export, table select, Clear/Search, rows x columns, SQL, Reset, First/-100..+100/Last paging). Insert/Select/Delete/Update tile buttons of the original are replaced by the SQL console and CSV import. `/work#database` opens the Database view.
+
 `work/` ports the three tools of the old ChatWork experiment (file manager, database manager, Telnyx voice
 webhook) as sandboxed features. API contract for the frontend: `work/API.md`.
 

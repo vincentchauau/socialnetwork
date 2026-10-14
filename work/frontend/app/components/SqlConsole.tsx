@@ -38,7 +38,7 @@ export default function SqlConsole({ onExecuted }: { onExecuted: () => void }) {
   }
 
   return (
-    <section className="stack" aria-label="Bảng điều khiển SQL">
+    <section className="columnContainer" aria-label="Bảng điều khiển SQL">
       <h3>Bảng điều khiển SQL</h3>
       <label htmlFor="sql-input">Một câu lệnh SQL (Ctrl+Enter để chạy)</label>
       <textarea
@@ -50,23 +50,23 @@ export default function SqlConsole({ onExecuted }: { onExecuted: () => void }) {
         onKeyDown={onKeyDown}
         spellCheck={false}
       />
-      <div className="row">
+      <div className="rowContainer">
         <button type="button" disabled={busy} onClick={() => void run()}>
           {busy ? "Đang chạy…" : "Chạy"}
         </button>
       </div>
       {error && (
-        <p role="alert" className="error">
+        <p role="alert" className="text-line">
           {error}
         </p>
       )}
       {result && (
-        <div className="stack" role="status">
+        <div className="columnContainer" role="status">
           <p>
             {result.rowCount} dòng, {result.changes} thay đổi.
             {result.truncated && " Kết quả đã cắt bớt."}
           </p>
-          {result.truncated && <p className="muted">(đã cắt bớt: chỉ hiển thị một phần số dòng)</p>}
+          {result.truncated && <p className="text-line">(đã cắt bớt: chỉ hiển thị một phần số dòng)</p>}
           <DataTable columns={result.columns} rows={result.rows} caption="Kết quả truy vấn" />
         </div>
       )}
