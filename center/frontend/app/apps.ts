@@ -15,4 +15,5 @@ export const APPS: readonly AppLink[] = [
   { name: "Jobs", href: "/jobs", description: "Tìm việc hoặc tuyển người" },
   { name: "Face", href: "/face", description: "Đo cân đối khuôn mặt" },
   { name: "Lab", href: "/lab", description: "Phòng thí nghiệm microservice" },
+  { name: "Work", href: "/work", description: "Tệp, cơ sở dữ liệu thử và cuộc gọi" },
 ];

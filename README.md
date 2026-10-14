@@ -19,6 +19,7 @@ socialnetwork/
   jobs/         postings, applications, saved jobs, candidate profile
   face/         face-symmetry measurements (computed in the browser; only numeric scores saved on opt-in; see face/API.md)
   lab/          microservice lab: gRPC + Redis cache-aside, RabbitMQ work queue, Kafka event log (see lab/API.md and "Lab" below)
+  work/         per-user file manager, SQLite playground and verified Telnyx call webhook (see work/API.md and "Work" below)
                 (each app = backend/ FastAPI + frontend/ Next.js, served at /<app>)
 ```
 
@@ -118,6 +119,46 @@ Turn it off again by removing `messaging` and running `up -d --remove-orphans`. 
 user id only; deleting an account removes the user's rows in the Lab database, while messages already in Kafka
 expire by retention (1 h). Integration tests against the real stack: `lab/backend/tests/test_integration.py`
 (`LAB_INTEGRATION=1`).
+
+## Work (files, SQLite playground, Telnyx calls)
+
+`work/` ports the three tools of the old ChatWork experiment (file manager, database manager, Telnyx voice
+webhook) as sandboxed features. API contract for the frontend: `work/API.md`.
+
+| Tool | What it does |
+|---|---|
+| **Files** | a private folder tree per user under `/data/work/files/<user_id>/`: list, create folder, upload (20 MB per file, 100 MB per user), download, rename, delete (folders recursively) |
+| **Database** | a private SQLite file per user (`/data/work/db/<user_id>.sqlite3`, max 20 MB, not the platform Postgres): list and browse tables with paging and search, run **one** SQL statement, import a CSV (<= 2 MB) as a TEXT table, export a table as CSV, drop the file |
+| **Calls** | `POST /telnyx/webhook` (public, Ed25519-verified) answers an incoming call, speaks a greeting, starts recording and stores masked call events; `GET /calls` lists them for admins only |
+
+Sandbox rules (all enforced server side, with tests): paths are virtual (`/docs/a.txt`) and only travel in the query
+string or JSON body, never in a URL path segment; every component is NFC-normalised and rejected if it is `.`/`..`,
+holds control, bidi or zero-width characters, `/ \ : * ? " < > |` or NUL, ends with a dot or space, is a Windows
+reserved name or is longer than 100 characters; depth <= 6; symbolic links are never created or followed (and not
+listed); uploads go to a temp file on the same volume and are renamed atomically; name collisions answer 409;
+downloads are always `Content-Disposition: attachment` + `application/octet-stream` + `nosniff` +
+`Content-Security-Policy: sandbox`, so an uploaded HTML file can never run as a page. SQL runs through an authorizer
+that denies ATTACH/DETACH, every PRAGMA except a few read-only schema ones, virtual tables, transaction control and
+file/extension functions; extension loading is off; the file cannot grow past 20 MB; a query is aborted after about
+3 s and returns at most 1000 rows. Deleting a user account removes that user's file tree and SQLite file and nothing
+else. Writes are limited to 60 per minute per user.
+
+Why the original was **not** ported as written:
+- its catch-all route `/<path:path>` served *any* file of the server (source code, `.env`, the database) to anyone and
+  listed any directory: here nothing is served except the caller's own sandbox through an explicit, validated path;
+- its database console executed raw SQL, concatenated into statements, against one shared file with no
+  authentication: here every user has an own file, identifiers are quoted and checked against `sqlite_master`, and the
+  SQL console is locked down as described above;
+- the Telnyx scripts contained a hardcoded API key and real phone numbers, and the webhook trusted any caller: here
+  keys come from the environment only (`TELNYX_API_KEY`, `TELNYX_PUBLIC_KEY`, `TELNYX_GREETING`), the webhook verifies
+  Telnyx's Ed25519 signature (5 minute window), numbers are stored masked (last 2 digits only), and the key is never logged.
+- **Not ported:** the media-stream WebSocket receiver (it needs a public `wss://` URL with token authentication) and
+  the outbound-SMS script (an open SMS sender is a cost-abuse risk). Add them only with authentication and caps.
+
+**Revoke the Telnyx API key that appeared in the original ChatWork files** (Telnyx portal > API Keys), create a new one
+and put it only in `.env` (never commit it). The old key is exposed to anyone who ever had the files, and the real phone
+numbers in those files should be treated as exposed too. Telnyx setup: set the voice application's webhook URL to
+`https://<your host>/api/work/telnyx/webhook` and copy the account public key into `TELNYX_PUBLIC_KEY`.
 
 ## Sign-in methods (center)
 
@@ -298,7 +339,7 @@ next `/auth/refresh` issues an EdDSA one). Tokens without a session id keep the 
 ## Database roles
 
 Each service has its own LOGIN role (`sn_center`, `sn_chat`, `sn_photos`, `sn_watch`, `sn_werewolf`, `sn_market`,
-`sn_learning`, `sn_jobs`, `sn_face`, `sn_lab`) with the password `DB_PASSWORD_<APP>` from `.env`. The role owns its database (so
+`sn_learning`, `sn_jobs`, `sn_face`, `sn_lab`, `sn_work`) with the password `DB_PASSWORD_<APP>` from `.env`. The role owns its database (so
 `create_all` / `ensure_columns` keep working), is not superuser and cannot create databases or roles, and
 `CONNECT` is revoked from `PUBLIC`, so a service role cannot even connect to another service's database (or to
 `postgres` / `template1`). Only the `postgres` container knows `POSTGRES_PASSWORD`.

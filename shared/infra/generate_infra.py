@@ -59,6 +59,7 @@ class App:
     needs_origin: bool = False  # backend checks the WebSocket Origin
     upload_path: str = ""  # backend path that receives uploads (gets auth_request + limits)
     max_body: str = ""  # client_max_body_size for the upload path
+    extra_uploads: tuple[tuple[str, str], ...] = ()  # more (backend path, client_max_body_size) upload routes
     stream: bool = False  # serves large ranged responses: no response buffering
     tmp_mb: int = 0  # size cap for the backend's tmpfs /tmp (multipart spool)
     backend_env: tuple[tuple[str, str], ...] = ()  # extra environment for <slug>-backend
@@ -160,6 +161,23 @@ ALL_APPS: tuple[App, ...] = (
         backend_env=(("GRPC_USER_TARGET", "lab-user:50051"), *_LAB_BROKERS),
         services=_LAB_SERVICES,
         backend_starts_after=("lab-user",),
+    ),
+    App(
+        "work",
+        "Work",
+        "Tệp, cơ sở dữ liệu thử và cuộc gọi",
+        volume=True,
+        upload_path="/files/upload",
+        max_body="21m",
+        tmp_mb=64,
+        needs_origin=True,  # ALLOWED_ORIGINS (follows PUBLIC_ORIGIN) for the Origin check of the unsafe routes
+        extra_uploads=(("/db/import", "3m"),),  # CSV import: authenticated before the body, its own size limit
+        # Telnyx secrets pass through from .env (empty: webhook answers 503 / no API calls). Never commit them.
+        backend_env=(
+            ("TELNYX_API_KEY", "${TELNYX_API_KEY:-}"),
+            ("TELNYX_PUBLIC_KEY", "${TELNYX_PUBLIC_KEY:-}"),
+            ("TELNYX_GREETING", "${TELNYX_GREETING:-}"),
+        ),
     ),
 )
 
@@ -435,17 +453,19 @@ volumes:
 """
 
 
-def upload_location(app: App) -> str:
-    """Exact-match location for the upload route: authenticate BEFORE the body is read."""
-    return f"""    location = /api/{app.slug}{app.upload_path} {{
+def upload_location(app: App, path: str | None = None, max_body: str | None = None) -> str:
+    """Exact-match location for an upload route: authenticate BEFORE the body is read."""
+    path = path or app.upload_path
+    max_body = max_body or app.max_body
+    return f"""    location = /api/{app.slug}{path} {{
         auth_request /_auth;                  # 401 before any upload bytes are accepted
-        client_max_body_size {app.max_body};
+        client_max_body_size {max_body};
         client_body_timeout 60s;
         limit_req zone=upload burst=10 nodelay;
         limit_req_status 429;
         limit_conn upload_conn 3;
         proxy_request_buffering off;          # stream the body to the backend
-        proxy_pass http://{app.slug}-backend:8000{app.upload_path};
+        proxy_pass http://{app.slug}-backend:8000{path};
 {PROXY_HEADERS.rstrip(chr(10))}
     }}"""
 
@@ -466,7 +486,8 @@ def api_location(app: App) -> str:
     lines.append("    }")
     block = "\n".join(lines)
     if app.upload_path:
-        return upload_location(app) + "\n\n" + block
+        extra = [upload_location(app, path, size) for path, size in app.extra_uploads]
+        return "\n\n".join([upload_location(app), *extra, block])
     return block
 
 

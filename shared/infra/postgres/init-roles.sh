@@ -66,6 +66,7 @@ provision sn_learning learning DB_PASSWORD_LEARNING
 provision sn_jobs jobs DB_PASSWORD_JOBS
 provision sn_face face DB_PASSWORD_FACE
 provision sn_lab lab DB_PASSWORD_LAB
+provision sn_work work DB_PASSWORD_WORK
 
 # The maintenance databases are not a way around the per-service databases.
 admin --dbname postgres <<'SQL'

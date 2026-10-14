@@ -151,3 +151,25 @@ def test_lab_broker_password_is_required_and_in_the_gateway_routes(infra, servic
     assert "?set RABBITMQ_PASSWORD" in services["rabbitmq"]["environment"]["RABBITMQ_DEFAULT_PASS"]
     assert "location /api/lab/ {" in infra.nginx() and "location ~ ^/lab(/|$) {" in infra.nginx()
     assert '"/lab"' in infra.apps_ts()
+
+
+def test_work_uploads_are_authenticated_and_the_telnyx_webhook_is_not(infra, services):
+    text = infra.nginx()
+    for path, size in (("/files/upload", "21m"), ("/db/import", "3m")):
+        block = text.split(f"location = /api/work{path} {{", 1)[1].split("\n    }", 1)[0]
+        assert "auth_request /_auth;" in block and f"client_max_body_size {size};" in block
+        assert f"proxy_pass http://work-backend:8000{path};" in block
+    # the generic /api/work/ location (which carries the webhook) has no auth_request
+    generic = text.split("location /api/work/ {", 1)[1].split("\n    }", 1)[0]
+    assert "auth_request" not in generic and "proxy_pass http://work-backend:8000/;" in generic
+    backend = services["work-backend"]
+    assert backend["volumes"] == ["work-data:/data"] and backend["tmpfs"] == ["/tmp:size=64m"]
+
+
+def test_work_telnyx_secrets_are_passed_through_with_empty_defaults(services):
+    env = services["work-backend"]["environment"]
+    for name in ("TELNYX_API_KEY", "TELNYX_PUBLIC_KEY", "TELNYX_GREETING"):
+        assert env[name] == "${" + name + ":-}"
+    assert env["ALLOWED_ORIGINS"].startswith("${PUBLIC_ORIGIN")
+    others = [name for name, svc in services.items() if name != "work-backend" and "TELNYX_API_KEY" in str(svc.get("environment"))]
+    assert others == []

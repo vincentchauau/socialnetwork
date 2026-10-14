@@ -31,6 +31,7 @@ services:
       DB_PASSWORD_JOBS: ${DB_PASSWORD_JOBS:?set DB_PASSWORD_JOBS in .env (hex)}
       DB_PASSWORD_FACE: ${DB_PASSWORD_FACE:?set DB_PASSWORD_FACE in .env (hex)}
       DB_PASSWORD_LAB: ${DB_PASSWORD_LAB:?set DB_PASSWORD_LAB in .env (hex)}
+      DB_PASSWORD_WORK: ${DB_PASSWORD_WORK:?set DB_PASSWORD_WORK in .env (hex)}
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Runs on a FRESH volume only; on an existing one use postgres/apply-roles.sh (see README).
@@ -447,6 +448,38 @@ services:
       retries: 5
       start_period: 60s
 
+  work-backend:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: work/backend/Dockerfile
+    environment:
+      <<: *backend-env
+      DATABASE_URL: postgresql+psycopg://sn_work:${DB_PASSWORD_WORK:?set DB_PASSWORD_WORK in .env (hex)}@postgres:5432/work
+      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      TELNYX_API_KEY: "${TELNYX_API_KEY:-}"
+      TELNYX_PUBLIC_KEY: "${TELNYX_PUBLIC_KEY:-}"
+      TELNYX_GREETING: "${TELNYX_GREETING:-}"
+    secrets:
+      - jwt_public_keys
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - work-data:/data
+    tmpfs:
+      - /tmp:size=64m
+
+  work-frontend:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: work/frontend/Dockerfile
+
   # Development mail sink: catches every email the app sends (nothing leaves this machine).
   # Enabled by COMPOSE_PROFILES=mail-dev in .env; in production point SMTP_* at a real server instead.
   # Web inbox: http://localhost:8025 (bound to this machine only).
@@ -492,6 +525,8 @@ services:
       - face-frontend
       - lab-backend
       - lab-frontend
+      - work-backend
+      - work-frontend
 
 # Access-token keys (Ed25519). Create with `python -m app.cli gen-jwt-key` in center/backend (see README);
 # the files are NOT in the repository. Only center-backend gets the private key.
@@ -505,3 +540,4 @@ volumes:
   pgdata:
   photos-data:
   watch-data:
+  work-data:
