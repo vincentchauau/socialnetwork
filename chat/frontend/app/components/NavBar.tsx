@@ -1,9 +1,5 @@
 "use client";
 
-import { useState } from "react";
-
-import HelpDialog from "./HelpDialog";
-
 interface Props {
   username: string;
   headerShown: boolean;
@@ -11,34 +7,33 @@ interface Props {
   onTheme: () => void;
 }
 
-export default function NavBar({ username, headerShown, onToggleHeader, onTheme }: Props) {
-  const [helpOpen, setHelpOpen] = useState(false);
+const go = (path: string) => () => window.location.assign(path);
 
+/** The ChatWork nav row: avatar, Hide/Show, Theme, Home, File, Database. */
+export default function NavBar({ username, headerShown, onToggleHeader, onTheme }: Props) {
   return (
-    <nav className="topnav" aria-label="Điều hướng">
-      <button type="button" aria-label="Trợ giúp" aria-haspopup="dialog" onClick={() => setHelpOpen(true)}>
-        ?
-      </button>
-      <span className="user-chip">
-        <span>{username}</span>
-        <a href="/login">Đổi tài khoản</a>
-      </span>
-      <button type="button" aria-controls="page-header" aria-expanded={headerShown} onClick={onToggleHeader}>
+    <nav className="rowContainer" aria-label="Điều hướng">
+      <div id="signin_container" style={{ display: "flex", width: 220, height: 40 }}>
+        <div
+          id="signin_avatar"
+          aria-hidden="true"
+          style={{ width: 40, height: 40, display: "grid", placeItems: "center", fontWeight: "bold" }}
+        >
+          {username.slice(0, 1).toUpperCase()}
+        </div>
+        <button type="button" onClick={go("/login")} title="Đổi tài khoản">
+          {username}
+        </button>
+      </div>
+      <button type="button" aria-controls="page-header page-footer" onClick={onToggleHeader}>
         {headerShown ? "Hide" : "Show"}
       </button>
       <button type="button" onClick={onTheme}>
         Theme
       </button>
-      <a className="nav-link" href="/">
-        Home
-      </a>
-      <a className="nav-link" href="/work">
-        File
-      </a>
-      <a className="nav-link" href="/work">
-        Database
-      </a>
-      {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
+      <button type="button" onClick={go("/")}>Home</button>
+      <button type="button" onClick={go("/work")}>File</button>
+      <button type="button" onClick={go("/work")}>Database</button>
     </nav>
   );
 }

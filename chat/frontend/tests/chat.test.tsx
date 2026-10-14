@@ -52,7 +52,7 @@ afterEach(() => {
 
 async function renderChat() {
   render(<ChatPage />);
-  await screen.findByRole("heading", { name: "Chat" });
+  await screen.findByRole("navigation", { name: "Điều hướng" });
   await waitFor(() => expect(FakeSocket.byPath("/ws-lobby")).toHaveLength(1));
   const lobby = FakeSocket.last("/ws-lobby");
   lobby.open();
@@ -101,9 +101,9 @@ describe("lobby", () => {
   it("joins a room by clicking it and marks it current", async () => {
     const lobby = await renderChat();
     lobby.frame({ type: "rooms", rooms: ROOMS });
-    await userEvent.click(screen.getByRole("button", { name: "Join general" }));
+    await userEvent.click(screen.getByRole("button", { name: /^general/ }));
     expect(await screen.findByRole("heading", { name: "Room: general" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^general/ }).closest("li")).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("button", { name: /^general/ }).closest("li")).toHaveClass("selected");
     expect(FakeSocket.byPath("/ws/general")).toHaveLength(1);
   });
 
@@ -212,12 +212,12 @@ describe("room view", () => {
     ws.frame(msg(3, "bob", "three"));
     ws.frame(msg(3, "bob", "three"));
     const log = screen.getByRole("log", { name: "Tin nhắn" });
-    expect(within(log).getAllByRole("article")).toHaveLength(3);
+    expect(log.querySelectorAll("p.message")).toHaveLength(3);
     expect(log).toHaveAttribute("aria-live", "polite");
     expect(screen.getByText("Đã kết nối")).toBeInTheDocument();
   });
 
-  it("distinguishes own bubbles and renders content as plain text", async () => {
+  it("shows who wrote each line and renders content as plain text", async () => {
     const xss = "<img src=x onerror=alert(1)>";
     const { ws } = await openRoom();
     ws.open();
@@ -226,17 +226,17 @@ describe("room view", () => {
     const log = screen.getByRole("log");
     expect(log.querySelector("img")).toBeNull();
     expect(within(log).getByText(xss)).toBeInTheDocument();
-    const [own, other] = within(log).getAllByRole("article");
-    expect(own).toHaveClass("own");
-    expect(other).not.toHaveClass("own");
-    expect(own.querySelector("time")).toHaveTextContent(/\d{2}:\d{2}/);
+    const [first, second] = log.querySelectorAll("p.message");
+    expect(first.querySelector("b")).toHaveTextContent("alice");
+    expect(second.querySelector("b")).toHaveTextContent("bob");
+    expect(first.querySelector("time")).toHaveTextContent(/\d{2}:\d{2}/);
   });
 
   it("renders a blank time for an invalid timestamp", async () => {
     const { ws } = await openRoom();
     ws.open();
     ws.frame({ ...msg(1), created_at: "nope" });
-    expect(within(screen.getByRole("log")).getByRole("article").querySelector("time")).toHaveTextContent("");
+    expect(screen.getByRole("log").querySelector("p.message time")).toHaveTextContent("");
   });
 
   it("shows join/leave system lines that are not messages", async () => {
@@ -246,9 +246,9 @@ describe("room view", () => {
     ws.frame(msg(5, "bob", "hi"));
     ws.frame({ type: "system", event: "leave", room: "g", userId: 2, username: "bob", at: "2026-01-01T00:00:09Z" });
     const log = screen.getByRole("log");
-    expect(within(log).getByText("bob đã vào phòng")).toHaveClass("system-line");
-    expect(within(log).getByText("bob đã rời phòng")).toHaveClass("system-line");
-    expect(within(log).getAllByRole("article")).toHaveLength(1);
+    expect(within(log).getByText("bob đã vào phòng")).toBeInTheDocument();
+    expect(within(log).getByText("bob đã rời phòng")).toBeInTheDocument();
+    expect(log.querySelectorAll("p.message")).toHaveLength(1);
   });
 
   it("caps stored system lines", async () => {
@@ -261,33 +261,28 @@ describe("room view", () => {
     expect(within(screen.getByRole("log")).getByText("u204 đã vào phòng")).toBeInTheDocument();
   });
 
-  it("renders presence with total and the '+M người khác' cap note", async () => {
+  it("renders presence as member tiles with the '+M người khác' cap note", async () => {
     const { ws } = await openRoom();
-    expect(screen.getByText("Đang tải…")).toBeInTheDocument();
+    const tiles = () => [...document.querySelectorAll(".maxGridContainer .file-name")].map((n) => n.textContent);
+    expect(tiles()).toEqual([]);
     ws.open();
     ws.frame({ type: "presence", room: "g", total: 2, members: [{ userId: 1, username: "alice" }, { userId: 2, username: "bob" }] });
-    expect(screen.getByRole("heading", { name: "Đang trong phòng (2)" })).toBeInTheDocument();
-    expect(screen.queryByText(/người khác/)).not.toBeInTheDocument();
+    expect(tiles()).toEqual(["alice", "bob"]);
 
     ws.frame({ type: "presence", room: "g", total: 250, members: [{ userId: 1, username: "alice" }] });
-    expect(screen.getByRole("heading", { name: "Đang trong phòng (250)" })).toBeInTheDocument();
-    expect(screen.getByText("+249 người khác")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Thành viên" })).toHaveTextContent("alice");
+    expect(tiles()).toEqual(["alice", "+249 người khác"]);
   });
 
-  it("sends trimmed text with Enter, keeps Shift+Enter as newline, counts characters", async () => {
+  it("sends trimmed text with Enter or the Send button", async () => {
     const { ws } = await openRoom();
-    const box = screen.getByLabelText("Tin nhắn", { selector: "textarea" });
+    const box = screen.getByRole("textbox", { name: "Tin nhắn" });
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
     ws.open();
     const user = userEvent.setup();
-    await user.type(box, "  hello{Shift>}{Enter}{/Shift}world  ");
-    expect(box).toHaveValue("  hello\nworld  ");
-    expect(screen.getByText("15/2000")).toBeInTheDocument();
+    await user.type(box, "  hello world  ");
     await user.keyboard("{Enter}");
-    expect(ws.sent).toEqual([JSON.stringify({ content: "hello\nworld" })]);
+    expect(ws.sent).toEqual([JSON.stringify({ content: "hello world" })]);
     expect(box).toHaveValue("");
-    expect(screen.getByText("0/2000")).toBeInTheDocument();
 
     await user.keyboard("{Enter}"); // empty: nothing sent
     await user.type(box, "via button");
@@ -295,19 +290,14 @@ describe("room view", () => {
     expect(ws.sent).toHaveLength(2);
   });
 
-  it("limits the draft to 2000 characters and ignores IME composition Enter", async () => {
+  it("limits the draft to 2000 characters", async () => {
     const { ws } = await openRoom();
     ws.open();
     const box = screen.getByRole("textbox", { name: "Tin nhắn" });
     expect(box).toHaveAttribute("maxlength", "2000");
-    fireEvent.change(box, { target: { value: "x".repeat(2000) } });
-    expect(screen.getByText("2000/2000")).toBeInTheDocument();
-    fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+    fireEvent.change(box, { target: { value: "x".repeat(2001) } });
+    fireEvent.submit(box.closest("form")!);
     expect(ws.sent).toHaveLength(0);
-    fireEvent.keyDown(box, { key: "a" });
-    expect(ws.sent).toHaveLength(0);
-    fireEvent.keyDown(box, { key: "Enter" });
-    expect(ws.sent).toHaveLength(1);
   });
 
   it("keeps the draft when the socket is not open", async () => {
@@ -389,7 +379,7 @@ describe("connection handling", () => {
     first.drop(1006);
     expect(screen.getByText("Mất kết nối, đang thử lại…")).toBeInTheDocument();
     expect(screen.getByText("old")).toBeInTheDocument();
-    expect(screen.getByText("Đang tải…")).toBeInTheDocument(); // stale presence cleared
+    expect(document.querySelectorAll(".maxGridContainer .file-name")).toHaveLength(0); // stale presence cleared
     await act(async () => {
       vi.advanceTimersByTime(999);
     });
@@ -504,10 +494,10 @@ describe("connection handling", () => {
     fetchMock.mockImplementationOnce(
       () => new Promise((resolve) => (release = resolve)) as never,
     ); // general's history stays pending
-    await userEvent.click(screen.getByRole("button", { name: "Join general" }));
+    await userEvent.click(screen.getByRole("button", { name: /^general/ }));
     const general = FakeSocket.last("/ws/general");
     general.open();
-    await userEvent.click(screen.getByRole("button", { name: "Join dev" }));
+    await userEvent.click(screen.getByRole("button", { name: /^dev/ }));
     const dev = FakeSocket.last("/ws/dev");
     expect(general.closeCalls).toBe(1);
     dev.open();

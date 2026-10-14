@@ -1,120 +1,78 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  DEFAULT_TOKENS,
-  MIN_CONTRAST,
-  PALETTES,
-  THEME_STORAGE_KEY,
-  applyTokens,
-  buildTokens,
-  contrastRatio,
-  passesContrast,
-  pickTheme,
-  readStoredTheme,
-  shuffleTheme,
-  writeStoredTheme,
-} from "../app/theme";
+import { COLORS, applyTheme, overwriteCSS, pickTheme, shuffleTheme } from "../app/theme";
 
 afterEach(() => {
-  vi.restoreAllMocks();
-  window.localStorage.clear();
-  document.documentElement.removeAttribute("style");
+  document.head.querySelectorAll("style").forEach((el) => el.remove());
 });
 
-describe("contrast", () => {
-  it("computes known ratios", () => {
-    expect(contrastRatio("#000000", "#ffffff")).toBeCloseTo(21, 0);
-    expect(contrastRatio("#777777", "#777777")).toBeCloseTo(1, 5);
-    expect(contrastRatio("#nothex", "#ffffff")).toBeNaN();
-  });
+const rule = (selector: string) =>
+  [...document.styleSheets]
+    .flatMap((sheet) => [...sheet.cssRules] as CSSStyleRule[])
+    .find((r) => r.selectorText === selector);
 
-  it("keeps the default plum theme and every built-in palette at AA in both variants", () => {
-    expect(passesContrast(DEFAULT_TOKENS)).toBe(true);
-    expect(PALETTES).toHaveLength(9);
-    for (const shades of PALETTES) {
-      expect(shades).toHaveLength(9);
-      for (const variant of ["dark", "light"] as const) {
-        const tokens = buildTokens(shades, variant);
-        expect(contrastRatio(tokens.fg, tokens.bg)).toBeGreaterThanOrEqual(MIN_CONTRAST);
-        expect(passesContrast(tokens)).toBe(true);
-      }
+describe("palette", () => {
+  it("is the original ChatWork palette: 13 ramps of 9 hex shades", () => {
+    expect(COLORS).toHaveLength(13);
+    for (const ramp of COLORS) {
+      expect(ramp).toHaveLength(9);
+      for (const shade of ramp) expect(shade).toMatch(/^#[0-9a-f]{6}$/);
     }
-  });
-
-  it("rejects low contrast and unparsable colours", () => {
-    expect(passesContrast({ ...DEFAULT_TOKENS, fg: "#2a0020" })).toBe(false);
-    expect(passesContrast({ ...DEFAULT_TOKENS, muted: "bogus" })).toBe(false);
   });
 });
 
 describe("pickTheme", () => {
-  const grey = Array.from({ length: 9 }, () => "#808080"); // no contrast at all
-
-  it("is random but deterministic for a given source", () => {
-    expect(pickTheme(PALETTES, () => 0)).toMatchObject({ palette: 0, variant: "dark" });
-    expect(pickTheme(PALETTES, () => 0.999999)).toMatchObject({ palette: 8, variant: "light" });
+  it("uses shades 0/7/8 for a dark theme (background/border/text)", () => {
+    const calls = [0, 0.1];
+    const theme = pickTheme(() => calls.shift() ?? 0);
+    expect(theme).toEqual({ background: COLORS[0][0], border: COLORS[0][7], text: COLORS[0][8] });
   });
 
-  it("skips palettes below 4.5:1 and retries", () => {
-    const choice = pickTheme([grey, PALETTES[2]], () => 0);
-    expect(choice?.palette).toBe(1);
-    expect(passesContrast(choice!.tokens)).toBe(true);
+  it("uses shades 8/1/0 for a light theme", () => {
+    const calls = [0.5, 0.9];
+    const theme = pickTheme(() => calls.shift() ?? 0);
+    expect(theme).toEqual({ background: COLORS[6][8], border: COLORS[6][1], text: COLORS[6][0] });
   });
 
-  it("ignores palettes without 9 shades and returns null when none is usable", () => {
-    expect(pickTheme([grey, ["#000000"]], () => 0.5)).toBeNull();
-    expect(pickTheme([], () => 0.5)).toBeNull();
+  it("never indexes past the last ramp", () => {
+    const calls = [0.9999999, 0.9];
+    expect(pickTheme(() => calls.shift() ?? 0).background).toBe(COLORS[12][8]);
+  });
+
+  it("works with the real random source", () => {
+    expect(pickTheme().text).toMatch(/^#/);
   });
 });
 
-describe("applying and persisting", () => {
-  it("sets CSS variables on the root, not '*' rules", () => {
-    applyTokens(buildTokens(PALETTES[0], "dark"));
-    const root = document.documentElement.style;
-    expect(root.getPropertyValue("--bg")).toBe(PALETTES[0][0]);
-    expect(root.getPropertyValue("--fg")).toBe(PALETTES[0][8]);
-    expect(root.getPropertyValue("--accent-2")).not.toBe("");
+describe("overwriteCSS", () => {
+  it("creates a rule, then replaces it instead of adding a second one", () => {
+    overwriteCSS(".x", "color: red");
+    overwriteCSS(".x", "color: blue");
+    const rules = [...document.styleSheets].flatMap((s) => [...s.cssRules] as CSSStyleRule[]).filter((r) => r.selectorText === ".x");
+    expect(rules).toHaveLength(1);
+    expect(rules[0].style.color).toBe("blue");
   });
 
-  it("round-trips through localStorage and revalidates what it reads", () => {
-    writeStoredTheme({ palette: 3, variant: "light" });
-    expect(readStoredTheme()).toMatchObject({ palette: 3, variant: "light" });
-    const bad = [
-      "",
-      "nope",
-      "null",
-      '{"palette":99,"variant":"dark"}',
-      '{"palette":1.5,"variant":"dark"}',
-      '{"palette":1,"variant":"neon"}',
-      '{"palette":"1","variant":"dark"}',
-    ];
-    for (const raw of bad) {
-      window.localStorage.setItem(THEME_STORAGE_KEY, raw);
-      expect(readStoredTheme()).toBeNull();
-    }
+  it("reuses an existing inline sheet", () => {
+    document.head.appendChild(document.createElement("style"));
+    const before = document.styleSheets.length;
+    overwriteCSS(".y", "color: red");
+    expect(document.styleSheets.length).toBe(before);
+  });
+});
+
+describe("applyTheme / shuffleTheme", () => {
+  it("paints everything with the picked colours and inverts buttons on hover", () => {
+    applyTheme({ background: "#200000", border: "#ff9999", text: "#ffcccc" });
+    expect(rule("*")?.style.background).toContain("rgb(32, 0, 0)");
+    expect(rule("*")?.style.color).toBe("rgb(255, 204, 204)");
+    expect(rule("button:hover")?.style.color).toBe("rgb(32, 0, 0)");
+    expect(rule(".selected")).toBeDefined();
   });
 
-  it("tolerates a failing localStorage on read and write", () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("blocked");
-    });
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("blocked");
-    });
-    expect(readStoredTheme()).toBeNull();
-    expect(() => writeStoredTheme({ palette: 0, variant: "dark" })).not.toThrow();
-    expect(shuffleTheme()).toBe(true); // still applies for this page view
-    expect(document.documentElement.style.getPropertyValue("--bg")).not.toBe("");
-  });
-
-  it("shuffleTheme applies and stores a pick, and refuses when every palette fails the guard", () => {
-    expect(shuffleTheme()).toBe(true);
-    expect(readStoredTheme()).not.toBeNull();
-    document.documentElement.removeAttribute("style");
-    window.localStorage.clear();
-    const grey = Array.from({ length: 9 }, () => "#808080");
-    expect(shuffleTheme([grey])).toBe(false);
-    expect(document.documentElement.style.getPropertyValue("--bg")).toBe("");
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+  it("shuffleTheme applies and returns the colours it picked", () => {
+    const colors = shuffleTheme(() => 0.3);
+    expect(colors.background).toMatch(/^#/);
+    expect(rule("*")).toBeDefined();
   });
 });

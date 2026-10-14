@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useState } from "react";
+import { FormEvent, useState } from "react";
 
 import { MAX_MESSAGE_LENGTH } from "../protocol";
 
@@ -9,48 +9,35 @@ interface Props {
   onSend: (content: string) => boolean;
 }
 
+/** One-line message box with a Send button, as in the original. Enter sends. */
 export default function Composer({ disabled, onSend }: Props) {
   const [draft, setDraft] = useState("");
   const canSend = !disabled && draft.trim().length > 0;
 
-  function submit() {
+  function submit(event: FormEvent) {
+    event.preventDefault();
     const content = draft.trim();
     if (!canSend || content.length > MAX_MESSAGE_LENGTH) return;
     if (onSend(content)) setDraft("");
   }
 
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    submit();
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
-    event.preventDefault();
-    submit();
-  }
-
   return (
-    <form className="composer" onSubmit={handleSubmit}>
+    <form className="rowContainer" onSubmit={submit}>
       <label htmlFor="composer-input" className="sr-only">
         Tin nhắn
       </label>
-      <textarea
+      <input
         id="composer-input"
-        rows={2}
+        type="text"
+        autoComplete="off"
         value={draft}
         maxLength={MAX_MESSAGE_LENGTH}
         placeholder="Enter message..."
-        aria-describedby="composer-count"
         onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={handleKeyDown}
       />
-      <button type="submit" disabled={!canSend}>
+      <button type="submit" style={{ flex: 0, width: 50 }} disabled={!canSend}>
         Send
       </button>
-      <span id="composer-count" className="muted small composer-count">
-        {`${draft.length}/${MAX_MESSAGE_LENGTH}`}
-      </span>
     </form>
   );
 }

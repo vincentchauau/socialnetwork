@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatPage from "../app/page";
-import { PALETTES, THEME_STORAGE_KEY, buildTokens } from "../app/theme";
 import { FakeSocket } from "./fakeSocket";
 
 vi.mock("@sn/api", async (importOriginal) => ({
@@ -34,8 +33,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
-  window.localStorage.clear();
-  document.documentElement.removeAttribute("style");
+  document.head.querySelectorAll("style").forEach((el) => el.remove());
 });
 
 async function renderChat() {
@@ -50,7 +48,7 @@ async function renderChat() {
 
 const roomNames = () =>
   within(screen.getByRole("list", { name: "Danh sách phòng" }))
-    .getAllByRole("button", { name: /^(?!Join )/ })
+    .getAllByRole("button")
     .map((b) => b.querySelector("span")?.textContent);
 
 describe("filters", () => {
@@ -80,7 +78,7 @@ describe("filters", () => {
 });
 
 describe("room rows", () => {
-  it("toggles the member list with aria-expanded and shows the cap note", async () => {
+  it("click expands the member names (aria-expanded) and also enters the room, like the original", async () => {
     await renderChat();
     const row = screen.getByRole("button", { name: /^dev/ });
     expect(row).toHaveAttribute("aria-expanded", "false");
@@ -92,19 +90,30 @@ describe("room rows", () => {
       "erin",
       "+38 người khác",
     ]);
+    expect(await screen.findByRole("heading", { name: "Room: dev" })).toBeInTheDocument();
+    expect(FakeSocket.byPath("/ws/dev")).toHaveLength(1);
     await userEvent.click(row);
     expect(row).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("list", { name: "Thành viên dev" })).toBeNull();
   });
 
-  it("is keyboard operable and does not join on toggle", async () => {
+  it("is keyboard operable with Enter and Space", async () => {
     await renderChat();
     const row = screen.getByRole("button", { name: /^general/ });
     row.focus();
     await userEvent.keyboard("{Enter}");
     expect(row).toHaveAttribute("aria-expanded", "true");
-    expect(FakeSocket.byPath("/ws/general")).toHaveLength(0);
     expect(screen.getByRole("list", { name: "Thành viên general" })).toHaveTextContent("Carol");
+    await userEvent.keyboard("a"); // other keys do nothing
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    await userEvent.keyboard(" ");
+    expect(row).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("marks the current room as selected", async () => {
+    await renderChat();
+    await userEvent.click(screen.getByRole("button", { name: /^dev/ }));
+    expect(screen.getByRole("button", { name: /^dev/ }).closest("li")).toHaveClass("selected");
   });
 });
 
@@ -113,6 +122,7 @@ describe("Join In / Join Out", () => {
     await renderChat();
     expect(screen.getByRole("button", { name: "Join Out" })).toBeDisabled();
     expect(screen.getByRole("heading", { name: "Room:" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Enter message...")).toBeDisabled();
   });
 
   it("validates the room name, shows the hint, then joins and clears the filter", async () => {
@@ -134,9 +144,15 @@ describe("Join In / Join Out", () => {
     expect(FakeSocket.byPath("/ws/new-room")).toHaveLength(1);
   });
 
-  it("Join on a row joins that room, Join Out leaves and closes the socket", async () => {
+  it("Enter in the room box joins like Join In", async () => {
     await renderChat();
-    await userEvent.click(screen.getByRole("button", { name: "Join dev" }));
+    await userEvent.type(screen.getByLabelText(ROOM_INPUT), "quick{Enter}");
+    expect(await screen.findByRole("heading", { name: "Room: quick" })).toBeInTheDocument();
+  });
+
+  it("Join Out leaves and closes the socket", async () => {
+    await renderChat();
+    await userEvent.click(screen.getByRole("button", { name: /^dev/ }));
     expect(await screen.findByRole("heading", { name: "Room: dev" })).toBeInTheDocument();
     const ws = FakeSocket.last("/ws/dev");
     const out = screen.getByRole("button", { name: "Join Out" });
@@ -147,11 +163,11 @@ describe("Join In / Join Out", () => {
     expect(out).toBeDisabled();
   });
 
-  it("clears an old join error when joining from the list", async () => {
+  it("clears an old join error when entering a room from the list", async () => {
     await renderChat();
     await userEvent.click(screen.getByRole("button", { name: "Join In" }));
     expect(screen.getByRole("alert")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Join random" }));
+    await userEvent.click(screen.getByRole("button", { name: /^random/ }));
     expect(screen.queryByText(/Tên phòng chỉ gồm/)).toBeNull();
   });
 });
@@ -159,142 +175,156 @@ describe("Join In / Join Out", () => {
 describe("columns and layout", () => {
   async function openRoom() {
     await renderChat();
-    await userEvent.click(screen.getByRole("button", { name: "Join dev" }));
+    await userEvent.click(screen.getByRole("button", { name: /^dev/ }));
     await screen.findByRole("heading", { name: "Room: dev" });
+    FakeSocket.last("/ws/dev").open();
   }
+  const grid = () => document.querySelector(".maxGridContainer") as HTMLElement;
 
-  it("defaults to one column and sets the grid from 1 to 6, clamping and ignoring junk", async () => {
+  it("defaults to one column and sets the member grid from 1 to 10, clamping and ignoring junk", async () => {
     await openRoom();
-    const log = screen.getByRole("log");
     const input = screen.getByLabelText("Columns:");
     expect(input).toHaveValue(1);
-    expect(log).toHaveStyle({ gridTemplateColumns: "repeat(1, 1fr)" });
+    expect(grid()).toHaveStyle({ gridTemplateColumns: "repeat(1, 1fr)" });
 
     fireEvent.change(input, { target: { value: "3" } });
-    expect(log).toHaveStyle({ gridTemplateColumns: "repeat(3, 1fr)" });
+    expect(grid()).toHaveStyle({ gridTemplateColumns: "repeat(3, 1fr)" });
     fireEvent.change(input, { target: { value: "99" } });
-    expect(log).toHaveStyle({ gridTemplateColumns: "repeat(6, 1fr)" });
+    expect(grid()).toHaveStyle({ gridTemplateColumns: "repeat(10, 1fr)" });
     fireEvent.change(input, { target: { value: "0" } });
-    expect(log).toHaveStyle({ gridTemplateColumns: "repeat(1, 1fr)" });
+    expect(grid()).toHaveStyle({ gridTemplateColumns: "repeat(1, 1fr)" });
     fireEvent.change(input, { target: { value: "4" } });
     fireEvent.change(input, { target: { value: "" } }); // mid-edit: keeps the last valid value
-    expect(log).toHaveStyle({ gridTemplateColumns: "repeat(4, 1fr)" });
+    expect(grid()).toHaveStyle({ gridTemplateColumns: "repeat(4, 1fr)" });
     fireEvent.blur(input);
     expect(input).toHaveValue(4);
   });
 
-  it("keeps the composer above the messages and the heading above both", async () => {
+  it("keeps Columns on top, then the composer, the heading and the messages", async () => {
     await openRoom();
-    const heading = screen.getByRole("heading", { name: "Room: dev" });
+    const columns = screen.getByLabelText("Columns:");
     const box = screen.getByPlaceholderText("Enter message...");
+    const heading = screen.getByRole("heading", { name: "Room: dev" });
     const log = screen.getByRole("log");
     const after = Node.DOCUMENT_POSITION_FOLLOWING;
-    expect(heading.compareDocumentPosition(box) & after).toBeTruthy();
-    expect(box.compareDocumentPosition(log) & after).toBeTruthy();
+    expect(columns.compareDocumentPosition(box) & after).toBeTruthy();
+    expect(box.compareDocumentPosition(heading) & after).toBeTruthy();
+    expect(heading.compareDocumentPosition(log) & after).toBeTruthy();
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("shows the room members as tiles in the grid", async () => {
+    await openRoom();
+    FakeSocket.last("/ws/dev").frame({
+      type: "presence",
+      total: 3,
+      members: [
+        { userId: 1, username: "alice" },
+        { userId: 2, username: "bob" },
+      ],
+    });
+    const tiles = [...grid().querySelectorAll(".file-name")].map((n) => n.textContent);
+    expect(tiles).toEqual(["alice", "bob", "+1 người khác"]);
+  });
+});
+
+describe("splitters", () => {
+  const rect = (width: number, height: number) =>
+    ({ left: 0, top: 0, width, height, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+
+  it("start at 30/70 and 60/40 like the original", async () => {
+    await renderChat();
+    const left = document.querySelector("#roomSplitter > div:first-child") as HTMLElement;
+    const right = document.querySelector("#roomSplitter > div:last-child") as HTMLElement;
+    expect(left.style.width).toBe("30%");
+    expect(right.style.width).toBe("70%");
+    const top = document.querySelector("#messageSplitter > div:first-child") as HTMLElement;
+    expect(top.style.height).toBe("60%");
+  });
+
+  it("dragging the bar resizes the panels and stops on mouse-up; the edges are protected", async () => {
+    await renderChat();
+    const container = document.getElementById("roomSplitter")!;
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue(rect(1000, 500));
+    const left = container.firstElementChild as HTMLElement;
+    fireEvent.mouseDown(screen.getByTestId("roomSplitter-bar"));
+    fireEvent.mouseMove(document, { clientX: 400 });
+    expect(left.style.width).toBe("40%");
+    fireEvent.mouseMove(document, { clientX: 2 }); // too close to the edge: ignored
+    expect(left.style.width).toBe("40%");
+    fireEvent.mouseUp(document);
+    fireEvent.mouseMove(document, { clientX: 700 });
+    expect(left.style.width).toBe("40%");
+  });
+
+  it("the vertical bar resizes by height", async () => {
+    await renderChat();
+    const container = document.getElementById("messageSplitter")!;
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue(rect(700, 400));
+    fireEvent.mouseDown(screen.getByTestId("messageSplitter-bar"));
+    fireEvent.mouseMove(document, { clientY: 100 });
+    expect((container.firstElementChild as HTMLElement).style.height).toBe("25%");
+    fireEvent.mouseUp(document);
   });
 });
 
 describe("Show / Hide", () => {
-  it("flips the label and hides the header block", async () => {
+  it("starts hidden like the original and toggles the header and footer together", async () => {
     await renderChat();
-    const toggle = screen.getByRole("button", { name: "Hide" });
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("heading", { name: "Chat" })).toBeVisible();
-    await userEvent.click(toggle);
-    expect(screen.getByRole("button", { name: "Show" })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("heading", { name: "Chat" })).toBeNull();
+    expect(document.getElementById("page-header")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Show" }));
-    expect(screen.getByRole("heading", { name: "Chat" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Hide" })).toBeInTheDocument();
-  });
-
-  it("collapses the room column for small screens", async () => {
-    await renderChat();
-    await userEvent.click(screen.getByRole("button", { name: "Ẩn danh sách phòng" }));
-    const toggle = screen.getByRole("button", { name: "Hiện danh sách phòng" });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(document.getElementById("rooms-body")).toHaveAttribute("data-open", "false");
+    expect(document.getElementById("page-header")).not.toBeNull();
+    expect(document.getElementById("page-footer")).not.toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Hide" }));
+    expect(document.getElementById("page-header")).toBeNull();
+    expect(document.getElementById("page-footer")).toBeNull();
   });
 });
 
 describe("nav bar", () => {
-  it("shows the user and the links", async () => {
+  it("shows the user, avatar initial and the buttons", async () => {
     await renderChat();
     const nav = screen.getByRole("navigation", { name: "Điều hướng" });
-    expect(within(nav).getByText("alice")).toBeInTheDocument();
-    expect(within(nav).getByRole("link", { name: "Đổi tài khoản" })).toHaveAttribute("href", "/login");
-    expect(within(nav).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
-    expect(within(nav).getByRole("link", { name: "File" })).toHaveAttribute("href", "/work");
-    expect(within(nav).getByRole("link", { name: "Database" })).toHaveAttribute("href", "/work");
-    expect(within(nav).getByRole("button", { name: "Theme" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "alice" })).toBeInTheDocument();
+    expect(nav.querySelector("#signin_avatar")).toHaveTextContent("A");
+    for (const name of ["Show", "Theme", "Home", "File", "Database"]) {
+      expect(within(nav).getByRole("button", { name })).toBeInTheDocument();
+    }
   });
 
-  it("opens the help dialog, traps focus, closes on Escape and returns focus", async () => {
+  it("navigates with Home, File, Database and the account button", async () => {
     await renderChat();
-    const opener = screen.getByRole("button", { name: "Trợ giúp" });
-    await userEvent.click(opener);
-    const dialog = screen.getByRole("dialog", { name: "Trợ giúp" });
-    expect(dialog).toHaveAttribute("aria-modal", "true");
-    const close = within(dialog).getByRole("button", { name: "Đóng" });
-    expect(close).toHaveFocus();
-    await userEvent.tab();
-    expect(close).toHaveFocus(); // single focusable: trapped
-    await userEvent.tab({ shift: true });
-    expect(close).toHaveFocus();
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(opener).toHaveFocus();
-  });
-
-  it("wraps Tab between first and last focusable and closes by button or backdrop", async () => {
-    await renderChat();
-    await userEvent.click(screen.getByRole("button", { name: "Trợ giúp" }));
-    const dialog = screen.getByRole("dialog");
-    const extra = document.createElement("a");
-    extra.href = "#x";
-    extra.textContent = "x";
-    dialog.prepend(extra);
-    const close = within(dialog).getByRole("button", { name: "Đóng" });
-    close.focus();
-    await userEvent.tab();
-    expect(extra).toHaveFocus();
-    await userEvent.tab({ shift: true });
-    expect(close).toHaveFocus();
-    fireEvent.keyDown(dialog, { key: "a" });
-    await userEvent.click(close);
-    expect(screen.queryByRole("dialog")).toBeNull();
-
-    await userEvent.click(screen.getByRole("button", { name: "Trợ giúp" }));
-    fireEvent.mouseDown(screen.getByRole("dialog")); // inside: stays open
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.mouseDown(screen.getByRole("dialog").parentElement!);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    for (const [name, path] of [
+      ["Home", "/"],
+      ["File", "/work"],
+      ["Database", "/work"],
+      ["alice", "/login"],
+    ]) {
+      await userEvent.click(screen.getByRole("button", { name }));
+      expect(assign).toHaveBeenLastCalledWith(path);
+    }
   });
 });
 
 describe("Theme button", () => {
-  it("applies a palette through CSS variables and remembers it", async () => {
+  const sheetRule = (selector: string) =>
+    [...document.styleSheets]
+      .flatMap((sheet) => [...sheet.cssRules] as CSSStyleRule[])
+      .find((rule) => rule.selectorText === selector);
+
+  it("picks a random theme on load, as the original does", async () => {
     await renderChat();
+    expect(sheetRule("*")?.style.color).toMatch(/^rgb\(/);
+  });
+
+  it("repaints on click", async () => {
+    await renderChat();
+    vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0.1); // ramp 0, dark
     await userEvent.click(screen.getByRole("button", { name: "Theme" }));
-    expect(document.documentElement.style.getPropertyValue("--bg")).toMatch(/^#[0-9a-f]{6}$/);
-    const stored = JSON.parse(window.localStorage.getItem(THEME_STORAGE_KEY)!);
-    expect(stored.palette).toBeGreaterThanOrEqual(0);
-    expect(["dark", "light"]).toContain(stored.variant);
-  });
-
-  it("restores the stored theme on load", async () => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ palette: 4, variant: "light" }));
-    await renderChat();
-    expect(document.documentElement.style.getPropertyValue("--bg")).toBe(buildTokens(PALETTES[4], "light").bg);
-  });
-
-  it("renders with the default theme when localStorage throws", async () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("blocked");
-    });
-    await renderChat();
-    expect(document.documentElement.style.getPropertyValue("--bg")).toBe("");
+    expect(sheetRule("*")?.style.background).toContain("rgb(32, 0, 0)");
+    expect(sheetRule("*")?.style.color).toBe("rgb(255, 204, 204)");
   });
 });
 

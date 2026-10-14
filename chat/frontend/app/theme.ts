@@ -1,175 +1,61 @@
-/** Palette picking for the Theme button: 9-shade ramps, CSS variables, contrast guard. */
+/** ChatWork's Theme button: a random ramp from the original palette, dark or light. */
 
-export type Variant = "dark" | "light";
+/** The `colors` array of the original base.html: 13 ramps of 9 shades, darkest to lightest. */
+export const COLORS: readonly (readonly string[])[] = [
+  ["#200000", "#660000", "#990000", "#cc0000", "#ff0000", "#ff2020", "#ff6666", "#ff9999", "#ffcccc"],
+  ["#201900", "#662000", "#994c00", "#cc6600", "#ff8000", "#ff9920", "#ffb266", "#ffcc99", "#ffe5cc"],
+  ["#202000", "#666600", "#999900", "#cccc00", "#ffff00", "#ffff20", "#ffff66", "#ffff99", "#ffffcc"],
+  ["#192000", "#206600", "#4c9900", "#66cc00", "#80ff00", "#99ff20", "#b2ff66", "#ccff99", "#e5ffcc"],
+  ["#002000", "#006600", "#009900", "#00cc00", "#00ff00", "#20ff20", "#66ff66", "#99ff99", "#ccffcc"],
+  ["#002019", "#006620", "#00994c", "#00cc66", "#00ff80", "#20ff99", "#66ffb2", "#99ffcc", "#ccffe5"],
+  ["#002020", "#006666", "#009999", "#00cccc", "#00ffff", "#20ffff", "#66ffff", "#99ffff", "#ccffff"],
+  ["#001920", "#002066", "#004c99", "#0066cc", "#0080ff", "#2099ff", "#66b2ff", "#99ccff", "#cce5ff"],
+  ["#000020", "#000066", "#000099", "#0000cc", "#0000ff", "#2020ff", "#6666ff", "#9999ff", "#ccccff"],
+  ["#190020", "#200066", "#4c0099", "#6600cc", "#7f00ff", "#9920ff", "#b266ff", "#cc99ff", "#e5ccff"],
+  ["#200020", "#660066", "#990099", "#cc00cc", "#ff00ff", "#ff20ff", "#ff66ff", "#ff99ff", "#ffccff"],
+  ["#200019", "#660020", "#99004c", "#cc0066", "#ff007f", "#ff2099", "#ff66b2", "#ff99cc", "#ffcce5"],
+  ["#000000", "#202020", "#404040", "#606060", "#808080", "#a0a0a0", "#c0c0c0", "#e0e0e0", "#ffffff"],
+];
 
-export interface ThemeTokens {
-  bg: string;
-  surface: string;
-  fg: string;
-  muted: string;
+export interface ThemeColors {
+  background: string;
   border: string;
-  accent: string;
-  accent2: string;
-  accentFg: string;
-  danger: string;
+  text: string;
 }
 
-export interface StoredTheme {
-  palette: number;
-  variant: Variant;
+/** Original rule: dark = shades 0/7/8, light = shades 8/1/0 (background/border/text). */
+export function pickTheme(random: () => number = Math.random): ThemeColors {
+  const ramp = COLORS[Math.min(COLORS.length - 1, Math.floor(random() * COLORS.length))];
+  return random() < 0.5
+    ? { background: ramp[0], border: ramp[7], text: ramp[8] }
+    : { background: ramp[8], border: ramp[1], text: ramp[0] };
 }
 
-export const MIN_CONTRAST = 4.5;
-export const THEME_STORAGE_KEY = "chat.theme";
-export const SHADE_COUNT = 9;
-
-/** Default: dark plum with light pink text and borders. */
-export const DEFAULT_TOKENS: ThemeTokens = {
-  bg: "#1f0016",
-  surface: "#2c0a22",
-  fg: "#ffd1ea",
-  muted: "#f0a6cd",
-  border: "#ff69b4",
-  accent: "#ff9ccf",
-  accent2: "#e0589f",
-  accentFg: "#1f0016",
-  danger: "#ffb3c0",
-};
-
-const LIGHTNESS = [8, 16, 24, 34, 46, 58, 70, 82, 94];
-const SATURATION = 55;
-const HUES = [330, 200, 150, 40, 270, 0, 100, 220, 20];
-
-function hslToHex(hue: number, sat: number, light: number): string {
-  const s = sat / 100;
-  const l = light / 100;
-  const a = s * Math.min(l, 1 - l);
-  const channel = (n: number) => {
-    const k = (n + hue / 30) % 12;
-    const value = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
-    return Math.round(value * 255)
-      .toString(16)
-      .padStart(2, "0");
-  };
-  return `#${channel(0)}${channel(8)}${channel(4)}`;
-}
-
-/** Built-in palettes, each 9 shades from darkest to lightest. */
-export const PALETTES: readonly (readonly string[])[] = HUES.map((hue) =>
-  LIGHTNESS.map((light) => hslToHex(hue, SATURATION, light)),
-);
-
-export function buildTokens(palette: readonly string[], variant: Variant): ThemeTokens {
-  const s = palette;
-  return variant === "dark"
-    ? {
-        bg: s[0], surface: s[1], fg: s[8], muted: s[7], border: s[5],
-        accent: s[8], accent2: s[6], accentFg: s[0], danger: "#ffb3c0",
-      }
-    : {
-        bg: s[8], surface: s[7], fg: s[0], muted: s[1], border: s[3],
-        accent: s[2], accent2: s[1], accentFg: s[8], danger: "#9c1c14",
-      };
-}
-
-function luminance(hex: string): number {
-  const value = /^#([0-9a-f]{6})$/i.exec(hex)?.[1];
-  if (!value) return NaN;
-  const [r, g, b] = [0, 2, 4].map((i) => {
-    const c = parseInt(value.slice(i, i + 2), 16) / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-export function contrastRatio(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
-
-/** Every text/background pair the UI uses must reach WCAG AA (4.5:1); NaN never passes. */
-export function passesContrast(t: ThemeTokens): boolean {
-  const pairs: [string, string][] = [
-    [t.fg, t.bg],
-    [t.fg, t.surface],
-    [t.muted, t.bg],
-    [t.muted, t.surface],
-    [t.accent, t.bg],
-    [t.danger, t.bg],
-    [t.accentFg, t.accent],
-    [t.accentFg, t.accent2],
-  ];
-  return pairs.every(([x, y]) => contrastRatio(x, y) >= MIN_CONTRAST);
-}
-
-export interface Pick extends StoredTheme {
-  tokens: ThemeTokens;
-}
-
-/** Random palette and variant; combinations below AA are skipped, null when none is left. */
-export function pickTheme(
-  palettes: readonly (readonly string[])[] = PALETTES,
-  random: () => number = Math.random,
-): Pick | null {
-  const candidates: StoredTheme[] = palettes.flatMap((shades, palette) =>
-    shades.length === SHADE_COUNT
-      ? (["dark", "light"] as const).map((variant) => ({ palette, variant }))
-      : [],
-  );
-  while (candidates.length > 0) {
-    const index = Math.min(candidates.length - 1, Math.floor(random() * candidates.length));
-    const [choice] = candidates.splice(index, 1);
-    const tokens = buildTokens(palettes[choice.palette], choice.variant);
-    if (passesContrast(tokens)) return { ...choice, tokens };
+/** Set (or replace) one rule in the page's own <style> sheet, like the original overwriteCSS(). */
+export function overwriteCSS(selector: string, style: string, doc: Document = document): void {
+  let sheet = [...doc.styleSheets].find((s) => !s.href);
+  if (!sheet) {
+    const el = doc.createElement("style");
+    doc.head.appendChild(el);
+    sheet = el.sheet as CSSStyleSheet;
   }
-  return null;
+  const rules = Array.from(sheet.cssRules) as CSSStyleRule[];
+  const existing = rules.find((rule) => rule.selectorText === selector);
+  if (existing) existing.style.cssText = style;
+  else sheet.insertRule(`${selector} { ${style} }`, rules.length);
 }
 
-const CSS_VARS: Record<keyof ThemeTokens, string> = {
-  bg: "--bg", surface: "--surface", fg: "--fg", muted: "--muted", border: "--border",
-  accent: "--accent", accent2: "--accent-2", accentFg: "--accent-fg", danger: "--danger",
-};
-
-export function applyTokens(tokens: ThemeTokens, root: HTMLElement = document.documentElement): void {
-  for (const key of Object.keys(CSS_VARS) as (keyof ThemeTokens)[]) {
-    root.style.setProperty(CSS_VARS[key], tokens[key]);
-  }
+export function applyTheme({ background, border, text }: ThemeColors, doc: Document = document): void {
+  overwriteCSS("*", `background: ${background}; color: ${text}; border-color: ${border}`, doc);
+  overwriteCSS("button:hover", `background-color: ${text}; color: ${background}`, doc);
+  overwriteCSS("::selection", `background-color: ${text}; color: ${background}`, doc);
+  overwriteCSS(".selected", `background-color: ${text}; color: ${background}`, doc);
+  overwriteCSS(".selected *", `background-color: ${text}; color: ${background}`, doc);
 }
 
-export function readStoredTheme(): Pick | null {
-  try {
-    const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (!raw) return null;
-    const data: unknown = JSON.parse(raw);
-    if (typeof data !== "object" || data === null) return null;
-    const { palette, variant } = data as Record<string, unknown>;
-    if (variant !== "dark" && variant !== "light") return null;
-    if (typeof palette !== "number" || !Number.isInteger(palette)) return null;
-    const shades = PALETTES[palette];
-    if (!shades) return null;
-    const tokens = buildTokens(shades, variant);
-    return passesContrast(tokens) ? { palette, variant, tokens } : null;
-  } catch {
-    return null; // storage blocked or corrupt: fall back to the default theme
-  }
-}
-
-export function writeStoredTheme(choice: StoredTheme): void {
-  try {
-    window.localStorage.setItem(
-      THEME_STORAGE_KEY,
-      JSON.stringify({ palette: choice.palette, variant: choice.variant }),
-    );
-  } catch {
-    // storage blocked or full: the choice just lasts for this page view
-  }
-}
-
-/** Pick, apply and remember a new theme; false when no palette passes the contrast guard. */
-export function shuffleTheme(palettes: readonly (readonly string[])[] = PALETTES): boolean {
-  const choice = pickTheme(palettes);
-  if (!choice) return false;
-  applyTokens(choice.tokens);
-  writeStoredTheme(choice);
-  return true;
+/** Pick and apply a new random theme. */
+export function shuffleTheme(random: () => number = Math.random): ThemeColors {
+  const colors = pickTheme(random);
+  applyTheme(colors);
+  return colors;
 }
