@@ -1,0 +1,113 @@
+
+
+.app-chat .fullColumnContainer{
+  height: 100%;
+  width: 100%;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.app-chat .maxColumnContainer{
+  flex: 1 0 auto;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.app-chat .columnContainer{
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.app-chat .rowContainer{
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-flow: row wrap;
+  overflow: auto;
+  justify-content: center;
+}
+
+.app-chat header, .app-chat footer{
+  text-align: center;
+}
+
+.app-chat view{
+  overflow: auto;
+}
+
+.app-chat .grid-item{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  border: 1px solid color-mix(in srgb, var(--line) 30%, transparent);
+}
+
+.app-chat button{ flex: 1; margin: 1px; }
+.app-chat .sn-toolbar button, .app-chat .sn-toolbar form button, .app-chat .sn-dt button, .app-chat .sn-gallery-actions button{ flex: none; }
+
+.app-chat label{
+  font-weight: bold;
+  margin-right: 5px;
+}
+
+.app-chat input{
+  flex: 1;
+}
+
+.app-chat p{
+  line-height: inherit; /* not 0: a paragraph of two lines would be drawn on one line, as in the cards of the apps */
+}
+
+.app-chat header > a, .app-chat footer > a{
+  text-decoration: none;
+}
+
+.app-chat ul{
+  list-style-type: none;
+  padding-left: 0px;
+}
+
+.app-chat li{
+  padding-left: 10px;
+  line-height: 1;
+}
+
+.app-chat .media-item{
+  
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.app-chat .emoji{
+  font-size: 3em;
+}
+
+.app-chat .folder{
+  cursor: pointer;
+  font-weight: bold;
+  color: var(--line, currentColor);
+}
+
+.app-chat main{ max-width: none; margin: 0; padding: 0; }
+.app-chat h1, .app-chat h2, .app-chat h3{ font-weight: 700; margin: 0 0 0.5rem; }
+
+.app-chat table{ border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+.app-chat th, .app-chat td{ border: 1px solid; padding: 4px 8px; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+.app-chat progress.usage{ width: 100%; height: 12px; }
+.app-chat textarea{ width: 100%; font: 14px/1.4 ui-monospace, Menlo, Consolas, monospace; padding: 8px; border: 1px solid; }
+.app-chat .status-line{ font-size: 0.85em; line-height: 1.5; margin: 0 0 4px 0; }
+.app-chat .text-line{ line-height: 1.5; margin: 0 0 4px 0; }

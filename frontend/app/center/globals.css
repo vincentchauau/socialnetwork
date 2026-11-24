@@ -1,0 +1,21 @@
+/* Colors are two names: --line and --solid-0 (ThemePicker sets them on <html>); these are the defaults. */
+:root {
+  --solid-0: #ffffff;
+  --line: #171717;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --solid-0: #0a0a0a;
+    --line: #ededed;
+  }
+}
+
+body {
+  margin: 0;
+  color: var(--line);
+  background: var(--solid-0);
+}
+
+a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+::selection { background: var(--line); color: var(--solid-0); }

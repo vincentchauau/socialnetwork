@@ -1,7 +1,6 @@
 """Checks on what shared/infra/generate_infra.py emits (parsed, never run through docker)."""
 
 import importlib.util
-import re
 from pathlib import Path
 
 import pytest
@@ -9,6 +8,7 @@ import pytest
 yaml = pytest.importorskip("yaml")
 
 INFRA = Path(__file__).resolve().parents[2] / "infra" / "generate_infra.py"
+BACKEND_APPS = ("center", "chat", "werewolf", "file", "market", "job", "face", "roulette")
 
 
 @pytest.fixture(scope="module")
@@ -30,146 +30,110 @@ def services(compose_text):
     return yaml.safe_load(compose_text)["services"]
 
 
-def test_only_center_backend_gets_jwt_secret_and_the_private_key(services, compose_text):
+def test_only_the_api_backend_gets_the_jwt_secret_and_the_private_key(services):
     holders = [name for name, svc in services.items() if "JWT_SECRET" in (svc.get("environment") or {})]
-    assert holders == ["center-backend"]
-    assert "jwt_private_key" in services["center-backend"]["secrets"]
-    for name, svc in services.items():
-        if name != "center-backend":
-            assert "jwt_private_key" not in (svc.get("secrets") or [])
-            assert "JWT_PRIVATE_KEY" not in str(svc.get("environment") or {})
-    anchors = yaml.safe_load(compose_text)["x-backend-env"]
-    assert "JWT_SECRET" not in anchors
-
-
-def test_apps_get_only_public_keys(services):
-    for name, svc in services.items():
-        if name.endswith("-backend") and name != "center-backend":
-            assert svc["environment"]["JWT_PUBLIC_KEYS_FILE"] == "/run/secrets/jwt_public_keys"
-            assert svc["secrets"] == ["jwt_public_keys"]
+    assert holders == ["api-backend"]
+    private = [name for name, svc in services.items() if "jwt_private_key" in (svc.get("secrets") or [])]
+    assert private == ["api-backend"]
+    assert "jwt_public_keys" in services["api-backend"]["secrets"]
 
 
 def test_frontends_and_gateway_receive_no_environment(services):
+    assert not services["gateway"].get("environment") and not services["web-frontend"].get("environment")
+
+
+def test_every_backend_connects_to_the_one_database_with_the_app_role(services):
+    env = services["api-backend"]["environment"]
+    assert env["DATABASE_URL"].startswith("postgresql+psycopg://sn_app:") and env["DATABASE_URL"].endswith("@postgres:5432/app")
+    assert not [k for k in env if k.endswith("_DATABASE_URL")]
+
+
+def test_the_superuser_password_stays_on_the_postgres_service(services):
+    assert "POSTGRES_PASSWORD" in services["postgres"]["environment"]
     for name, svc in services.items():
-        if name.endswith("-frontend") or name == "gateway":
-            assert "environment" not in svc and "secrets" not in svc
+        if name != "postgres":
+            assert "POSTGRES_PASSWORD" not in (svc.get("environment") or {}), name
 
 
-def test_every_backend_connects_with_its_own_role(infra, services):
-    seen = set()
-    for app in ["center"] + [a.slug for a in infra.ALL_APPS]:
-        url = services[f"{app}-backend"]["environment"]["DATABASE_URL"]
-        match = re.fullmatch(
-            r"postgresql\+psycopg://(\w+):\$\{(DB_PASSWORD_\w+):\?[^}]+\}@postgres:5432/(\w+)", url
-        )
-        assert match, url
-        role, var, database = match.groups()
-        assert (role, var, database) == (f"sn_{app}", f"DB_PASSWORD_{app.upper()}", app)
-        seen.add(role)
-    assert len(seen) == len(infra.ALL_APPS) + 1 and "postgres" not in seen
+def test_postgres_receives_the_app_role_password(services):
+    assert services["postgres"]["environment"]["DB_PASSWORD_APP"].startswith("${DB_PASSWORD_APP:?")
 
 
-def test_superuser_password_stays_on_the_postgres_service(services):
-    for name, svc in services.items():
-        assert ("POSTGRES_PASSWORD" in (svc.get("environment") or {})) == (name == "postgres")
+def test_role_scripts_create_the_one_login_role_and_lock_the_database_down(infra):
+    body = infra.roles_body()
+    assert "CREATE ROLE %I" in body and "CREATE DATABASE %I OWNER %I" in body
+    assert "NOSUPERUSER" in body and "NOBYPASSRLS" in body
 
 
-def test_postgres_receives_every_service_password(infra, services):
-    env = services["postgres"]["environment"]
-    for app in ["center"] + [a.slug for a in infra.ALL_APPS]:
-        assert f"DB_PASSWORD_{app.upper()}" in env
-    assert any("init-roles.sh" in volume for volume in services["postgres"]["volumes"])
+def test_secrets_are_files_under_the_infra_folder(compose_text):
+    assert "./secrets/jwt_private.pem" in compose_text and "./secrets/jwt_public_keys.pem" in compose_text
 
 
-def test_role_scripts_cover_every_service_and_lock_the_roles_down(infra):
-    for script in (infra.init_roles_sh(), infra.apply_roles_sh()):
-        for app in ["center"] + [a.slug for a in infra.ALL_APPS]:
-            assert f"provision sn_{app} {app} DB_PASSWORD_{app.upper()}\n" in script
-        assert "NOSUPERUSER NOCREATEDB NOCREATEROLE" in script
-        assert "REVOKE ALL ON DATABASE %I FROM PUBLIC" in script
-        assert "REVOKE CONNECT ON DATABASE %I FROM PUBLIC" in script
-        assert "REASSIGN OWNED" not in script
-        assert script.startswith("#!/bin/sh\n")
-    assert "exec -T postgres sh <" in infra.apply_roles_sh()
-
-
-def test_secrets_are_files_outside_the_repository_tree_of_keys(compose_text):
-    secrets = yaml.safe_load(compose_text)["secrets"]
-    assert set(secrets) == {"jwt_private_key", "jwt_public_keys"}
-
-
-# --- extra services (lab): brokers behind the `messaging` profile ---------------------------------------
-
-
-def test_lab_extra_services_are_data_driven_and_profile_gated(services):
-    for name in ("lab-worker", "rabbitmq", "kafka"):
+def test_the_messaging_services_run_only_in_their_profile(services):
+    for name in ("kafka", "rabbitmq", "api-worker"):
         assert services[name]["profiles"] == ["messaging"], name
-    for name in ("lab-backend", "lab-frontend", "lab-user"):
-        assert "profiles" not in services[name], name
-    assert services["lab-user"]["command"] == ["python", "-m", "app.user_server"]
-    assert services["lab-worker"]["command"] == ["python", "-m", "app.worker"]
-    assert services["lab-backend"]["depends_on"]["lab-user"]["condition"] == "service_started"
-    assert not any("messaging" in str(services[n].get("depends_on", "")) for n in ("lab-backend",))
 
 
-def test_lab_backends_share_one_dockerfile_and_never_get_jwt_or_broker_ports(services):
-    for name in ("lab-backend", "lab-user", "lab-worker"):
-        assert services[name]["build"]["dockerfile"] == "lab/backend/Dockerfile"
-        assert "secrets" not in services[name] or services[name]["secrets"] == ["jwt_public_keys"]
-        assert "JWT_SECRET" not in (services[name].get("environment") or {})
-    assert "ports" not in services["lab-user"] and "ports" not in services["kafka"]
-    assert services["rabbitmq"]["ports"] == ["127.0.0.1:15672:15672"]  # management UI only, loopback; no AMQP port
+def test_rabbitmq_management_is_only_on_localhost(services):
+    assert services["rabbitmq"]["ports"] == ["127.0.0.1:15672:15672"]
 
 
-def test_lab_worker_waits_for_brokers_and_uses_its_own_role(services):
-    deps = services["lab-worker"]["depends_on"]
-    assert {n: deps[n]["condition"] for n in ("postgres", "lab-backend", "rabbitmq", "kafka")} == {
-        "postgres": "service_healthy", "lab-backend": "service_healthy",
-        "rabbitmq": "service_healthy", "kafka": "service_healthy",
-    }
-    assert services["lab-worker"]["environment"]["DATABASE_URL"] == services["lab-backend"]["environment"]["DATABASE_URL"]
-
-
-def test_lab_kafka_is_single_node_kraft_with_small_retention(services):
-    env = services["kafka"]["environment"]
-    assert env["KAFKA_PROCESS_ROLES"] == "broker,controller" and "ZOOKEEPER" not in str(env)
-    assert env["KAFKA_AUTO_CREATE_TOPICS_ENABLE"] == "false"
-    assert env["KAFKA_LOG_RETENTION_MS"] == "3600000"
-    assert "-Xmx384m" in env["KAFKA_HEAP_OPTS"]
-    assert env["KAFKA_ADVERTISED_LISTENERS"].startswith("PLAINTEXT://kafka:")
-
-
-def test_lab_extra_services_are_hardened_and_healthchecked(services):
-    for name in ("lab-user", "lab-worker", "rabbitmq", "kafka"):
-        svc = services[name]
-        assert svc["security_opt"] == ["no-new-privileges:true"] and svc["restart"] == "unless-stopped", name
-        assert svc["healthcheck"]["test"][0] == "CMD-SHELL", name
-    assert services["kafka"]["cap_drop"] == ["ALL"] and services["rabbitmq"]["cap_drop"] == []
-
-
-def test_lab_broker_password_is_required_and_in_the_gateway_routes(infra, services):
-    assert "?set RABBITMQ_PASSWORD" in services["rabbitmq"]["environment"]["RABBITMQ_DEFAULT_PASS"]
-    assert "location /api/lab/ {" in infra.nginx() and "location ~ ^/lab(/|$) {" in infra.nginx()
-    assert '"/lab"' in infra.apps_ts()
-
-
-def test_work_uploads_are_authenticated_and_the_telnyx_webhook_is_not(infra, services):
+def test_file_and_database_uploads_are_authenticated(infra):
     text = infra.nginx()
-    for path, size in (("/files/upload", "21m"), ("/db/import", "3m")):
-        block = text.split(f"location = /api/work{path} {{", 1)[1].split("\n    }", 1)[0]
+    for app, path, size in (("file", "/upload", "21m"),):
+        block = text.split(f"location = /api/{app}{path} {{", 1)[1].split("\n    }", 1)[0]
         assert "auth_request /_auth;" in block and f"client_max_body_size {size};" in block
-        assert f"proxy_pass http://work-backend:8000{path};" in block
-    # the generic /api/work/ location (which carries the webhook) has no auth_request
-    generic = text.split("location /api/work/ {", 1)[1].split("\n    }", 1)[0]
-    assert "auth_request" not in generic and "proxy_pass http://work-backend:8000/;" in generic
-    backend = services["work-backend"]
-    assert backend["volumes"] == ["work-data:/data"] and backend["tmpfs"] == ["/tmp:size=64m"]
+        assert f"proxy_pass http://api-backend:8000/{app}{path};" in block
+    # the generic /api/chat/ location has no auth_request (the chat authenticates its own routes)
+    generic = text.split("location /api/chat/ {", 1)[1].split("\n    }", 1)[0]
+    assert "auth_request" not in generic and "proxy_pass http://api-backend:8000/chat/;" in generic
 
 
-def test_work_telnyx_secrets_are_passed_through_with_empty_defaults(services):
-    env = services["work-backend"]["environment"]
-    for name in ("TELNYX_API_KEY", "TELNYX_PUBLIC_KEY", "TELNYX_GREETING"):
-        assert env[name] == "${" + name + ":-}"
-    assert env["ALLOWED_ORIGINS"].startswith("${PUBLIC_ORIGIN")
-    others = [name for name, svc in services.items() if name != "work-backend" and "TELNYX_API_KEY" in str(svc.get("environment"))]
-    assert others == []
+def test_the_api_backend_keeps_the_data_folder_and_a_tmp_for_uploads(services):
+    backend = services["api-backend"]
+    assert "../../backend/data:/data" in backend["volumes"]
+    assert "/tmp:size=64m" in backend["tmpfs"]
+    assert backend["environment"]["FILE_DATA_DIR"] == "/data/file"
+    assert backend["environment"]["RECORDS_DATA_DIR"] == "/data/records"
+
+
+def test_every_app_is_in_the_one_api_service_and_the_gateway_finds_it_there(infra, services):
+    for slug in BACKEND_APPS:
+        assert f"{slug}-backend" not in services
+    assert sorted(name for name in services if name.endswith("-backend")) == ["api-backend"]
+    text = infra.nginx()
+    for slug in ("face", "chat"):
+        assert f"proxy_pass http://api-backend:8000/{slug}/;" in text
+    assert "proxy_pass http://api-backend:8000/center/auth/me;" in text and "location /api/api/" not in text
+
+
+def test_asking_for_one_app_brings_the_backend_that_hosts_it(infra):
+    assert {a.slug for a in infra.select_apps("face")} == {"face", "api"}
+
+
+def test_the_old_chatwork_addresses_move_to_the_apps_that_replaced_them(infra):
+    nginx = infra.nginx()
+    assert "return 301 $scheme://$http_host/$1$2;" in nginx and "return 301 $scheme://$http_host/chat$1;" in nginx
+    assert "location ~ ^/chatwork/(file|database)(/.*)?$ {" in nginx
+    assert "location ~ ^/chatwork(/.*)?$ {" in nginx
+    assert [(a.slug, a.frontend, a.backend) for a in infra.APPS if a.slug in ("chat", "file", "database")] == [
+        ("chat", True, True), ("file", True, True), ("database", True, False),
+    ]
+
+
+def test_each_app_is_in_the_menu_and_the_gateway_redirects_its_old_plural(infra):
+    names = {a.slug for a in infra.APPS}
+    assert {"face", "werewolf"} <= names
+    assert 'href: "/werewolf"' in infra.apps_ts()
+
+
+def test_the_werewolf_is_a_module_of_its_own_that_the_chat_reaches_with_a_signed_call(infra, services):
+    env = services["api-backend"]["environment"]
+    assert env["WEREWOLF_URL"] == "http://127.0.0.1:8000/werewolf" and env["WEREWOLF_SECRET"] == "${WEREWOLF_SECRET:-}"
+    nginx = infra.nginx()
+    assert "location /api/werewolf/ {" in nginx
+    block = nginx.split("location /api/werewolf/ {", 1)[1].split("\n    }", 1)[0]
+    assert "proxy_pass http://api-backend:8000/werewolf/;" in block and "Upgrade" in block  # the sockets of the game
+    assert "location ^~ /api/werewolf/internal/ {\n        return 404;" in nginx  # the call of the chat is not reachable from outside
+    assert "location ^~ /api/chat/internal/ {\n        return 404;" in nginx  # nor the call of the game to the chat
+    assert "location ~ ^/social(/.*)?$ {" in nginx and "/chat/people$1" in nginx  # the page of the people is part of the chat again

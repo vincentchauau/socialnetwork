@@ -67,13 +67,13 @@ def test_payload_exposes_expiry():
 
 
 def test_token_carries_role_and_version():
-    payload = decode_token(create_token(7, "alice", role="admin", ver=3))
-    assert (payload.role, payload.ver) == ("admin", 3)
+    payload = decode_token(create_token(7, "alice", group="admin", ver=3))
+    assert (payload.group, payload.ver) == ("admin", 3)
 
 
 def test_legacy_token_without_role_defaults_to_user():
     payload = decode_token(create_token(7, "alice"))
-    assert payload.role == "user"
+    assert payload.group == "user"
     assert payload.ver is None
 
 

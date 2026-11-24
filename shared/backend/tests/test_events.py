@@ -243,3 +243,16 @@ def test_failed_rename_does_not_raise_the_mark(redis_client, handlers, calls):
     renamed(redis_client, 4, "n", seq=9)
     c.process_once()
     assert redis_client.get("sn:events:rename-seq:chat:4") is None and pending(redis_client, "chat") == 1
+
+
+def test_created_event_reaches_an_app_that_handles_it_and_is_skipped_by_one_that_does_not(redis_client, handlers, calls):
+    handlers.on_user_created = lambda db, user_id, username, kind, body: calls.append(("created", user_id, username, kind))
+    publish(redis_client, "user.created", 9, '{"username":"Lan_Nguyen","kind":"virtual"}')
+    publish(redis_client, "user.created", 10, '{"kind":"virtual"}')  # no name: malformed, acknowledged
+    c = consumer(redis_client)
+    c.process_once()
+    assert calls == [("created", 9, "Lan_Nguyen", "virtual")] and pending(redis_client, "chat") == 0
+    del handlers.on_user_created  # an app without the handler: skipped and acknowledged, the stream never stalls
+    publish(redis_client, "user.created", 11, '{"username":"x"}')
+    c.process_once()
+    assert pending(redis_client, "chat") == 0

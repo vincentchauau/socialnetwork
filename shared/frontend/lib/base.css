@@ -1,0 +1,16 @@
+/* The base every app shares (the reset center started with): plain CSS, no framework. Colors are only --line and --solid-0..7. */
+
+/* reset */
+*, ::before, ::after { box-sizing: border-box; border: 0 solid color-mix(in srgb, var(--line) 30%, transparent); }
+h1, h2, h3, h4, p, ul, ol, li, figure, dl, dd { margin: 0; }
+h1, h2, h3, h4 { font-size: inherit; font-weight: inherit; }
+ul, ol { list-style: none; padding: 0; }
+img, svg, video, canvas { display: block; max-width: 100%; }
+a { color: inherit; text-decoration: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:disabled { cursor: not-allowed; }
+
+body { font-family: Arial, Helvetica, sans-serif; line-height: 1.5; }
+[hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0; }

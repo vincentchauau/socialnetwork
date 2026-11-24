@@ -1,0 +1,173 @@
+
+.app-chat .ww-app{
+  font-size: 1.15rem;
+  --ww-villager: #2e8b57;
+  --ww-wolf: #c0392b;
+  --ww-ghost: #7e57c2;
+  --ww-night: #3949ab;
+  --ww-day: #b8860b;
+  --ww-gap: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .app-chat .ww-app{
+    --ww-villager: #5fcf8f;
+    --ww-wolf: #ff7a6b;
+    --ww-ghost: #b79cf0;
+    --ww-night: #7c93ff;
+    --ww-day: #ffc857;
+  }
+}
+
+.app-chat .ww-app h2{ font-size: 1.15rem; margin: 0 0 8px; }
+.app-chat .ww-app h3{ font-size: 1rem; margin: 8px 0 4px; }
+.app-chat .ww-app p{ margin: 0; }
+.app-chat .ww-app button.danger{ background: var(--line); border-color: var(--line); color: var(--solid-0); }
+.app-chat .ww-app select, .app-chat .ww-app input[type="text"], .app-chat .ww-app input:not([type]){ font: inherit; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: 6px; background: var(--solid-0); color: var(--line); }.app-chat .ww-app button,
+.app-chat .ww-app input,
+.app-chat .ww-app select { min-height: 44px; }
+.app-chat .ww-app :focus-visible{ outline: 3px solid var(--line); outline-offset: 2px; }
+
+.app-chat .ww-app .sr-only{ position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.app-chat .ww-app .ww-plain-list{ list-style: none; margin: 0; padding: 0; }
+.app-chat .ww-app .ww-center{ justify-content: center; text-align: center; }
+.app-chat .ww-app .ww-wrap{ flex-wrap: wrap; }
+.app-chat .ww-app .ww-between{ justify-content: space-between; align-items: center; }
+.app-chat .ww-app .ww-big{ font-size: 3rem; line-height: 1; }
+.app-chat .ww-app .ww-me{ font-weight: 700; color: var(--ww-villager); }
+.app-chat .ww-app .ww-struck{ text-decoration: line-through; color: color-mix(in srgb, var(--line) 75%, transparent); }
+.app-chat .ww-app .ww-code{ font-size: 1.8rem; font-weight: 800; letter-spacing: 0.3em; text-align: center; }
+.app-chat .ww-app .ww-hero{ display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.app-chat .ww-app .ww-hero h1{ margin: 0; }
+.app-chat .ww-app .ww-banner{ background: var(--solid-0); border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; }
+
+.app-chat .ww-app .ww-two{ display: grid; gap: var(--ww-gap); grid-template-columns: 1fr; }
+.app-chat .ww-app .ww-fieldset{ border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: 8px; padding: 8px 12px; }
+.app-chat .ww-app .ww-check{ display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.app-chat .ww-app .ww-check input{ min-height: 0; width: 20px; height: 20px; }
+
+.app-chat .ww-app .ww-chips{ display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; }
+.app-chat .ww-app .ww-chip{ border-radius: 999px; padding: 6px 12px; min-height: 40px; }
+.app-chat .ww-app .ww-chip.ww-locked{ background: var(--solid-0); color: color-mix(in srgb, var(--line) 75%, transparent); border: 1px dashed color-mix(in srgb, var(--line) 30%, transparent); display: inline-flex; align-items: center; }
+.app-chat .ww-app .ww-size{ width: 64px; text-align: center; font-weight: 700; }
+.app-chat .ww-app .ww-summary{ color: var(--ww-villager); text-align: center; font-weight: 600; }
+
+.app-chat .ww-app .ww-seats{ list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.app-chat .ww-app .ww-seat{ display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid color-mix(in srgb, var(--line) 30%, transparent); }
+.app-chat .ww-app .ww-seat-id{ display: flex; flex-direction: column; align-items: center; gap: 4px; width: 56px; }
+.app-chat .ww-app .ww-seat-body{ display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
+.app-chat .ww-app .ww-ability-pick{ display: flex; flex-direction: column; gap: 4px; }
+
+.app-chat .ww-app .ww-avatar{
+  position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  border-radius: 50%; border: 3px solid color-mix(in srgb, var(--line) 30%, transparent); background: var(--solid-0);
+}
+.app-chat .ww-app .ww-avatar.ww-dead{ filter: grayscale(1); opacity: 0.7; }
+.app-chat .ww-app .ww-avatar.ww-abstain{ border-style: dashed; width: 54px; height: 54px; font-size: 26px; }
+.app-chat .ww-app .ww-avatar-badge{ position: absolute; right: -6px; bottom: -6px; font-size: 0.45em; background: var(--solid-0); border-radius: 50%; padding: 1px; }
+.app-chat .ww-app .ww-tone-villager{ border-color: var(--ww-villager); }
+.app-chat .ww-app .ww-tone-wolf{ border-color: var(--ww-wolf); }
+.app-chat .ww-app .ww-tone-ghost{ border-color: var(--ww-ghost); }
+
+.app-chat .ww-app .ww-tiles{ display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.app-chat .ww-app .ww-tile{ display: flex; flex-direction: column; align-items: center; gap: 4px; width: 84px; padding: 6px 2px; list-style: none; text-align: center; }
+.app-chat .ww-app .ww-tile-item{ list-style: none; }
+.app-chat .ww-app .ww-tile-button{ background: transparent; color: var(--line); border: 2px solid transparent; border-radius: 14px; height: auto; }
+.app-chat .ww-app .ww-tile-button:hover:not(:disabled){ border-color: var(--line); background: var(--solid-0); }
+.app-chat .ww-app .ww-tile-name{ font-size: 0.8rem; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-chat .ww-app .ww-tile-ability{ min-height: 18px; font-size: 0.9rem; }
+
+.app-chat .ww-app .ww-phase{ display: flex; flex-direction: column; align-items: center; gap: 2px; border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: 16px; padding: 14px; text-align: center; }
+.app-chat .ww-app .ww-phase h1{ margin: 0; }
+.app-chat .ww-app .ww-phase-night{ border-color: var(--ww-night); }
+.app-chat .ww-app .ww-phase-day{ border-color: var(--ww-day); }
+.app-chat .ww-app .ww-phase-revenge{ border-color: var(--ww-wolf); }
+.app-chat .ww-app .ww-phase-over{ border-color: var(--ww-day); }
+.app-chat .ww-app .ww-countdown{ align-self: stretch; display: flex; flex-direction: column; gap: 4px; padding: 0 24px; text-align: center; font-weight: 700; color: var(--line); }
+.app-chat .ww-app .ww-countdown.ww-urgent{ color: var(--line); }
+.app-chat .ww-app .ww-countdown-bar{ height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--line) 30%, transparent); overflow: hidden; }
+.app-chat .ww-app .ww-countdown-bar > div{ height: 100%; background: currentColor; }
+
+.app-chat .ww-app .ww-columns{ display: grid; gap: var(--ww-gap); grid-template-columns: 1fr; align-items: start; }
+.app-chat .ww-app .ww-action{ border-width: 2px; border-color: var(--line); }
+.app-chat .ww-app .ww-action.ww-done{ border-color: var(--ww-villager); }
+.app-chat .ww-app .ww-event{ display: flex; gap: 12px; align-items: center; border-color: var(--ww-ghost); }
+.app-chat .ww-app .ww-recap{ position: relative; border-width: 2px; }
+.app-chat .ww-app .ww-recap-dawn{ border-color: var(--ww-day); }
+.app-chat .ww-app .ww-recap-dusk{ border-color: var(--ww-wolf); }
+.app-chat .ww-app .ww-recap-close{ position: absolute; top: 8px; right: 8px; min-height: 36px; padding: 2px 10px; }
+.app-chat .ww-app .ww-role{ display: flex; gap: 16px; align-items: center; }
+.app-chat .ww-app .ww-result{ display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center; border-width: 2px; }
+.app-chat .ww-app .ww-result > *{ max-width: 100%; }
+.app-chat .ww-app .ww-tone-draw{ border-color: color-mix(in srgb, var(--line) 75%, transparent); }
+.app-chat .ww-app .ww-reveal{ width: 100%; text-align: left; }
+.app-chat .ww-app .ww-reveal li{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid color-mix(in srgb, var(--line) 30%, transparent); }
+
+.app-chat .ww-app .ww-members{ display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); justify-items: center; gap: 12px 8px; }
+.app-chat .ww-app .ww-member{ display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; max-width: 128px; text-align: center; }
+.app-chat .ww-app .ww-counter{ text-align: right; font-size: 0.8rem; }
+
+.app-chat .ww-app .ww-log-group{ margin-bottom: 8px; }
+.app-chat .ww-app .ww-log-group ul{ margin: 0; padding-left: 14px; border-left: 3px solid color-mix(in srgb, var(--line) 30%, transparent); list-style: none; }
+.app-chat .ww-app .ww-history{ display: flex; flex-direction: column; gap: 4px; }
+.app-chat .ww-app .ww-outcome-won{ border-left: 6px solid var(--ww-villager); }
+.app-chat .ww-app .ww-outcome-lost{ border-left: 6px solid var(--line); }
+.app-chat .ww-app .ww-outcome-draw{ border-left: 6px solid color-mix(in srgb, var(--line) 75%, transparent); }
+.app-chat .ww-app .ww-room{ padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--line) 30%, transparent); }
+.app-chat .ww-app .ww-def{ margin-bottom: 8px; }
+.app-chat .ww-app .ww-def dt{ font-weight: 700; }
+.app-chat .ww-app .ww-def dd{ margin: 0; }
+
+.app-chat .ww-app .ww-overlay{ position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; padding: 12px; z-index: 50; }
+.app-chat .ww-app .ww-sheet{ background: var(--solid-0); border-radius: 16px; width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+
+.app-chat .ww-app .ww-toast-slot{ position: fixed; left: 0; right: 0; bottom: 12px; display: flex; justify-content: center; padding: 0 16px; pointer-events: none; z-index: 60; }
+.app-chat .ww-app .ww-toast{ pointer-events: auto; display: flex; gap: 8px; align-items: center; background: var(--line); color: var(--solid-0); padding: 8px 12px; border-radius: 8px; max-width: 480px; }
+.app-chat .ww-app .ww-toast button{ min-height: 36px; padding: 2px 10px; color: var(--solid-0); border-color: var(--solid-0); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .app-chat .ww-app .ww-countdown-bar > div{ transition: width 0.5s linear; }
+}
+
+.app-chat .ww-app.ww-page{ flex: 1; min-height: 0; overflow-y: auto; width: 100%; max-width: none; margin: 0 auto; padding: 16px; box-sizing: border-box; }
+
+/* The chat's css makes every input and button grow and every paragraph a line high; the game page takes that back. */
+.app-chat .ww-app{ font-size: 1.15rem; }
+.app-chat .ww-app p{ line-height: 1.45; }
+.app-chat .ww-app .ww-check{ justify-content: flex-start; text-align: left; }
+.app-chat .ww-app .ww-check input{ flex: 0 0 auto; margin: 0; }
+.app-chat .ww-app label{ font-weight: 600; margin-right: 0; }
+.app-chat .ww-app ::placeholder{ color: var(--line); opacity: 1; font-style: italic; }
+.app-chat .ww-app .ww-between > button{ flex: 0 0 auto; }
+.app-chat .ww-app .ww-hint{ color: color-mix(in srgb, var(--line) 75%, transparent); font-size: 0.9rem; }
+.app-chat .ww-app .ww-roles{ display: flex; flex-wrap: wrap; gap: 4px 16px; justify-content: center; margin: 0; padding: 0; list-style: none; }
+
+/* The other pages of the game stay a column; the home page uses the width: join and open rooms on the left, the new room on the right. */
+.app-chat .ww-app.ww-page > :not(.ww-home){ max-width: none; margin-inline: auto; width: 100%; }  /* every page of the game uses the whole width */
+.app-chat .ww-app.ww-page > .ww-lobby{ max-width: none; width: 100%; min-height: 100%; align-items: stretch; }
+.app-chat .ww-app .ww-lobby > .ww-seats-card{ height: 100%; box-sizing: border-box; }
+.app-chat .ww-app .ww-home{ display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ww-gap); align-items: start; }
+.app-chat .ww-app .ww-home > header{ grid-column: 1 / -1; }
+.app-chat .ww-app .ww-col{ display: flex; flex-direction: column; gap: var(--ww-gap); min-width: 0; }
+@media (min-width: 900px) {
+  .app-chat .ww-app .ww-home{ grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); }
+}/* A row of buttons: each keeps the size of its words (the chat's css makes every button grow and wrap on a line of its own). */
+.app-chat .ww-app .row > button { flex: 0 0 auto; }
+
+.app-chat .ww-app .ww-mine{ font-size: 0.8rem; white-space: nowrap; color: color-mix(in srgb, var(--line) 85%, transparent); }
+
+/* The lobby uses the width: the seats on the left, how the game is played and the start on the right. */
+.app-chat .ww-app.ww-page > .ww-wide{ max-width: 1100px; }
+.app-chat .ww-app.ww-page section.card{ width: 100%; max-width: none; box-sizing: border-box; flex: 1 0 auto; }  /* the boxes of the pages stretch to the whole page */
+.app-chat .ww-app .ww-lobby{ display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ww-gap); align-items: start; }
+.app-chat .ww-app .ww-lobby > header, .app-chat .ww-app .ww-lobby > .ww-guest{ grid-column: 1 / -1; }
+@media (min-width: 900px) {
+  .app-chat .ww-app .ww-lobby{ grid-template-columns: minmax(0, 1fr); }
+}
+.app-chat .ww-app .ww-options{ border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; }
+
+.app-chat .ww-app .ww-steps{ text-align: left; margin: 0 auto; padding-left: 1.4rem; line-height: 1.6; }
+/* The box of the page: the wolf and the title inside it, the whole width and height of the page. */
+.app-chat .ww-app.ww-page{ display: flex; flex-direction: column; }
+.app-chat .ww-app.ww-page > .ww-box{ flex: 1 0 auto; width: 100%; max-width: none; box-sizing: border-box; }
+.app-chat .ww-app .ww-box .card{ border: 0; background: transparent; padding: 0; }

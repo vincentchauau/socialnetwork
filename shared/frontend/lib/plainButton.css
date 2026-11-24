@@ -1,0 +1,6 @@
+/* The same hover and press for buttons that are not the Button element (the apps' own, center's Tailwind ones). */
+button:not([data-variant]) { transition: background-color 150ms, color 150ms, transform 150ms; }
+button:not([data-variant]):not(:disabled):hover { background: var(--line); color: var(--solid-0); border-color: var(--line); }
+button:not([data-variant]).secondary:not(:disabled):hover { background: color-mix(in srgb, var(--line) 10%, transparent); }
+button:not([data-variant]):not(:disabled):active { transform: scale(0.97); }
+@media (prefers-reduced-motion: reduce) { button:not([data-variant]) { transition: none; } button:not([data-variant]):active { transform: none; } }

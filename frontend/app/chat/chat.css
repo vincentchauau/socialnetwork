@@ -1,0 +1,187 @@
+
+.app-chat .cw-app{
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  width: 100%;
+  overflow: hidden;
+}
+.app-chat .cw-app > div{ flex: 1; min-width: 0; min-height: 0; }
+.app-chat .cw-app > div > div{ min-width: 0; min-height: 0; overflow: hidden; }
+.app-chat .cw-pane-wrap{ display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.app-chat .cw-pane-wrap > .cw-pane, .app-chat .cw-pane-wrap > .cw-form, .app-chat .cw-pane-wrap > .cw-centre{ flex: 1; min-height: 0; }
+.app-chat .cw-app .cw-back{ display: none; align-self: flex-start; margin: 6px 8px 0; }
+
+.app-chat .cw-sidebar, .app-chat .cw-pane{ display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+.app-chat .cw-sidebar{ padding: 12px; gap: 10px; overflow: hidden; }
+.app-chat .cw-scope{ display: flex; gap: 6px; }
+.app-chat .cw-scope button{ flex: 1; }
+.app-chat .cw-rooms{ list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.app-chat .cw-empty{ margin: 8px 4px; line-height: 1.5; }
+
+.app-chat .cw-room{
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--line) 30%, transparent);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--line);
+  cursor: pointer;
+}
+.app-chat .cw-room:hover{ background: color-mix(in srgb, var(--line) 8%, transparent); }
+.app-chat .cw-room[aria-current="true"]{ background: color-mix(in srgb, var(--line) 14%, transparent); border-color: var(--line); }
+.app-chat .cw-mark{
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 1.1rem;
+  background: var(--solid-2, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 35%, transparent);
+}
+.app-chat .cw-room-text{ flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.app-chat .cw-room-title{ font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-chat .cw-room-sub{ font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-chat .cw-badge{
+  flex: none;
+  min-width: 22px;
+  padding: 0 7px;
+  border-radius: 11px;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: var(--line);
+  color: var(--solid-0);
+}
+.app-chat .cw-room-hit{ display: flex; flex-direction: column; gap: 1px; margin-top: 2px; font-size: 0.78rem; }
+.app-chat .cw-room-hit span{ overflow-wrap: anywhere; }
+.app-chat .cw-dot{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--line); margin-right: 4px; vertical-align: middle; }
+
+.app-chat .cw-pane-head{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 30%, transparent);
+}
+.app-chat .cw-pane-head .cw-room-text{ flex: 0 1 auto; text-align: left; }
+.app-chat .cw-pane-head{ justify-content: flex-start; gap: 16px; }
+.app-chat .cw-pane-head h2{ text-align: left; }
+.app-chat .cw-pane-actions{ display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start; align-items: center; }
+/* one quiet, themed scrollbar everywhere in the chat (no white thumb) */
+.app-chat *{ scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--line) 45%, transparent) transparent; }
+.app-chat .cw-system{ }
+.app-chat .cw-pane-body{ flex: 1; min-height: 0; display: flex; }
+.app-chat .cw-chat{ flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.app-chat .cw-side{ width: 320px; max-width: 45%; border-left: 1px solid color-mix(in srgb, var(--line) 30%, transparent); padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.app-chat .cw-notice{ margin: 0; padding: 6px 14px; font-size: 0.85rem; border-bottom: 1px solid color-mix(in srgb, var(--line) 15%, transparent); }
+.app-chat .cw-pinned{ display: flex; gap: 8px; align-items: baseline; padding: 6px 14px; background: color-mix(in srgb, var(--line) 8%, transparent); font-size: 0.85rem; }
+.app-chat .cw-pinned span{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.app-chat .cw-log{ flex: 1; min-height: 0; overflow-y: auto; padding: 0 14px 14px; display: flex; flex-direction: column; gap: 6px; }
+.app-chat .cw-day{ align-self: center; font-size: 0.75rem; padding: 2px 10px; border-radius: 10px; background: color-mix(in srgb, var(--line) 10%, transparent); }
+.app-chat .cw-system{ align-self: center; font-size: 0.8rem; font-style: italic; }
+.app-chat .cw-msg{ display: flex; flex-direction: column; max-width: min(75%, 640px); align-self: flex-start; gap: 2px; }
+.app-chat .cw-msg.mine{ align-self: flex-end; align-items: flex-end; }
+.app-chat .cw-bubble{
+  padding: 8px 12px;
+  border-radius: 14px 14px 14px 4px;
+  background: var(--solid-1, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 30%, transparent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.app-chat .cw-msg.mine .cw-bubble{ border-radius: 14px 14px 4px 14px; background: var(--solid-3, transparent); }
+.app-chat .cw-meta{ font-size: 0.75rem; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.app-chat .cw-quote{ font-size: 0.8rem; padding: 2px 8px; border-left: 3px solid var(--line); margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.app-chat .cw-tools{ display: flex; gap: 4px; font-size: 0.75rem; }
+.app-chat .cw-tools button{ padding: 0 6px; font-size: 0.75rem; }
+.app-chat .cw-older{ align-self: center; }
+
+.app-chat .cw-composer{ display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-top: 1px solid color-mix(in srgb, var(--line) 30%, transparent); }
+.app-chat .cw-composer-row{ display: flex; gap: 8px; align-items: flex-end; }
+.app-chat .cw-composer-row textarea{ flex: 1; resize: none; }
+.app-chat .cw-replying{ display: flex; align-items: center; gap: 8px; font-size: 0.85rem; padding: 4px 8px; border-left: 3px solid var(--line); background: color-mix(in srgb, var(--line) 8%, transparent); }
+.app-chat .cw-replying span{ flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.app-chat .cw-form{ display: flex; flex-direction: column; gap: 12px; max-width: 720px; width: 100%; margin: 0 auto; padding: 16px; overflow-y: auto; }
+.app-chat .cw-form h2{ margin: 0; }
+.app-chat .cw-fields{ display: flex; flex-wrap: wrap; gap: 12px; }
+.app-chat .cw-fields > *{ flex: 1 1 220px; }
+.app-chat .cw-field label{ display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.app-chat .cw-field select, .app-chat .cw-field input{ width: 100%; }
+.app-chat .cw-actions{ display: flex; gap: 8px; flex-wrap: wrap; }
+.app-chat .cw-centre{ margin: auto; max-width: 520px; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; padding: 16px; }
+.app-chat .cw-members{ list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.app-chat .cw-member{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.app-chat .cw-member strong{ flex: 1; min-width: 80px; }
+.app-chat .cw-tag{ font-size: 0.7rem; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: 8px; }
+.app-chat .cw-copy{ display: flex; gap: 6px; }
+.app-chat .cw-copy input{ flex: 1; min-width: 0; }
+
+.app-chat .cw-app input, .app-chat .cw-app textarea, .app-chat .cw-app select{ flex: none; max-width: 100%; }
+.app-chat .cw-app button{ flex: none; margin: 0; display: inline-flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; }
+.app-chat .cw-app p{ line-height: 1.5; }
+.app-chat .cw-app label{ margin-right: 0; }
+.app-chat .cw-app ul{ margin: 0; }
+.app-chat .cw-app li{ padding-left: 0; line-height: 1.4; }
+.app-chat .cw-app .cw-scope button{ flex: 1; }
+.app-chat .cw-app .cw-room{ flex: none; justify-content: flex-start; text-align: left; }
+.app-chat .cw-app .cw-composer-row textarea, .app-chat .cw-app .cw-copy input, .app-chat .cw-app .cw-copy select{ flex: 1; min-width: 0; }
+.app-chat .cw-app .cw-composer-row textarea{ resize: none; min-height: 40px; }
+.app-chat .cw-app .cw-fields{ align-items: flex-end; }
+.app-chat .cw-app .cw-fields > *{ min-width: 0; }
+.app-chat .cw-sidebar{ overflow-x: hidden; }
+.app-chat .cw-sidebar input[type="search"]{ width: 100%; }
+.app-chat .cw-people{ overflow-y: auto; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.app-chat .cw-member .cw-mark{ flex: none; }
+
+@media (max-width: 760px) {
+  .app-chat .cw-app > div{ grid-template-columns: 1fr !important; }
+  .app-chat .cw-app > div > [role="separator"]{ display: none; }
+  .app-chat .cw-app[data-open="true"] > div > div:has(> .cw-sidebar){ display: none; }
+  .app-chat .cw-app[data-open="false"] > div > div:has(> .cw-pane-wrap){ display: none; }
+  .app-chat .cw-app .cw-back{ display: inline-flex; }
+  .app-chat .cw-side{ position: absolute; inset: 0; width: auto; max-width: none; z-index: 5; background: var(--solid-0); border-left: 0; }
+  .app-chat .cw-pane{ position: relative; }
+  .app-chat .cw-msg{ max-width: 90%; }
+}
+
+.app-chat .cw-chat[hidden]{ display: none; }
+.app-chat .cw-card ul{ margin: 4px 0 0; padding-left: 18px; }
+.app-chat .cw-card-actions{ display: inline-flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0 8px; }
+.app-chat .cw-card-thumb{ width: 40px; height: 40px; object-fit: cover; border-radius: 4px; vertical-align: middle; margin-right: 8px; }
+.app-chat .cw-face-stage{ position: relative; max-width: 320px; }
+.app-chat .cw-face-video{ position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.app-chat .cw-face-canvas{ width: 100%; border-radius: 6px; background: var(--line); }
+.app-chat .cw-face-scores{ display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 4px 12px; margin: 6px 0; }
+.app-chat .cw-face-scores dt{ font-size: 0.75rem; }
+.app-chat .cw-face-scores dd{ margin: 0; font-weight: 600; }
+.app-chat .cw-card-image{ display: block; max-width: 240px; max-height: 180px; border-radius: 6px; margin: 6px 0; }
+.app-chat .cw-card-error{ border-left: 3px solid var(--line); font-weight: 600; }
+
+/* The send button keeps its size (the chat css makes every button grow); the box takes the rest of the row. */
+.app-chat .cw-composer-row button{ flex: 0 0 auto; padding-inline: 20px; }
+
+/* In the dock under a page the chat's paragraphs have a line height again (the css of ChatWork makes them none, which piled the lines). */
+.app-chat .cw-embed p, .app-chat .cw-embed em, .app-chat .cw-embed span{ line-height: 1.4; }
+
+/* The buttons of a member keep the size of their words and wrap together (the chat's css makes every button grow). */
+.app-chat .cw-member button{ flex: 0 0 auto; }
+
+/* "How many virtual people": one row that fits the narrow column of the members. */
+.app-chat .cw-add-virtual{ flex-wrap: nowrap !important; }
+.app-chat .cw-add-virtual label{ white-space: nowrap; font-weight: 600; margin: 0; }
+.app-chat .cw-add-virtual select{ flex: 0 0 auto; width: auto; min-width: 56px; padding: 4px 8px; border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: 6px; background: var(--solid-0); color: var(--line); }
+
+/* ---- the one table of the chat: rooms, messages and members look and work the same (no lines: space and a tint tell the rows apart) ---- */
+.app-chat .cw-panel{ display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 8px; box-sizing: border-box; }
+.app-chat .cw-panel-head{ padding: 4px 8px; }
+.app-chat .cw-create{ padding: 8px; border-radius: 8px; background: color-mix(in srgb, var(--line) 8%, transparent); }

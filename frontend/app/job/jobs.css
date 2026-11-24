@@ -1,0 +1,39 @@
+
+.app-jobs select, .app-jobs textarea{
+  font: inherit;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 30%, transparent);
+  border-radius: 6px;
+  background: var(--solid-0);
+  color: var(--line);
+  min-width: 0;
+  max-width: 100%;
+}
+.app-jobs textarea{ width: 100%; resize: vertical; }
+.app-jobs input, .app-jobs select{ max-width: 100%; }
+.app-jobs :focus-visible{ outline: 2px solid var(--line); outline-offset: 2px; }
+
+.app-jobs input[type="checkbox"]{ flex: none; width: 1.25rem; height: 1.25rem; padding: 0; }
+.app-jobs .wrap{ flex-wrap: wrap; align-items: center; }
+.app-jobs .between{ justify-content: space-between; }
+.app-jobs .field{ display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.app-jobs .field > span{ font-size: 0.875rem; color: color-mix(in srgb, var(--line) 75%, transparent); }
+.app-jobs .field.grow{ flex: 1 1 140px; }
+.app-jobs .nav{ display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 0; margin: 0; list-style: none; }
+.app-jobs .nav a[aria-current="page"]{ font-weight: 600; text-decoration: none; color: var(--line); }
+.app-jobs .tags{ display: flex; flex-wrap: wrap; gap: 4px; padding: 0; margin: 0; list-style: none; }
+.app-jobs .tag{ border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: 999px; padding: 0 8px; font-size: 0.8125rem; }
+.app-jobs .prose{ white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.app-jobs .break{ overflow-wrap: anywhere; }
+.app-jobs .list{ display: flex; flex-direction: column; gap: 12px; padding: 0; margin: 0; list-style: none; }
+.app-jobs .card h2, .app-jobs .card h3{ margin: 0; font-size: 1.125rem; }
+.app-jobs .ok{ margin: 0; }
+.app-jobs .sr-only{
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+.app-jobs button.danger{ background: transparent; color: var(--line); border-color: var(--line); }
+
+.app-jobs .plain{ list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.app-jobs .steps{ margin: 4px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 2px; }
+.app-jobs .points{ margin: 4px 0 0; padding-left: 20px; }

@@ -1,0 +1,103 @@
+/* Utility classes made from the inline styles of the apps: one class per distinct set of declarations. */
+.sn-u1 { transform: scaleX(-1); }
+.sn-u2 { display: flex; gap: 8px; align-items: center; justify-content: center; }
+.sn-u3 { display: flex; flex-direction: column; gap: 6px; }
+.sn-u4 { font-size: 12px; font-weight: 600; }
+.sn-u5 { display: flex; align-items: center; gap: 8px; }
+.sn-u6 { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sn-u7 { display: flex; gap: 6px; flex-wrap: wrap; }
+.sn-u8 { width: 100%; height: 100%; object-fit: contain; }
+.sn-u9 { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; overflow: hidden; }
+.sn-u10 { margin: 0; }
+.sn-u11 { width: 240px; height: 14px; background: var(--line); border-radius: 7px; overflow: hidden; align-self: center; }
+.sn-u12 { gap: 6px; }
+.sn-u13 { gap: 6px; flex-wrap: wrap; align-items: center; }
+.sn-u14 { margin: 0; font-size: 1.05rem; }
+.sn-u15 { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px; }
+.sn-u16 { text-align: center; }
+.sn-u17 { height: 100%; }
+.sn-u18 { height: 100%; padding: 8px; box-sizing: border-box; }
+.sn-u19 { margin: 0 0 8px; }
+.sn-u20 { gap: 12px; flex-wrap: wrap; align-items: center; }
+.sn-u21 { gap: 12px; align-items: center; flex-wrap: wrap; }
+.sn-u22 { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.sn-u23 { max-height: 160px; overflow-y: auto; margin: 0; }
+.sn-u24 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px; }
+.sn-u25 { display: flex; gap: 8px; }
+.sn-u26 { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.sn-u27 { flex-wrap: wrap; }
+.sn-u28 { display: flex; justify-content: flex-end; }
+.sn-u29 { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 600; align-self: flex-start; }
+.sn-u30 { display: inline-flex; flex-direction: column; gap: 2px; }
+.sn-u31 { height: 100%; overflow: auto; }
+.sn-u32 { height: 100%; min-height: 0; overflow: hidden; }
+.sn-u33 { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; overflow: auto; }
+.sn-u34 { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; background: var(--solid-0); }
+.sn-u35 { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.sn-u36 { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.sn-u37 { height: 100vh; }
+.sn-u38 { margin: 0; padding: 16px; }
+.sn-u39 { padding: 16px; }
+.sn-u40 { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.sn-u41 { gap: 4px; align-items: center; }
+.sn-u42 { gap: 6px; flex-wrap: wrap; }
+.sn-u43 { gap: 6px; align-items: center; flex-wrap: wrap; }
+.sn-u44 { position: sticky; top: 0; z-index: 1; padding-bottom: 8px; }
+.sn-u45 { width: 100%; height: 75vh; border: 0; }
+.sn-u46 { display: flex; flex-wrap: wrap; gap: 8px; }
+.sn-u47 { list-style: none; padding: 0; margin: 0; }
+.sn-u48 { margin: 0; padding-left: 20px; }
+.sn-u49 { white-space: pre-wrap; }
+.sn-u50 { align-items: center; justify-content: space-between; }
+.sn-u51 { margin: 4px 0 0; }
+.sn-u52 { padding: 8px; }
+.sn-u53 { min-width: 0; }
+.sn-u54 { margin: 0; gap: 8px; align-items: center; }
+.sn-u55 { flex: 1; }
+.sn-u56 { gap: 6px; align-items: center; }
+.sn-u57 { flex: 1 1 0; min-height: 360px; min-width: 0; padding: 8px; box-sizing: border-box; display: flex; flex-direction: column; }
+.sn-u58 { gap: 8px; align-items: center; }
+.sn-u59 { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.sn-u60 { gap: 8px; align-items: center; flex-wrap: wrap; }
+.sn-u61 { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sn-u62 { padding: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sn-u63 { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+.sn-u64 { align-items: center; gap: 8px; }
+.sn-u65 { align-items: center; gap: 8px; flex-wrap: wrap; }
+.sn-u66 { flex: 1 1 160px; }
+.sn-u67 { align-items: center; text-align: center; }
+.sn-u68 { overflow-wrap: anywhere; }
+.sn-u69 { width: 100%; }
+.sn-u70 { align-items: center; gap: 6px; }
+.sn-u71 { margin-left: 8px; }
+.sn-u72 { list-style: none; margin: 0; padding: 0; }
+.sn-u73 { width: 96px; height: 72px; object-fit: cover; border-radius: 6px; }
+.sn-u74 { align-self: center; }
+.sn-u75 { flex: 1 1 260px; max-width: 100%; max-height: 360px; object-fit: contain; }
+.sn-u76 { flex: 2 1 300px; min-width: 0; }
+.sn-u77 { margin: 0; overflow-wrap: anywhere; }
+.sn-u78 { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.sn-u79 { margin: 0; font-size: 1.2rem; }
+.sn-u80 { gap: 4px; }
+.sn-u81 { gap: 4px; flex: 1; min-width: 120px; }
+.sn-u82 { font-size: 1.1rem; }
+.sn-u83 { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+.sn-u84 { display: block; padding: 4px 8px; line-height: 1.3; }
+.sn-u85 { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sn-u86 { display: block; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sn-u87 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sn-u88 { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 8px 12px; }
+.sn-u89 { justify-content: space-between; align-items: center; }
+.sn-u90 { flex-wrap: wrap; align-items: center; gap: 8px; }
+.sn-u91 { flex-wrap: wrap; gap: 6px; position: sticky; top: 0; z-index: 1; padding: 4px 0; background: var(--solid-0); }
+.sn-u92 { gap: 6px; scroll-margin-top: 40px; }
+.sn-u93 { margin: 8px 0 0; font-size: 1rem; font-weight: 600; }
+.sn-u94 { position: absolute; top: 6px; left: 8px; font-size: 1.2rem; text-shadow: 0 0 4px var(--line); }
+.sn-u95 { max-width: 100%; height: auto; border-radius: 8px; }
+.sn-u96 { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sn-u97 { position: relative; }
+.sn-u98 { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 4px; display: block; }
+.sn-u99 { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.sn-u100 { gap: 8px; }
+.sn-u101 { margin: 0; flex: 1; }
+.sn-u102 { margin: 0; padding-left: 24px; }

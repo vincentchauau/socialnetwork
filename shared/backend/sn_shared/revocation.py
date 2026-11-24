@@ -155,4 +155,3 @@ def publish_min_version(user_id: int, ver: int, ttl_seconds: int) -> bool:
     except Exception as exc:  # noqa: BLE001
         _log_failure("publish", exc)
         return False
-    return True

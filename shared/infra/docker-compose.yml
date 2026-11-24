@@ -9,7 +9,7 @@ x-hardening: &hardening
   security_opt: ["no-new-privileges:true"]
   restart: unless-stopped
 
-# Shared by every backend. JWT_SECRET is deliberately NOT here: it stays on center-backend alone.
+# Shared by every backend. JWT_SECRET is deliberately NOT here: only the process that hosts the center gets it.
 x-backend-env: &backend-env
   APP_ENV: ${APP_ENV:-development}
   COOKIE_SECURE: ${COOKIE_SECURE:-0}
@@ -21,17 +21,7 @@ services:
     environment:
       # The superuser password lives on this service only; each service connects as its own role.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      DB_PASSWORD_CENTER: ${DB_PASSWORD_CENTER:?set DB_PASSWORD_CENTER in .env (hex)}
-      DB_PASSWORD_CHAT: ${DB_PASSWORD_CHAT:?set DB_PASSWORD_CHAT in .env (hex)}
-      DB_PASSWORD_PHOTOS: ${DB_PASSWORD_PHOTOS:?set DB_PASSWORD_PHOTOS in .env (hex)}
-      DB_PASSWORD_WATCH: ${DB_PASSWORD_WATCH:?set DB_PASSWORD_WATCH in .env (hex)}
-      DB_PASSWORD_WEREWOLF: ${DB_PASSWORD_WEREWOLF:?set DB_PASSWORD_WEREWOLF in .env (hex)}
-      DB_PASSWORD_MARKET: ${DB_PASSWORD_MARKET:?set DB_PASSWORD_MARKET in .env (hex)}
-      DB_PASSWORD_LEARNING: ${DB_PASSWORD_LEARNING:?set DB_PASSWORD_LEARNING in .env (hex)}
-      DB_PASSWORD_JOBS: ${DB_PASSWORD_JOBS:?set DB_PASSWORD_JOBS in .env (hex)}
-      DB_PASSWORD_FACE: ${DB_PASSWORD_FACE:?set DB_PASSWORD_FACE in .env (hex)}
-      DB_PASSWORD_LAB: ${DB_PASSWORD_LAB:?set DB_PASSWORD_LAB in .env (hex)}
-      DB_PASSWORD_WORK: ${DB_PASSWORD_WORK:?set DB_PASSWORD_WORK in .env (hex)}
+      DB_PASSWORD_APP: ${DB_PASSWORD_APP:?set DB_PASSWORD_APP in .env (hex)}
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Runs on a FRESH volume only; on an existing one use postgres/apply-roles.sh (see README).
@@ -68,45 +58,71 @@ services:
       timeout: 3s
       retries: 10
 
-  center-backend:
+  # The pages of every app in ONE Next app (frontend): the center at the root, each other app under /<slug>.
+  web-frontend:
     <<: *hardening
     build:
       context: ../..
-      dockerfile: center/backend/Dockerfile
+      dockerfile: frontend/Dockerfile
+
+  api-backend:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
       args:
         WITH_BIOMETRICS: ${WITH_BIOMETRICS:-0}
     environment:
       <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://sn_center:${DB_PASSWORD_CENTER:?set DB_PASSWORD_CENTER in .env (hex)}@postgres:5432/center
-      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (32+ characters, center only)}
-      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
-      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
-      JWT_KEY_ID: ${JWT_KEY_ID:-}
-      APP_ENV: ${APP_ENV:-development}
-      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
-      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-60}
-      REFRESH_DAYS: ${REFRESH_DAYS:-14}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      BIOMETRICS_ENABLED: ${BIOMETRICS_ENABLED:-0}
-      DATA_KEY: ${DATA_KEY:-}
-      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
-      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-Mạng xã hội}
-      PUBLIC_URL: ${PUBLIC_ORIGIN:-http://localhost:8080}
-      SMTP_HOST: ${SMTP_HOST:-mailpit}
-      SMTP_PORT: ${SMTP_PORT:-1025}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-Mạng xã hội <no-reply@localhost>}
-      SMTP_STARTTLS: ${SMTP_STARTTLS:-0}
-      SMTP_SSL: ${SMTP_SSL:-0}
-      SMTP_ALLOW_PLAINTEXT_AUTH: ${SMTP_ALLOW_PLAINTEXT_AUTH:-0}
-      SMS_PROVIDER: ${SMS_PROVIDER:-}
-      SMS_DAILY_CAP: ${SMS_DAILY_CAP:-500}
-      SMS_ALLOWED_PREFIXES: ${SMS_ALLOWED_PREFIXES:-}
-      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
-      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
-      TWILIO_FROM: ${TWILIO_FROM:-}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      DATABASE_URL: postgresql+psycopg://sn_app:${DB_PASSWORD_APP:?set DB_PASSWORD_APP in .env (hex)}@postgres:5432/app
+      JWT_PUBLIC_KEYS_FILE: "/run/secrets/jwt_public_keys"
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      ALLOWED_ORIGINS: "${PUBLIC_ORIGIN:-http://localhost:8080}"
+      RABBITMQ_HOST: "rabbitmq"
+      RABBITMQ_USER: "${RABBITMQ_USER:-sn}"
+      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env (hex)}"
+      KAFKA_BOOTSTRAP: "kafka:9092"
+      RECORDS_DATA_DIR: "/data/records"
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in .env (32+ characters, center only)}"
+      JWT_PRIVATE_KEY_FILE: "/run/secrets/jwt_private_key"
+      JWT_KEY_ID: "${JWT_KEY_ID:-}"
+      APP_ENV: "${APP_ENV:-development}"
+      ACCESS_TOKEN_MINUTES: "${ACCESS_TOKEN_MINUTES:-60}"
+      REFRESH_DAYS: "${REFRESH_DAYS:-14}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      BIOMETRICS_ENABLED: "${BIOMETRICS_ENABLED:-0}"
+      DATA_KEY: "${DATA_KEY:-}"
+      WEBAUTHN_RP_ID: "${WEBAUTHN_RP_ID:-}"
+      WEBAUTHN_RP_NAME: "${WEBAUTHN_RP_NAME:-Mạng xã hội}"
+      PUBLIC_URL: "${PUBLIC_ORIGIN:-http://localhost:8080}"
+      SMTP_HOST: "${SMTP_HOST:-mailpit}"
+      SMTP_PORT: "${SMTP_PORT:-1025}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-Mạng xã hội <no-reply@localhost>}"
+      SMTP_STARTTLS: "${SMTP_STARTTLS:-0}"
+      SMTP_SSL: "${SMTP_SSL:-0}"
+      SMTP_ALLOW_PLAINTEXT_AUTH: "${SMTP_ALLOW_PLAINTEXT_AUTH:-0}"
+      SMS_PROVIDER: "${SMS_PROVIDER:-}"
+      SMS_DAILY_CAP: "${SMS_DAILY_CAP:-500}"
+      SMS_ALLOWED_PREFIXES: "${SMS_ALLOWED_PREFIXES:-}"
+      TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID:-}"
+      TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN:-}"
+      TWILIO_FROM: "${TWILIO_FROM:-}"
+      LIVEKIT_URL: "${LIVEKIT_URL:-ws://localhost:7880}"
+      LIVEKIT_HTTP: "http://livekit:7880"
+      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:-}"
+      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:-}"
+      CALLEAR_URL: "http://callear:8200"
+      CALLEAR_SECRET: "${CALLEAR_SECRET:-}"
+      AI_PROVIDER: "${AI_PROVIDER:-dummy}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}"
+      WEREWOLF_SECRET: "${WEREWOLF_SECRET:-}"
+      CHAT_CLUSTER: "${CHAT_CLUSTER:-}"
+      WEREWOLF_URL: "http://127.0.0.1:8000/werewolf"
+      CHAT_URL: "http://127.0.0.1:8000/chat"
+      WEREWOLF_SNAPSHOT_KEY: "${WEREWOLF_SNAPSHOT_KEY:-}"
+      FILE_DATA_DIR: "/data/file"
     secrets:
       - jwt_private_key
       - jwt_public_keys
@@ -115,278 +131,26 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-
-  center-frontend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: center/frontend/Dockerfile
-
-  chat-backend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: chat/backend/Dockerfile
-    environment:
-      <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://sn_chat:${DB_PASSWORD_CHAT:?set DB_PASSWORD_CHAT in .env (hex)}@postgres:5432/chat
-      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
-    secrets:
-      - jwt_public_keys
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  chat-frontend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: chat/frontend/Dockerfile
-
-  photos-backend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: photos/backend/Dockerfile
-    environment:
-      <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://sn_photos:${DB_PASSWORD_PHOTOS:?set DB_PASSWORD_PHOTOS in .env (hex)}@postgres:5432/photos
-      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-    secrets:
-      - jwt_public_keys
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     volumes:
-      - photos-data:/data
+      - ../../backend/data:/data
     tmpfs:
-      - /tmp:size=128m
+      - /tmp:size=64m
 
-  photos-frontend:
+  # The worker of the backend (same image as api-backend): one consumer per queue declared in api/worker.py (touches /tmp/worker-alive).
+  api-worker:
     <<: *hardening
     build:
       context: ../..
-      dockerfile: photos/frontend/Dockerfile
-
-  watch-backend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: watch/backend/Dockerfile
-    environment:
-      <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://sn_watch:${DB_PASSWORD_WATCH:?set DB_PASSWORD_WATCH in .env (hex)}@postgres:5432/watch
-      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-    secrets:
-      - jwt_public_keys
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - watch-data:/data
-    tmpfs:
-      - /tmp:size=512m
-
-  watch-frontend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: watch/frontend/Dockerfile
-
-  werewolf-backend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: werewolf/backend/Dockerfile
-    environment:
-      <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://sn_werewolf:${DB_PASSWORD_WEREWOLF:?set DB_PASSWORD_WEREWOLF in .env (hex)}@postgres:5432/werewolf
-      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
-    secrets:
-      - jwt_public_keys
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  werewolf-frontend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: werewolf/frontend/Dockerfile
-
-  market-backend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: market/backend/Dockerfile
-    environment:
-      <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://sn_market:${DB_PASSWORD_MARKET:?set DB_PASSWORD_MARKET in .env (hex)}@postgres:5432/market
-      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-    secrets:
-      - jwt_public_keys
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  market-frontend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: market/frontend/Dockerfile
-
-  learning-backend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: learning/backend/Dockerfile
-    environment:
-      <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://sn_learning:${DB_PASSWORD_LEARNING:?set DB_PASSWORD_LEARNING in .env (hex)}@postgres:5432/learning
-      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-    secrets:
-      - jwt_public_keys
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  learning-frontend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: learning/frontend/Dockerfile
-
-  jobs-backend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: jobs/backend/Dockerfile
-    environment:
-      <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://sn_jobs:${DB_PASSWORD_JOBS:?set DB_PASSWORD_JOBS in .env (hex)}@postgres:5432/jobs
-      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-    secrets:
-      - jwt_public_keys
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  jobs-frontend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: jobs/frontend/Dockerfile
-
-  face-backend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: face/backend/Dockerfile
-    environment:
-      <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://sn_face:${DB_PASSWORD_FACE:?set DB_PASSWORD_FACE in .env (hex)}@postgres:5432/face
-      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-    secrets:
-      - jwt_public_keys
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  face-frontend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: face/frontend/Dockerfile
-
-  lab-backend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: lab/backend/Dockerfile
-    environment:
-      <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://sn_lab:${DB_PASSWORD_LAB:?set DB_PASSWORD_LAB in .env (hex)}@postgres:5432/lab
-      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      GRPC_USER_TARGET: "lab-user:50051"
-      RABBITMQ_HOST: "rabbitmq"
-      RABBITMQ_USER: "${RABBITMQ_USER:-lab}"
-      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env (hex)}"
-      KAFKA_BOOTSTRAP: "kafka:9092"
-    secrets:
-      - jwt_public_keys
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      lab-user:
-        condition: service_started
-
-  lab-frontend:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: lab/frontend/Dockerfile
-
-  # gRPC user directory (fixed demo data). Internal network only: no ports, no database, no secrets.
-  lab-user:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: lab/backend/Dockerfile
-    command: ["python", "-m", "app.user_server"]
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import socket; socket.create_connection(('127.0.0.1', 50051), 2)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 0s
-
-  # RabbitMQ notification consumer + Kafka log writer in one process (touches /tmp/worker-alive).
-  lab-worker:
-    <<: *hardening
-    build:
-      context: ../..
-      dockerfile: lab/backend/Dockerfile
-    command: ["python", "-m", "app.worker"]
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "api.worker"]
     profiles: ["messaging"]
     environment:
-      DATABASE_URL: "postgresql+psycopg://sn_lab:${DB_PASSWORD_LAB:?set DB_PASSWORD_LAB in .env (hex)}@postgres:5432/lab"
       RABBITMQ_HOST: "rabbitmq"
-      RABBITMQ_USER: "${RABBITMQ_USER:-lab}"
+      RABBITMQ_USER: "${RABBITMQ_USER:-sn}"
       RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env (hex)}"
       KAFKA_BOOTSTRAP: "kafka:9092"
     depends_on:
-      postgres:
-        condition: service_healthy
-      lab-backend:
+      api-backend:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
@@ -408,7 +172,7 @@ services:
     ports:
       - "127.0.0.1:15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-lab}"
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-sn}"
       RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env (hex)}"
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
@@ -448,37 +212,33 @@ services:
       retries: 5
       start_period: 60s
 
-  work-backend:
+  # LiveKit: the video of the calls of the rooms. The browsers reach it at ws://localhost:7880 and send the media to 7881 (TCP) and 7882 (UDP).
+  livekit:
     <<: *hardening
-    build:
-      context: ../..
-      dockerfile: work/backend/Dockerfile
+    image: livekit/livekit-server:v1.13.11
+    ports:
+      - "127.0.0.1:7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
     environment:
-      <<: *backend-env
-      DATABASE_URL: postgresql+psycopg://sn_work:${DB_PASSWORD_WORK:?set DB_PASSWORD_WORK in .env (hex)}@postgres:5432/work
-      JWT_PUBLIC_KEYS_FILE: /run/secrets/jwt_public_keys
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
-      TELNYX_API_KEY: "${TELNYX_API_KEY:-}"
-      TELNYX_PUBLIC_KEY: "${TELNYX_PUBLIC_KEY:-}"
-      TELNYX_GREETING: "${TELNYX_GREETING:-}"
-    secrets:
-      - jwt_public_keys
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - work-data:/data
-    tmpfs:
-      - /tmp:size=64m
+      LIVEKIT_CONFIG: "{port: 7880, log_level: info, rtc: {tcp_port: 7881, udp_port: 7882, use_external_ip: false, node_ip: 127.0.0.1}, keys: {${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in .env}: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env (hex)}}}"
 
-  work-frontend:
+  # The ear of the calls: listens to the microphones in a call (a hidden listener of LiveKit) and hands what each person says to the chat.
+  callear:
     <<: *hardening
     build:
-      context: ../..
-      dockerfile: work/frontend/Dockerfile
+      context: ./callear
+    environment:
+      CALLEAR_SECRET: "${CALLEAR_SECRET:?set CALLEAR_SECRET in .env (hex)}"
+      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:-}"
+      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:-}"
+      LIVEKIT_INTERNAL_URL: "ws://livekit:7880"
+      CHAT_INTERNAL_URL: "http://api-backend:8000/chat"
+    depends_on:
+      livekit:
+        condition: service_started
+      api-backend:
+        condition: service_healthy
 
   # Development mail sink: catches every email the app sends (nothing leaves this machine).
   # Enabled by COMPOSE_PROFILES=mail-dev in .env; in production point SMTP_* at a real server instead.
@@ -505,31 +265,11 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - center-backend
-      - center-frontend
-      - chat-backend
-      - chat-frontend
-      - photos-backend
-      - photos-frontend
-      - watch-backend
-      - watch-frontend
-      - werewolf-backend
-      - werewolf-frontend
-      - market-backend
-      - market-frontend
-      - learning-backend
-      - learning-frontend
-      - jobs-backend
-      - jobs-frontend
-      - face-backend
-      - face-frontend
-      - lab-backend
-      - lab-frontend
-      - work-backend
-      - work-frontend
+      - web-frontend
+      - api-backend
 
 # Access-token keys (Ed25519). Create with `python -m app.cli gen-jwt-key` in center/backend (see README);
-# the files are NOT in the repository. Only center-backend gets the private key.
+# the files are NOT in the repository. Only the backend that hosts the center gets the private key.
 secrets:
   jwt_private_key:
     file: ./secrets/jwt_private.pem
@@ -538,6 +278,3 @@ secrets:
 
 volumes:
   pgdata:
-  photos-data:
-  watch-data:
-  work-data:

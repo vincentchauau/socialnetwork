@@ -1,0 +1,36 @@
+/* Hover, focus and entrance effects for everything that is not a button: fields, checkboxes, links, messages,
+   drop-downs and dialogs. Only --line is used for lines and focus rings. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+select, textarea {
+  transition: border-color 150ms;
+}
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not(:disabled):hover,
+select:not(:disabled):hover, textarea:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--line, #16181d) 70%, transparent) !important;
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visible, [role="tab"]:focus-visible {
+  outline: 3px solid var(--line, currentColor);
+  outline-offset: 2px;
+}
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):focus-visible,
+select:focus-visible, textarea:focus-visible {
+  border-color: var(--line, #16181d) !important;
+}
+input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; opacity: 0.4; }
+input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--line, currentColor); cursor: pointer; }
+input[type="checkbox"]:disabled, input[type="radio"]:disabled { cursor: not-allowed; }
+
+a { text-underline-offset: 3px; transition: text-decoration-color 150ms; }
+a:not(:hover) { text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+a:hover { text-decoration-color: var(--line, currentColor); }
+
+/* messages, drop-downs and dialogs fade and rise in */
+[role="alert"]:not([hidden]), [role="status"]:not([hidden]), .sn-tree-dropdown, [role="dialog"] {
+  animation: sn-enter 180ms ease-out;
+}
+@keyframes sn-enter { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  input, select, textarea, a { transition: none; }
+  [role="alert"], [role="status"], .sn-tree-dropdown, [role="dialog"] { animation: none; }
+}

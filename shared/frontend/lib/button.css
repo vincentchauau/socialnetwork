@@ -1,0 +1,128 @@
+/* Button effects, chosen with <Button effect="…" status="…">. Colors are only --line (text, border, shadow) and
+   --solid-1.. (fills; --solid-0 is the page). The element sets its variant colors inline, so the colors changed on hover need !important.
+   Each variant names its resting and hover colors; an effect only decides how the change happens. */
+/* the look of a plain primary button, at zero specificity so any class or rule may restyle it */
+:where(button[data-variant]) {
+  padding: 8px 12px; border: 0; border-radius: 6px; font: inherit;
+  background: var(--solid-1, #fff); color: var(--line, #16181d);
+}
+button[data-variant] {
+  isolation: isolate; /* the gloss sits under the label */
+  --rest-bg: var(--solid-1, #fff);
+  --rest-fg: var(--line, #16181d);
+  --hover-bg: var(--line, #16181d);
+  --hover-fg: var(--solid-0, #fff);
+  position: relative;
+  transition: background-color 150ms, color 150ms, border-color 150ms, transform 150ms;
+}
+button[data-variant="secondary"] { --rest-bg: var(--solid-2, #fff); }
+button[data-variant="danger"] { --rest-bg: var(--solid-3, #fff); }
+button[data-variant="ghost"] {
+  --rest-bg: transparent;
+  --hover-bg: color-mix(in srgb, var(--line, #16181d) 10%, transparent);
+  --hover-fg: var(--line, #16181d);
+}
+button[data-variant]:focus-visible { outline: 3px solid var(--line, currentColor); outline-offset: 3px; }
+button[data-variant]:not(:disabled):active { transform: scale(0.97); }
+
+/* default (no effect, or invert): swap the colors, lift 1px */
+button[data-variant]:not([data-effect]):not(:disabled):hover,
+button[data-variant][data-effect="invert"]:not(:disabled):hover {
+  background: var(--hover-bg) !important;
+  color: var(--hover-fg) !important;
+  border-color: var(--line, #16181d) !important;
+  transform: translateY(-1px);
+}
+
+/* tone: the fill moves to another solid color */
+button[data-effect="tone"]:not(:disabled):hover {
+  background: var(--solid-4, var(--solid-1, #fff)) !important;
+  color: var(--line, #16181d) !important;
+  border-color: var(--line, #16181d) !important;
+}
+
+/* glassy gradient: a highlight over the top half and a soft one at the bottom, in the page color (--solid-0),
+   so the same gloss works on every fill. Not on ghost buttons, nor with `underline` (which uses ::after). */
+button[data-variant]:not([data-variant="ghost"]):not([data-effect="underline"])::after {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(to bottom,
+    color-mix(in srgb, var(--solid-0, #fff) 55%, transparent),
+    color-mix(in srgb, var(--solid-0, #fff) 8%, transparent) 50%,
+    color-mix(in srgb, var(--solid-0, #fff) 30%, transparent));
+}
+button[data-variant]:not([data-variant="ghost"]):not([data-effect="hard"]) {
+}
+
+/* effects that draw inside the button clip to its shape */
+button[data-effect="sweep"], button[data-effect="ripple"], button[data-effect="underline"] { overflow: hidden; }
+
+/* sweep: a layer of the hover color slides in from the left */
+button[data-effect="sweep"]::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: var(--hover-bg); transform: translateX(-101%); transition: transform 200ms;
+}
+button[data-effect="sweep"]:not(:disabled):hover { color: var(--hover-fg) !important; }
+button[data-effect="sweep"]:not(:disabled):hover::before { transform: translateX(0); }
+
+/* draw: the border is drawn around the button */
+@property --sn-draw { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+button[data-effect="draw"] {
+  border: 2px solid transparent !important;
+  background: linear-gradient(var(--rest-bg), var(--rest-bg)) padding-box,
+    conic-gradient(var(--line, #16181d) var(--sn-draw), color-mix(in srgb, var(--line, #16181d) 20%, transparent) 0) border-box !important;
+  transition: --sn-draw 400ms;
+}
+button[data-effect="draw"]:not(:disabled):hover { --sn-draw: 100%; }
+
+/* underline: a line grows from the middle */
+button[data-effect="underline"]::after {
+  content: ""; position: absolute; left: 50%; bottom: 4px; width: 0; height: 2px;
+  background: var(--line, #16181d); transition: width 200ms, left 200ms;
+}
+button[data-effect="underline"]:not(:disabled):hover::after { width: 70%; left: 15%; }
+
+/* slide: a gradient between solid colors of the same contrast moves across */
+button[data-effect="slide"] {
+  background: linear-gradient(90deg, var(--solid-1, #fff), var(--solid-3, var(--solid-1, #fff)), var(--solid-1, #fff)) !important;
+  background-size: 200% 100%; background-position: 0 0; color: var(--line, #16181d) !important;
+  transition: background-position 500ms;
+}
+button[data-effect="slide"]:not(:disabled):hover { background-position: 100% 0 !important; }
+
+/* lift: rises with a soft shadow of the line color */
+button[data-effect="lift"]:not(:disabled):hover {
+  transform: translateY(-3px);
+}
+
+/* hard: a solid shadow that closes when pressed */
+button[data-effect="hard"] { overflow: visible; }
+button[data-effect="hard"]:not(:disabled):hover { transform: translate(2px, 2px); }
+button[data-effect="hard"]:not(:disabled):active { transform: translate(4px, 4px); }
+
+/* ripple: a circle grows from the pointer (added by Button) */
+button .sn-ripple {
+  position: absolute; border-radius: 50%; pointer-events: none;
+  background: color-mix(in srgb, var(--line, #16181d) 35%, transparent);
+  transform: scale(0); animation: sn-ripple 600ms ease-out forwards;
+}
+@keyframes sn-ripple { to { transform: scale(4); opacity: 0; } }
+
+/* status: one-time animation */
+button[data-status="error"] { animation: sn-shake 400ms; }
+button[data-status="success"] { animation: sn-bounce 500ms; }
+@keyframes sn-shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+@keyframes sn-bounce { 30% { transform: translateY(-10px); } 60% { transform: translateY(0); } 80% { transform: translateY(-4px); } }
+
+/* loading: a spinner in front of the label */
+button[data-variant][aria-busy="true"] { cursor: progress; }
+button[data-variant][aria-busy="true"]::before {
+  content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -2px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: sn-spin 700ms linear infinite;
+}
+@keyframes sn-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  button[data-variant], button[data-variant]::before, button[data-variant]::after, button .sn-ripple { transition: none; animation: none; }
+  button[data-variant]:not(:disabled):hover, button[data-variant]:not(:disabled):active { transform: none; }
+  button[data-variant][aria-busy="true"]::before { animation: none; }
+}

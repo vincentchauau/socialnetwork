@@ -41,3 +41,19 @@ def sign_claims(claims: dict) -> str:
 
     signer = jwtkeys.get_signer()
     return jwt.encode(claims, signer.private_key, algorithm=jwtkeys.ACCESS_ALGORITHM, headers={"kid": signer.kid})
+
+
+def add_person(session_factory, user_id: int, username: str, **fields) -> None:
+    """A row of `users` in the database of a test (the table is made by `directory.ensure_table_for_sqlite`): who an app reads
+    as a person. `fields` are columns of the profile (`name`, `headline`, `visibility`, `kind`...). Existing rows are changed."""
+    from sn_shared.directory import Person
+
+    with session_factory() as db:
+        person = db.get(Person, user_id)
+        if person is None:
+            person = Person(user_id=user_id, username=username)
+            db.add(person)
+        person.username = username
+        for key, value in fields.items():
+            setattr(person, key, value)
+        db.commit()

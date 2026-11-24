@@ -12,6 +12,7 @@ The app implements the module `app/account_events.py` (looked up as `app.account
 
     def on_user_deleted(db: Session, user_id: int) -> None: ...
     def on_user_renamed(db: Session, user_id: int, new_username: str) -> None: ...
+    def on_user_created(db: Session, user_id: int, username: str, kind: str, body: dict) -> None: ...   # optional
 
 Handlers get a fresh session and the consumer commits it. DELIVERY IS AT LEAST ONCE, so handlers MUST be
 idempotent (deleting rows of a user twice, or setting a username to the same value, must be harmless) and must
@@ -28,6 +29,7 @@ Without a Redis URL (argument or REDIS_URL) or without the `redis` package every
 """
 
 import importlib
+import inspect
 import json
 import logging
 import os
@@ -43,6 +45,7 @@ ACCOUNT_STREAM = "sn:events:account"
 DEAD_STREAM = "sn:events:account:dead"
 USER_DELETED = "user.deleted"
 USER_RENAMED = "user.renamed"
+USER_CREATED = "user.created"  # only for accounts made by the platform (virtual people): a person who signs up is met on first use
 HANDLERS_MODULE = "app.account_events"
 MAX_DELIVERIES = 5
 RECLAIM_IDLE_MS = 60_000
@@ -165,7 +168,7 @@ class AccountConsumer:
 
     def _dispatch(self, fields: dict) -> None:
         kind = fields.get("type")
-        function_name = {USER_DELETED: "on_user_deleted", USER_RENAMED: "on_user_renamed"}.get(kind)
+        function_name = {USER_DELETED: "on_user_deleted", USER_RENAMED: "on_user_renamed", USER_CREATED: "on_user_created"}.get(kind)
         try:
             user_id = int(fields["user_id"])
             payload = json.loads(fields.get("payload") or "{}")
@@ -177,6 +180,11 @@ class AccountConsumer:
         if handler is None:
             raise _Skip(f"{self._module_name} has no {function_name}")
         args: tuple = (user_id,)
+        if kind == USER_CREATED:
+            name = payload.get("username") if isinstance(payload, dict) else None
+            if not isinstance(name, str) or not name:
+                raise _Skip("created event without a username")
+            args = (user_id, name, str(payload.get("kind") or "human"), payload)  # the whole body: each app takes what it needs
         if kind == USER_RENAMED:
             new_name = payload.get("username") if isinstance(payload, dict) else None
             if not isinstance(new_name, str) or not new_name:
@@ -186,9 +194,13 @@ class AccountConsumer:
             seq = seq if isinstance(seq, int) and not isinstance(seq, bool) else None  # legacy events have none
             if seq is not None and seq <= self._rename_mark(user_id):
                 raise _Skip(f"stale rename of user {user_id} (seq {seq})")
+        extra: dict = {}
+        wants_name = kind == USER_DELETED and "old_username" in inspect.signature(handler).parameters
+        if wants_name and isinstance(payload, dict) and isinstance(payload.get("old_username"), str):
+            extra["old_username"] = payload["old_username"]  # the row of `users` is already gone: a handler that needs the name is told it
         with self._sessions() as db:
             try:
-                handler(db, *args)
+                handler(db, *args, **extra)
                 db.commit()
             except BaseException:
                 db.rollback()
@@ -256,11 +268,12 @@ class AccountConsumer:
 
 def start_account_consumer(
     app_name: str, session_factory: Callable[[], Any], *, redis_url: str | None = None, poll_ms: int = 2000,
-    client: Any = None,
+    client: Any = None, handlers_module: str = HANDLERS_MODULE,
 ) -> Any:  # fmt: skip
     """Start the daemon consumer of `app_name`; returns a handle with `stop()`. A no-op handle without Redis.
 
-    `client` (a redis-py compatible object) replaces the URL; it exists for tests.
+    `client` (a redis-py compatible object) replaces the URL; it exists for tests. `handlers_module` is where the handlers are when
+    several services live in one process (each has its own module).
     """
     if client is None:
         url = (redis_url if redis_url is not None else os.environ.get("REDIS_URL", "")).strip()
@@ -275,4 +288,4 @@ def start_account_consumer(
             url, socket_timeout=SOCKET_TIMEOUT_SECONDS + poll_ms / 1000, socket_connect_timeout=SOCKET_TIMEOUT_SECONDS,
             decode_responses=True,
         )
-    return AccountConsumer(app_name, session_factory, client, poll_ms=poll_ms).start()
+    return AccountConsumer(app_name, session_factory, client, poll_ms=poll_ms, handlers_module=handlers_module).start()

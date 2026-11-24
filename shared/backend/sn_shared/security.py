@@ -33,7 +33,7 @@ class TokenPayload:
     user_id: int
     username: str
     expires_at: int
-    role: str = "user"
+    group: str = "user"
     ver: int | None = None  # token version; center checks it in the database, other apps via the revocation store
     sid: str | None = None  # session id (device); absent on tokens issued before sessions existed
 
@@ -62,7 +62,7 @@ def create_token(
     user_id: int,
     username: str,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
-    role: str = "user",
+    group: str = "user",
     ver: int | None = None,
     sid: str | None = None,
 ) -> str:
@@ -73,7 +73,7 @@ def create_token(
         "username": username,
         "iat": now,
         "exp": now + ttl_seconds,
-        "role": role,
+        "group": group,
     }
     if ver is not None:
         claims["ver"] = ver
@@ -114,7 +114,7 @@ def decode_token(token: str) -> TokenPayload:
             user_id=int(claims["sub"]),
             username=str(claims["username"]),
             expires_at=int(claims["exp"]),
-            role=str(claims.get("role", "user")),
+            group=str(claims.get("group", "user")),
             ver=int(raw_ver) if raw_ver is not None else None,
             sid=raw_sid,
         )

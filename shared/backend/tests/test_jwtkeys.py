@@ -133,7 +133,7 @@ def test_alg_none_is_refused():
 
 def test_tampered_payload_is_rejected():
     head, _, sig = create_token(1, "bob").split(".")
-    evil = _b64(json.dumps(_claims(sub="99", role="admin")).encode())
+    evil = _b64(json.dumps(_claims(sub="99", group="admin")).encode())
     with pytest.raises(AuthError):
         decode_token(f"{head}.{evil}.{sig}")
 

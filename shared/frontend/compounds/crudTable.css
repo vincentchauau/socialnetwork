@@ -1,0 +1,28 @@
+/* The table of the shared kit (DataTable, CrudView): the same look in every app. */
+.cw-table-wrap{ max-width: 100%; }  /* one scroll bar only: the part of the page that holds the table scrolls, not the table */
+.cw-table{ width: 100%; border-collapse: separate; border-spacing: 0 2px; font-size: 0.9rem; }
+.cw-table th, .app-chat .cw-table td{ border: 0; }  /* (the tables of the other pages of ChatWork draw lines: these do not) */
+.cw-table th{ text-align: left; font-size: 0.8rem; font-weight: 600; padding: 4px 8px; white-space: nowrap; }
+.cw-table td{ padding: 6px 8px; vertical-align: top; white-space: normal; overflow-wrap: anywhere; background: color-mix(in srgb, var(--line) 5%, transparent); }
+.cw-table td:first-child{ border-radius: 6px 0 0 6px; }
+.cw-table td:last-child{ border-radius: 0 6px 6px 0; }
+.cw-table tr:hover td{ background: color-mix(in srgb, var(--line) 12%, transparent); }
+.cw-table tr[aria-current="true"] td{ background: color-mix(in srgb, var(--line) 20%, transparent); }
+.cw-table .cw-col-pick{ width: 1%; padding-left: 0; }
+.cw-table .cw-col-narrow{ white-space: nowrap; width: 1%; overflow-wrap: normal; }
+.cw-table .cw-col-actions{ white-space: nowrap; width: 1%; text-align: right; }
+.cw-table .cw-col-actions > *{ margin-left: 4px; }
+.cw-table td.cw-col-actions, .app-chat .cw-table th.cw-col-actions{ position: sticky; right: 0; z-index: 2; background: var(--solid-0); }
+.cw-table .cw-sep td{ padding: 0; background: transparent; }
+.cw-table .cw-sep:hover td{ background: transparent; }
+.cw-table .cw-system{ font-style: italic; }
+.cw-table .cw-quote{ font-size: 0.8rem; padding-left: 6px; margin-bottom: 2px; }
+.cw-table .cw-col-name{ min-width: 150px; overflow-wrap: normal; word-break: normal; }
+.cw-table td .cw-tag{ margin-left: 4px; }
+.cw-sort{ all: unset; cursor: pointer; font: inherit; white-space: nowrap; }
+.cw-sort:hover, .app-chat .cw-sort:focus-visible{ text-decoration: underline; }
+.cw-arrow{ font-size: 10px; opacity: 0.35; }
+.cw-arrow[data-active]{ opacity: 1; }
+.cw-table thead th{ position: sticky; top: 0; z-index: 1; background: var(--solid-0); }
+.cw-table thead th.cw-col-actions{ z-index: 3; }
+.cw-table td.cw-col-actions:has([aria-expanded="true"]){ z-index: 10; }

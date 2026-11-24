@@ -1,3 +1,46 @@
+import { registerBundles, tr, trServer, trServerDeep } from "./lib/i18n";
+
+registerBundles({
+  vi: {
+    api_check_fields: "Hãy kiểm tra các ô nhập rồi thử lại",
+    api_request_failed: "Yêu cầu thất bại ({status})",
+    api_failed: "Đã xảy ra lỗi. Hãy thử lại.",
+    api_status_401: "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.",
+    api_status_403: "Bạn không có quyền thực hiện thao tác này.",
+    api_status_404: "Không tìm thấy mục yêu cầu.",
+    api_status_409: "Tên này đã tồn tại. Hãy chọn tên khác.",
+    api_status_413: "Tệp quá lớn hoặc vượt dung lượng cho phép.",
+    api_status_422: "Dữ liệu không hợp lệ. Hãy kiểm tra lại.",
+    api_status_429: "Bạn thao tác quá nhanh. Hãy thử lại sau ít phút.",
+  },
+  en: {
+    api_check_fields: "Please check the fields and try again",
+    api_request_failed: "Request failed ({status})",
+    api_failed: "An error occurred. Try again.",
+    api_status_401: "Your session has expired. Sign in again.",
+    api_status_403: "You are not allowed to do this.",
+    api_status_404: "The requested item was not found.",
+    api_status_409: "This name already exists. Choose another name.",
+    api_status_413: "The file is too large or goes over the allowed space.",
+    api_status_422: "The data is invalid. Check it again.",
+    api_status_429: "You are going too fast. Try again in a few minutes.",
+  },
+});
+
+/** The words of a failed call when the server sent some (`ApiError`), else `fallback`. */
+export function errorText(error: unknown, fallback = "Something went wrong"): string {
+  return error instanceof ApiError ? error.message : fallback;
+}
+
+/** The words of a failed call for the person: what the server said (`detail`), else a text for its status, else `fallback`. */
+export function httpErrorText(error: unknown, fallback = tr("api_failed")): string {
+  if (!(error instanceof ApiError)) return fallback;
+  const detail = (error.body as { detail?: unknown } | undefined)?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  const byStatus = tr(`api_status_${error.status}`);
+  return byStatus.startsWith("api_status_") ? fallback : byStatus;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -106,7 +149,7 @@ async function send<T>(path: string, init: RequestInit, isForm: boolean, retried
   if (response.status === 204) return undefined as T;
   const body = (await response.json()) as T;
   if (path.startsWith(CENTER_PREFIX)) rememberCsrf(body);
-  return body;
+  return trServerDeep(body);
 }
 
 /** JSON fetch against the gateway; sends the auth cookie and throws ApiError on non-2xx. */
@@ -150,14 +193,16 @@ async function readJson(response: Response): Promise<unknown> {
 
 function errorMessage(status: number, body: unknown): string {
   const detail = (body as { detail?: unknown } | null | undefined)?.detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) return "Please check the fields and try again";
-  return `Request failed (${status})`;
+  if (typeof detail === "string") return trServer(detail);
+  if (Array.isArray(detail)) return tr("api_check_fields");
+  return tr("api_request_failed", { status });
 }
 
 export interface User {
   id: number;
   username: string;
+  /** /auth/me also returns the group (user, moderator or admin); apps that do not need it ignore it. */
+  group?: string;
 }
 
 export const CENTER_API = "/api/center";

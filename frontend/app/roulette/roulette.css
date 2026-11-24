@@ -1,0 +1,66 @@
+.app-roulette .stack{ display: flex; flex-direction: column; gap: 16px; }
+.app-roulette .row{ display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.app-roulette .muted{ color: color-mix(in srgb, var(--line) 70%, transparent); }
+.app-roulette :focus-visible{ outline: 2px solid var(--line); outline-offset: 2px; }
+
+.app-roulette .ball{ display: flex; align-items: center; justify-content: center; box-sizing: border-box; line-height: 1; width: 96px; height: 96px; border-radius: 50%; font-size: 2rem; font-weight: 700; color: #fff; border: 4px solid var(--line); }
+.app-roulette .ball.red{ background: #b3202a; }
+.app-roulette .ball.black{ background: #161616; }
+.app-roulette .ball.green{ background: #1c7c3c; }
+.app-roulette .ball.idle{ background: var(--solid-1); color: var(--line); }
+.app-roulette .ball.spinning{ animation: roulette-spin 0.9s linear infinite; border-style: dashed; }
+@keyframes roulette-spin{ to{ transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce){ .app-roulette .ball.spinning{ animation: none; } }
+
+.app-roulette .table{ display: grid; grid-template-columns: 48px repeat(12, minmax(34px, 1fr)) 48px; gap: 2px; }
+.app-roulette .cell{ position: relative; display: flex; align-items: center; justify-content: center; min-height: 40px; padding: 2px; border: 1px solid color-mix(in srgb, var(--line) 40%, transparent); border-radius: 4px; color: #fff; font-weight: 600; cursor: pointer; }
+.app-roulette .cell.red{ background: #b3202a; }
+.app-roulette .cell.black{ background: #161616; }
+.app-roulette .cell.green{ background: #1c7c3c; }
+.app-roulette .cell.outside{ background: var(--solid-1); color: var(--line); }
+.app-roulette .cell.zero{ grid-row: span 3; }
+.app-roulette .cell.span4{ grid-column: span 4; }
+.app-roulette .cell.span2{ grid-column: span 2; }
+.app-roulette .cell.winner{ outline: 3px solid gold; outline-offset: -3px; }
+.app-roulette .stake{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3; min-width: 22px; padding: 0 5px; border-radius: 999px; background: gold; color: #000; border: 1px solid #000; font-size: 0.75rem; line-height: 20px; text-align: center; pointer-events: none; }
+
+.app-roulette .chip{ min-width: 48px; border-radius: 999px; }
+.app-roulette .chip[aria-pressed="true"]{ outline: 3px solid var(--line); outline-offset: 2px; }
+.app-roulette .spins{ list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.app-roulette .spins li{ display: grid; grid-template-columns: 44px 72px 104px 88px 72px; gap: 8px 12px; align-items: center; }  /* the same columns on every row: number, gain, balance, rebet, delete */
+.app-roulette .mini{ display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 0; margin: 0; line-height: 1; width: 28px; height: 28px; border-radius: 50%; color: #fff; font-size: 0.8rem; font-weight: 700; }
+.app-roulette .mini.red{ background: #b3202a; }
+.app-roulette .mini.black{ background: #161616; }
+.app-roulette .mini.green{ background: #1c7c3c; }
+.app-roulette .gain{ color: #2c9a52; }
+.app-roulette .loss{ color: #c0392b; }
+.app-roulette .error{ color: #c0392b; }
+@media (max-width: 640px){ .app-roulette .table{ font-size: 0.75rem; } }
+
+.app-roulette .slot{ position: relative; display: flex; }
+.app-roulette .slot > .cell{ flex: 1; }
+.app-roulette .hit{ position: absolute; z-index: 2; overflow: visible; padding: 0; border: 0; background: transparent; cursor: pointer; border-radius: 4px; }
+.app-roulette .hit:hover:not(:disabled), .app-roulette .hit:focus-visible, .app-roulette .hit.has-stake{ background: color-mix(in srgb, gold 55%, transparent); }
+.app-roulette .hit.r{ right: -7px; top: 18%; width: 12px; height: 64%; }
+.app-roulette .hit.l{ left: -7px; top: 18%; width: 12px; height: 64%; }
+.app-roulette .hit.b{ bottom: -7px; left: 18%; width: 64%; height: 12px; }
+.app-roulette .hit.t{ top: -7px; left: 18%; width: 64%; height: 12px; }
+.app-roulette .hit.c{ right: -8px; bottom: -8px; width: 16px; height: 16px; border-radius: 50%; }
+.app-roulette .hit.tc{ right: -8px; top: -8px; width: 16px; height: 16px; border-radius: 50%; }
+.app-roulette .hit.winner{ background: gold; }
+
+.app-roulette .spins li{ align-items: start; }
+.app-roulette .bets{ grid-column: 1 / -1; }
+.app-roulette .bets ul{ margin: 4px 0 0; padding-left: 20px; list-style: disc; display: block; }
+.app-roulette .numbers{ list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.app-roulette .numbers li{ display: flex; align-items: center; gap: 6px; }
+
+.app-roulette .strip{ display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; justify-content: center; }
+.app-roulette .strip-group{ display: flex; align-items: center; gap: 8px; }
+.app-roulette .strip-balls{ display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; }
+
+/* The leaderboard: names on the left, chips on the right, in one column each. */
+.app-roulette .board-list{ list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.app-roulette .board-list li{ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; }
+.app-roulette .board-name{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-roulette .board-chips{ font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; }

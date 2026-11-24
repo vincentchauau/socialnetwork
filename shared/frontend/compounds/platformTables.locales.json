@@ -1,0 +1,18 @@
+{
+  "vi": {
+    "apps": "Ứng dụng",
+    "shared_data": "Dữ liệu chung",
+    "unavailable": "không khả dụng",
+    "checking": "Đang kiểm tra các ứng dụng…",
+    "pick_app": "Chọn một ứng dụng để quản lý dữ liệu của nó.",
+    "none_available": "Không có ứng dụng nào khả dụng."
+  },
+  "en": {
+    "apps": "Apps",
+    "shared_data": "Shared data",
+    "unavailable": "unavailable",
+    "checking": "Checking the apps…",
+    "pick_app": "Pick an app to manage its data.",
+    "none_available": "No app is available."
+  }
+}

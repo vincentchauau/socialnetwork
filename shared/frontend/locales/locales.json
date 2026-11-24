@@ -1,0 +1,114 @@
+{
+  "vi": {
+    "site": {
+      "greeting": "Xin chào",
+      "apps": "Ứng dụng",
+      "language": "Ngôn ngữ",
+      "theme": "Giao diện",
+      "themeColor": "Màu đặc",
+      "themeCount": "Số màu",
+      "menu": "Menu",
+      "nav": "Điều hướng chính",
+      "brand": "Mạng xã hội",
+      "inbox": "Hộp thư",
+      "inboxWaiting": "Có {n} mục đang chờ bạn"
+    },
+    "home": {
+      "loading": "Đang tải...",
+      "unreachable": "Không kết nối được tới server. Hãy thử lại.",
+      "retry": "Thử lại",
+      "title": "Chọn một ứng dụng",
+      "profile": "Hồ sơ của tôi",
+      "profileHint": "Xem kinh nghiệm, dự án, kỹ năng của bạn"
+    },
+    "modes": {
+      "aria": "Chế độ",
+      "login": "Đăng nhập",
+      "register": "Đăng ký",
+      "account": "Cập nhật"
+    },
+    "titles": {
+      "art": "Tranh",
+      "videos": "Video AI",
+      "documents": "Tài liệu",
+      "werewolf": "Ma Sói",
+      "face": "Đối xứng khuôn mặt",
+      "roulette": "Roulette",
+      "photos": "Ảnh",
+      "watch": "Video",
+      "market": "Chợ",
+      "jobs": "Việc làm",
+      "chatwork": "ChatWork"
+    },
+    "dock": {
+      "title": "Phòng chat của ứng dụng",
+      "resize": "Kéo để đổi chiều cao khung chat",
+      "page": "Trang",
+      "chat": "Chat",
+      "rooms": "Rooms",
+      "members": "Members",
+      "messages": "Messages",
+      "settings": "Settings"
+    },
+    "confirm": {
+      "yes": "Đồng ý",
+      "no": "Hủy"
+    }
+  },
+  "en": {
+    "site": {
+      "greeting": "Hello",
+      "apps": "Apps",
+      "language": "Language",
+      "theme": "Theme",
+      "themeColor": "Main color",
+      "themeCount": "Accent colors",
+      "menu": "Menu",
+      "nav": "Main navigation",
+      "brand": "Social Network",
+      "inbox": "Inbox",
+      "inboxWaiting": "{n} items waiting for you"
+    },
+    "home": {
+      "loading": "Loading...",
+      "unreachable": "Cannot reach the server. Please try again.",
+      "retry": "Try again",
+      "title": "Choose an app",
+      "profile": "My profile",
+      "profileHint": "See your experience, projects and skills"
+    },
+    "modes": {
+      "aria": "Mode",
+      "login": "Sign in",
+      "register": "Sign up",
+      "account": "Update"
+    },
+    "titles": {
+      "art": "Art",
+      "videos": "Videos",
+      "documents": "Documents",
+      "werewolf": "Werewolf",
+      "face": "Face symmetry",
+      "roulette": "Roulette",
+      "photos": "Photos",
+      "watch": "Watch",
+      "market": "Market",
+      "jobs": "Jobs",
+      "chatwork": "ChatWork"
+    },
+    "dock": {
+      "title": "Chat room of this app",
+      "resize": "Drag to resize the chat",
+      "page": "Page",
+      "chat": "Chat",
+      "rooms": "Rooms",
+      "members": "Members",
+      "messages": "Messages",
+      "settings": "Settings"
+    },
+    "confirm": {
+      "yes": "OK",
+      "no": "Cancel"
+    }
+  }
+}

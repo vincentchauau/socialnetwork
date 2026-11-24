@@ -12,6 +12,7 @@ dependencies = [
     "PyJWT[crypto]>=2.9",
     "cryptography>=42",
     "fastapi>=0.115",
+    "openpyxl>=3.1",  # the Excel import of the Database tab
     "redis>=5",  # optional at runtime (imported lazily; no REDIS_URL = no revocation checks)
 ]
 

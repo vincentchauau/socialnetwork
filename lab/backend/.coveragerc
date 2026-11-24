@@ -1,7 +1,0 @@
-[run]
-# The RabbitMQ and Kafka adapters only talk to real brokers: they are exercised by
-# tests/test_integration.py (LAB_INTEGRATION=1), not by the unit tests.
-omit =
-    app/adapters/amqp.py
-    app/adapters/kafka.py
-    app/proto/*_pb2*.py
