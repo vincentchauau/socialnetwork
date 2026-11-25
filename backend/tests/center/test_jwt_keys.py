@@ -96,11 +96,12 @@ def test_a_legacy_hs256_access_token_is_refused_everywhere(client):
     assert client.get("/auth/me").status_code == 401
 
 
-def test_gen_jwt_key_output_works_with_the_verifier(monkeypatch, capsys):
-    assert cli.main(["gen-jwt-key"]) == 0
+def test_gen_jwt_key_writes_files_and_prints_no_private_key(monkeypatch, tmp_path, capsys):
+    assert cli.gen_jwt_key(str(tmp_path)) == 0
     out = capsys.readouterr().out
-    private = re.search(r"-----BEGIN PRIVATE KEY-----.+?-----END PRIVATE KEY-----", out, re.S).group(0)
-    public = re.search(r"-----BEGIN PUBLIC KEY-----.+?-----END PUBLIC KEY-----", out, re.S).group(0)
+    assert "PRIVATE KEY" not in out  # the private key stays in its file, out of the terminal
+    private = (tmp_path / "jwt_private.pem").read_text(encoding="utf-8")
+    public = (tmp_path / "jwt_public_keys.pem").read_text(encoding="utf-8")
     kid = re.search(r"kid[^:]*: (\S+)", out).group(1)
     monkeypatch.setenv("JWT_PRIVATE_KEY", private)
     monkeypatch.setenv("JWT_PUBLIC_KEYS", public)

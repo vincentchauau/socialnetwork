@@ -11,10 +11,11 @@ import CrudToolbar from "@sn/complex/CrudToolbar";
 import DataTable, { type Column, type Key, type Sort } from "@sn/compounds/DataTable";
 import AvatarImage from "./AvatarImage";
 import RowMore from "./RowMore";
-import RoomDialog from "./RoomDialog";
+import RowDialog from "./RowDialog";
 import RoomStatusControls from "./RoomStatusControls";
 import { CONTROL, PageBar, SelectAllBar, sortRows, useColumns, usePaging } from "./TableControls";
 import { ROOM_FIELDS, roomMatches, splitTerms } from "./searchTerms";
+import { ROOM_TABLE, changesOfRoom, roomRow } from "./rowTables";
 import { TermChips, useSearchTerms } from "@sn/compounds/InputBox";
 import Alert from "@sn/elements/Alert";
 import Button from "@sn/elements/Button";
@@ -56,6 +57,8 @@ export default function RoomsPanel({ selected, onSelect, onCreate, onRoomChanged
   const [copied, setCopied] = useState<string | null>(null);
   const [sort, setSort] = useState<Sort>(null);
   const [editing, setEditing] = useState<Room | null>(null);
+  // The row of the room being edited is fixed while its dialog is open.
+  const editingRow = useMemo(() => (editing ? roomRow(editing) : null), [editing]);
   const opened = useRef(false);
   const lobby = useLobby();
   // One table of every room the person can see: the ones they are in, the requests to write to them, and the public ones they could join.
@@ -228,14 +231,15 @@ export default function RoomsPanel({ selected, onSelect, onCreate, onRoomChanged
       <p role="status" className="cw-room-sub" style={{ margin: 0 }}>
         {tr("rm_p0_dang_truc_tuyen", { p0: lobby.onlineTotal })}
       </p>
-      {editing && (
-        <RoomDialog
-          room={editing}
-          onSaved={(room) => {
-            onRoomChanged(room);
+      {editing && editingRow && (
+        <RowDialog
+          table={ROOM_TABLE}
+          row={editingRow}
+          onClose={() => setEditing(null)}
+          onSave={async (changed) => {
+            onRoomChanged(await chatApi.update(editing.slug, changesOfRoom(changed)));
             void reload();
           }}
-          onClose={() => setEditing(null)}
         />
       )}
       <ConfirmModal

@@ -214,3 +214,51 @@ def apply_profile(user: object, body: ProfileBody) -> None:
         if field in LIST_FIELDS and value is not None:
             value = [item.model_dump(mode="json") for item in value]
         setattr(user, field, value)
+
+
+# ---- the CV: the profile as one page, showing only the parts the viewer may read ----
+
+# Each visibility part and the stored fields it covers.
+CV_PART_FIELDS: dict[str, tuple[str, ...]] = {
+    "name": ("name",),
+    "address": ("address",),
+    "birth_date": ("birth_date",),
+    "location": ("city", "region", "country"),
+    "avatar": ("avatar_url",),
+    "headline": ("headline",),
+    "summary": ("summary",),
+    "links": ("links",),
+    "experience": ("experience",),
+    "education": ("education",),
+    "skills": ("skills",),
+    "languages": ("languages",),
+    "certifications": ("certifications",),
+    "projects": ("projects",),
+}
+# Who may read a part, by the viewer: the owner reads everything; a signed-in person reads "employers" and "public"; anyone reads "public".
+CV_READABLE: dict[str, frozenset[str]] = {
+    "owner": frozenset(VISIBILITY_LEVELS),
+    "employer": frozenset({"employers", "public"}),
+    "anyone": frozenset({"public"}),
+}
+
+
+class CvOut(ProfileOut):
+    username: str | None = None
+    hidden: list[str] = []  # the parts this viewer may not read: their fields are empty here
+
+
+def cv_of(user: object, viewer: str) -> CvOut:
+    """The CV of `user` for a viewer ("owner", "employer" or "anyone"). A part never set is private."""
+    values = profile_out(user).model_dump()
+    visibility = dict(getattr(user, "visibility", None) or {})
+    hidden: list[str] = []
+    if viewer != "owner":
+        for part, fields in CV_PART_FIELDS.items():
+            if visibility.get(part, "private") in CV_READABLE[viewer]:
+                continue
+            hidden.append(part)
+            for field in fields:
+                values[field] = [] if field in LIST_FIELDS else None
+        values["visibility"] = {}
+    return CvOut(**values, username=getattr(user, "username", None), hidden=hidden)

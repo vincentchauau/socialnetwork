@@ -5,12 +5,14 @@
   python -m app.cli set-group <username> <user|moderator|admin>
   python -m app.cli reset-password <username>   set a new password (prompt or stdin) and revoke all sessions
   python -m app.cli seed-virtual                add the missing virtual people of the pool (safe to repeat)
-  python -m app.cli gen-jwt-key                 print a new Ed25519 access-token keypair (private PEM, public PEM, kid)
+  python -m app.cli gen-jwt-key                 write a new Ed25519 access-token keypair to files (private PEM, public PEM, kid)
 """
 
 import getpass
+import logging
 import os
 import sys
+from pathlib import Path
 from typing import Callable
 
 from sn_shared import jwtkeys
@@ -27,6 +29,8 @@ from api.center.config import Settings
 from api.center.virtual_seed import POOL_SIZE, seed_pool
 from api.center.tokenversion import bump_token_version, publish_token_version
 
+log = logging.getLogger("center.cli")
+
 GROUP_COMMANDS = {"promote": GROUP_ADMIN, "demote": GROUP_USER, "moderate": GROUP_MODERATOR, "unmoderate": GROUP_USER}
 COMMANDS = (*GROUP_COMMANDS, "set-group", "reset-password")
 
@@ -42,7 +46,7 @@ def _publish(user: User) -> None:
     try:
         publish_token_version(user, Settings.from_env())
     except RuntimeError as exc:  # unusable settings: the revocation then waits for the tokens to expire
-        print(f"Warning: other apps were not notified ({exc})")
+        log.warning("other apps were not notified: %s", exc)
 
 
 def _open_session() -> Session:
@@ -55,14 +59,22 @@ def _open_session() -> Session:
     return sessionmaker(engine, expire_on_commit=False)()
 
 
-def gen_jwt_key() -> int:
-    """Print a fresh keypair: the private key goes to center only, the public key to every app."""
+def gen_jwt_key(out_dir: str = "secrets") -> int:
+    """Write a fresh keypair to files: the private key goes to center only, the public key to every app.
+
+    The private key is never printed (a terminal keeps its history); the files are created with owner-only rights where the system allows.
+    """
     private, public, kid = jwtkeys.generate_keypair()
-    print("# JWT_PRIVATE_KEY (center only; keep secret, e.g. save as secrets/jwt_private.pem):")
-    print(private.strip())
-    print("\n# JWT_PUBLIC_KEYS (every app; append to the existing keys when rotating):")
-    print(public.strip())
-    print(f"\n# kid (the JWT_KEY_ID default): {kid}")
+    folder = Path(out_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+    private_path = folder / "jwt_private.pem"
+    public_path = folder / "jwt_public_keys.pem"
+    private_path.write_text(private.strip() + "\n", encoding="utf-8")
+    os.chmod(private_path, 0o600)
+    public_path.write_text(public.strip() + "\n", encoding="utf-8")
+    print(f"private key: {private_path} (center only; keep it secret)")
+    print(f"public keys: {public_path} (every app; append to the existing keys when rotating)")
+    print(f"kid (the JWT_KEY_ID default): {kid}")
     return 0
 
 

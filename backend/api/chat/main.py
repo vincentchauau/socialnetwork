@@ -1,3 +1,4 @@
+from sn_shared.db import ensure_foreign_key
 from sn_shared.deps import access_dependencies
 import asyncio
 import json
@@ -187,6 +188,8 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     textsearch.register_sqlite(engine)
     Base.metadata.create_all(engine)
+    for table in ("room_members", "messages", "meetings"):
+        ensure_foreign_key(engine, table, "room_id", "rooms")
     social_models.ensure_tables(engine)  # the friendships, blocks and notices are the shared tables of `api.chat.social`
     directory.ensure_table_for_sqlite(engine)  # the people are read from `users` of center (a SQLite database has none: an empty one)
     session_factory = sessionmaker(engine, expire_on_commit=False)

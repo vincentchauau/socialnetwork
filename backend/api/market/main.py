@@ -12,7 +12,7 @@ from api.market import cart, orders, products, reviews, saved
 from api.market.constants import DEFAULT_ORDER_TTL_MINUTES
 from api.market.db import Base, make_engine
 from api.market.migrate import migrate_orders
-from sn_shared.db import rename_table
+from sn_shared.db import ensure_foreign_key, rename_table
 from api.market.models import utcnow
 from api.market.payments import FakePaymentProvider, PaymentProvider
 from sn_shared import comments, directory
@@ -41,6 +41,8 @@ def create_app(
     rename_table(engine, "products", "market_products")  # the names of the tables before the market prefix
     rename_table(engine, "orders", "market_orders")
     Base.metadata.create_all(engine)
+    for table in ("market_saved_products", "cart_items"):
+        ensure_foreign_key(engine, table, "product_id", "market_products")
     migrate_orders(engine)  # an orders table made before items / idempotency keys moved into it
     directory.ensure_table_for_sqlite(engine)  # names are read from center's `users`
     comments.ensure_table(engine)  # what people say about a thing is one table (`sn_shared.comments`)

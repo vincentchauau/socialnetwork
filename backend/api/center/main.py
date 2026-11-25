@@ -34,6 +34,7 @@ from api.center.reauth import ReauthRequired, reauth_response
 from api.center.routes_passkeys import router as passkeys_router
 from api.center.routes_phone import router as phone_router
 from api.center.routes_profile import router as profile_router
+from api.center.routes_cv import router as cv_router
 from api.center.routes_qr import router as qr_router
 from api.center.routes_reauth import router as reauth_router
 from api.center.routes_sessions import router as sessions_router
@@ -219,6 +220,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(auth_router, dependencies=access_dependencies(public=True))
     app.include_router(account_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
     app.include_router(profile_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+    app.include_router(cv_router, dependencies=access_dependencies(public=True))
     app.include_router(email_router, dependencies=access_dependencies(public=True))
     app.include_router(phone_router, dependencies=access_dependencies(public=True))
     app.include_router(biometrics_router, dependencies=access_dependencies(public=True))

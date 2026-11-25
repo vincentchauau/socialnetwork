@@ -194,7 +194,7 @@ ALL_APPS: tuple[App, ...] = (
         backend_env=(("FILE_DATA_DIR", "/data/file"),)),
     # database: the home page; its tables are the records of each app (see /records in backend/api/main.py), so it has no backend of its own.
     App("database", "Database", "Cơ sở dữ liệu thử và cơ sở dữ liệu của các ứng dụng", backend=False),
-    # api: the backend of every app in ONE process (see backend/api/main.py). Each module keeps its own database (and its own volume).
+    # api: the backend of every app in ONE process (see backend/api/main.py). All modules share one database (see `database_url`).
     App("api", "API", "Backend: mọi mô-đun trong một tiến trình", frontend=False,
         hosts=("center", "chat", "werewolf", "file", "face", "roulette", "job", "market"),
         backend_env=(*_BROKERS, ("RECORDS_DATA_DIR", "/data/records")), services=(*_MESSAGING_SERVICES, _LIVEKIT, _CALLEAR)),

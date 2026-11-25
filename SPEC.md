@@ -6,7 +6,28 @@ Modular monolith: one FastAPI process, one Next.js app, one Postgres database, o
 
 Order of work: Requirements → Database → Backend → Backend test (unit test) → Frontend → Frontend test (UI test) → Local setup and deploy.
 
+## How to write this document
+
+- **Requirements:** describe at least the main features of each app.
+- **Database:** describe every table and its columns, at least for each app.
+- **Backend:** describe the shared functions, at least; describe every API, at least for each app.
+- **Backend test:** the results of the unit tests.
+- **Frontend:** describe the shared components, at least; describe every component, at least for each app.
+- **Frontend test:** the results of the UI tests.
+- **Local setup and deploy:** how to run the project locally and how to deploy it.
+
 # 1. Requirements
+
+Human needs and the apps that serve them.
+
+| Need | Apps |
+|---|---|
+| Eating | Market (Shop, Cart, Pay, My orders) |
+| Sleeping | None |
+| Learning | Market (books, materials), Chat (group rooms and calls), File (documents) |
+| Working | Jobs (search, apply, post jobs), Market (Sell), Chat |
+| Social | Chat (rooms, messages, friends, calls), Werewolf, Roulette, Users (profile) |
+| Self-awareness | Users (profile), Face (symmetry score and history) |
 
 ## Users (center)
 
@@ -34,7 +55,9 @@ Each person has one account.
 3. Username: changed at most once in 30 days. The old name is reserved for its previous owner for 30 days. Uniqueness does not depend on case.
 4. A risky change (password, email, phone, username, second factor, or account deletion) asks the person to sign in again first.
 5. Profile: name, headline, summary, birth date, address, city, region, country, picture, links, experience, education, skills, languages, certifications, projects, and the visibility of each part.
-6. Resume: the profile can be shown as a resume through a link. It shows the parts the visibility setting allows.
+6. CV: the page `/user/cv` shows your own CV in full, and `/user/cv?u=<name>` shows someone else's, with only the parts the visibility setting allows for that viewer (owner; any signed-in person sees "employers" and "public"; anyone sees "public"). A hidden part is shown as hidden.
+7. CV export: to PDF (the browser print dialog, "Save as PDF") and to JSON (a file with the content of the profile, without the picture or the visibility settings).
+8. CV import: from a JSON file exported by this site. Unknown fields are dropped; a file of another version or another kind is refused. Importing PDF or DOCX files is not supported yet.
 7. Delete account: an account event is published, and every module removes or anonymizes its rows. The deleted user is id `0`.
 
 ---
@@ -193,8 +216,7 @@ The tabs, in order: CRUD descriptions (the employer's job descriptions), Saved d
 
 ### Leaderboard
 
-1. The top 10 players by wins among the latest 2000 games, this month by default or all time.
-   - Not shown yet: the component exists (`frontend/app/werewolf/components/Leaderboard.tsx`), but no page renders it.
+1. Planned: the top 10 players by wins among the latest 2000 games, this month by default or all time. Not built yet: the leaderboard screen was removed from the code.
 
 ---
 
@@ -267,35 +289,46 @@ The tabs, in order: CRUD descriptions (the employer's job descriptions), Saved d
 
 Every table, with its columns. Taken from the models in `backend/api/*/models.py`; update it when a model changes. `id*` marks the primary key; `->` marks a foreign key.
 
-Tables of the modules (25 tables):
+Tables of the modules (30 tables, generated from the models):
 
-- `users`: `id`, `username`, `password_hash`, `created_at`, `email`, `google_sub`, `group`, `kind`, `token_version`, `audio_embedding`, `face_embedding`, `voice_login`, `webcam_login`, `biometric_2fa`, `email_verified`, `email_from_google`, `phone`, `phone_verified`, `totp_enabled`, `totp_secret`, `totp_pending_secret`, `totp_last_step`, `username_changed_at`, `name`, `address`, `headline`, `summary`, `birth_date`, `city`, `region`, `country`, `avatar_url`, `links`, `experience`, `education`, `skills`, `languages`, `certifications`, `projects`, `interests`, `persona_role`, `speaking_style`, `visibility`
-- `passkeys`: `id`, `user_id`, `credential_id`, `public_key`, `sign_count`, `user_handle`, `transports`, `name`, `backed_up`, `created_at`, `last_used_at`
-- `verification_codes`: `id`, `user_id`, `purpose`, `channel`, `target`, `token_hash`, `code_hash`, `attempts`, `expires_at`, `used_at`
-- `recovery_codes`: `id`, `user_id`, `code_hash`, `used_at`, `created_at`
-- `user_sessions`: `sid`, `user_id`, `created_at`, `last_seen_at`, `ip`, `user_agent`, `method`, `revoked_at`
-- `account_events`: `id`, `type`, `user_id`, `payload`, `created_at`, `published_at`
-- `reserved_usernames`: `username`, `user_id`, `until`
-- `qr_logins`: `id`, `poll_hash`, `verify_code`, `status`, `user_id`, `approver_sid`, `requester_sid`, `requester_ip`, `requester_user_agent`, `attempts`, `created_at`, `expires_at`, `approved_at`
-- `rooms`: `id`, `slug`, `kind`, `title`, `category`, `avatar`, `user_id`, `visibility`, `join_policy`, `capacity`, `state`
-- `room_members`: `room_id`, `user_id`, `status`, `status_reason`, `last_read_message_id`, `notify`, `hidden_at`
-- `messages`: `id`, `room_id`, `user_id`, `content`, `reply_to_id`, `pinned_at`, `deleted_at`, `edited_at`, `created_at`
-- `meetings`: `id`, `room_id`, `room_name`, `started_by`, `started_at`, `ended_at`
-- `edges`: `src_id`, `dst_id`, `kind`, `status`, `released_at`
-- `reports`: `id`, `reporter_id`, `target_type`, `target_id`, `reason`, `details`, `status`, `created_at`
-- `measurements`: `id`, `user_id`, `created_at`, `symmetry`, `eye`, `nose`, `mouth`, `ear`, `angle`, `note`
-- `job_descriptions`: `id`, `owner_id`, `title`, `company`, `department`, `location`, `remote`, `company_about`, `domain`, `work_mode`, `timezone`, `working_hours`, `employment_type`, `contract_until`, `seniority`, `openings`, `people_managed`, `nationality_required`, `experience_min_years`, `education_min`, `skills_required`, `skills_preferred`, `skill_keys`, `tags`, `languages`, `responsibilities`, `requirements`, `nice_to_have`, `hiring_process`, `application_requirements`, `benefits`, `salary_min`, `salary_max`, `currency`, `salary_period`, `description`, `status`, `expires_at`, `created_at`
-- `job_applications`: `id`, `job_description_id`, `user_id`, `saved`, `status`, `cover_letter`, `resume`, `contact_email`, `employer_note`, `history`
-- `market_products`: `id`, `seller_id`, `name`, `description`, `price_cents`, `stock`, `image_url`, `category`, `is_active`, `created_at`
-- `market_saved_products`: `id`, `user_id`, `product_id`, `created_at`
-- `market_orders`: `id`, `buyer_id`, `status`, `total_cents`, `payment_reference`, `created_at`, `items`, `seller_ids`, `idempotency_key`, `pay_key`, `discount_code`, `discount_cents`, `delivered_at`
-- `roulette_wallets`: `user_id`, `chips`
-- `roulette_spins`: `id`, `user_id`, `number`, `bets`, `stake`, `payout`, `balance_after`, `created_at`
-- `games`: `id`, `room_code`, `status`, `state`, `winner`, `days`, `size`, `finished_at`, `players`, `player_ids`
-- `comments`: `id`, `object_type`, `object_id`, `user_id`, `content`, `rating`, `once`, `created_at`, `edited_at`
-- `users`: `user_id`, `username`, `kind`, `name`, `headline`, `summary`, `region`, `city`, `avatar_url`, `birth_date`, `interests`, `persona_role`, `speaking_style`, `skills`, `visibility`
-- `skills`: `key`, `name`
+- `users`: `id*`, `username`, `password_hash`, `created_at`, `email`, `google_sub`, `group`, `kind`, `token_version`, `audio_embedding`, `face_embedding`, `voice_login`, `webcam_login`, `biometric_2fa`, `email_verified`, `email_from_google`, `phone`, `phone_verified`, `totp_enabled`, `totp_secret`, `totp_pending_secret`, `totp_last_step`, `username_changed_at`, `name`, `address`, `headline`, `summary`, `birth_date`, `city`, `region`, `country`, `avatar_url`, `links`, `experience`, `education`, `skills`, `languages`, `certifications`, `projects`, `interests`, `persona_role`, `speaking_style`, `visibility`
+- `passkeys`: `id*`, `user_id`, `credential_id`, `public_key`, `sign_count`, `user_handle`, `transports`, `name`, `backed_up`, `created_at`, `last_used_at`
+- `verification_codes`: `id*`, `user_id`, `purpose`, `channel`, `target`, `token_hash`, `code_hash`, `attempts`, `expires_at`, `used_at`
+- `recovery_codes`: `id*`, `user_id`, `code_hash`, `used_at`, `created_at`
+- `user_sessions`: `sid*`, `user_id`, `created_at`, `last_seen_at`, `ip`, `user_agent`, `method`, `revoked_at`
+- `account_events`: `id*`, `type`, `user_id`, `payload`, `created_at`, `published_at`
+- `reserved_usernames`: `username*`, `user_id`, `until`
+- `qr_logins`: `id*`, `poll_hash`, `verify_code`, `status`, `user_id`, `approver_sid`, `requester_sid`, `requester_ip`, `requester_user_agent`, `attempts`, `created_at`, `expires_at`, `approved_at`
+- `rooms`: `id*`, `slug`, `kind`, `title`, `category`, `avatar`, `user_id`, `visibility`, `join_policy`, `capacity`, `state`
+- `room_members`: `room_id*`, `user_id*`, `status`, `status_reason`, `last_read_message_id`, `notify`, `hidden_at`
+- `messages`: `id*`, `room_id`, `user_id`, `content`, `reply_to_id`, `pinned_at`, `deleted_at`, `edited_at`, `created_at`
+- `meetings`: `id*`, `room_id`, `room_name`, `started_by`, `started_at`, `ended_at`
+- `edges`: `src_id*`, `dst_id*`, `kind*`, `status`, `released_at`
+- `reports`: `id*`, `reporter_id`, `target_type`, `target_id`, `reason`, `details`, `status`, `created_at`
+- `notifications`: `id*`, `user_id`, `actor_id`, `kind`, `payload`, `read_at`, `created_at`
+- `measurements`: `id*`, `user_id`, `created_at`, `symmetry`, `eye`, `nose`, `mouth`, `ear`, `angle`, `note`
+- `job_descriptions`: `id*`, `owner_id`, `title`, `company`, `department`, `location`, `remote`, `company_about`, `domain`, `work_mode`, `timezone`, `working_hours`, `employment_type`, `contract_until`, `seniority`, `openings`, `people_managed`, `nationality_required`, `experience_min_years`, `education_min`, `skills_required`, `skills_preferred`, `skill_keys`, `tags`, `languages`, `responsibilities`, `requirements`, `nice_to_have`, `hiring_process`, `application_requirements`, `benefits`, `salary_min`, `salary_max`, `currency`, `salary_period`, `description`, `status`, `expires_at`, `created_at`
+- `job_applications`: `id*`, `job_description_id`, `user_id`, `saved`, `status`, `cover_letter`, `resume`, `contact_email`, `employer_note`, `history`
+- `market_products`: `id*`, `seller_id`, `name`, `description`, `price_cents`, `stock`, `image_url`, `category`, `is_active`, `created_at`
+- `market_saved_products`: `id*`, `user_id`, `product_id`, `created_at`
+- `cart_items`: `id*`, `user_id`, `product_id`, `quantity`
+- `discount_codes`: `id*`, `seller_id`, `code`, `percent`, `max_uses`, `used`, `expires_at`, `is_active`
+- `market_orders`: `id*`, `buyer_id`, `status`, `total_cents`, `payment_reference`, `created_at`, `items`, `seller_ids`, `idempotency_key`, `pay_key`, `discount_code`, `discount_cents`, `delivered_at`
+- `brands`: `id*`, `name`, `logo`
+- `showcases`: `id*`, `seller_id`, `title`, `brand_id`, `cover`, `audio`, `video`
+- `roulette_wallets`: `user_id*`, `chips`
+- `roulette_spins`: `id*`, `user_id`, `number`, `bets`, `stake`, `payout`, `balance_after`, `created_at`
+- `games`: `id*`, `room_code`, `status`, `state`, `winner`, `days`, `size`, `finished_at`, `players`, `player_ids`
+- `comments`: `id*`, `object_type`, `object_id`, `user_id`, `content`, `rating`, `once`, `created_at`, `edited_at`
+- `skills`: `key*`, `name`
+- `users` (directory, read-only view of the same table): `id*`, `username`, `kind`, `name`, `headline`, `summary`, `region`, `city`, `avatar_url`, `birth_date`, `interests`, `persona_role`, `speaking_style`, `skills`, `visibility`
 
+Rules for the tables:
+
+- **One database** for every module. Tables of a module start with its name when the name would be unclear alone (`market_*`, `job_*`); existing tables keep their names, and new tables follow the same rule.
+- **Foreign keys** are declared in the models and added to tables made before them at start-up (`ensure_foreign_key` in `sn_shared/db.py`, PostgreSQL only). Deleting a row that others refer to is refused unless the code deletes those rows first.
+- **Migrations:** start-up steps that are safe to repeat (`ensure_columns`, `ensure_foreign_key`, `rename_table`). Alembic is not used: the schema is small and changes are additive.
+- **Planned, not done:** biometric embeddings to their own table (`users` keeps none), and skills to a link table so they can be searched. Until then they stay in `users` (as bytes and as JSON).
 
 The `file` module keeps no tables: its files are stored on disk. The Database app keeps no tables: it works on the other modules' tables through `/records`. `users` appears twice: the `center` model owns it; the shared directory maps the same table for the names other modules read.
 
@@ -322,7 +355,7 @@ One library for every backend. Each function is written once here; no app copies
 
 The routes of each module, as the running app serves them (the full path, including the router prefix). Each module also serves the admin CRUD under `/records` (see 3.1, `admincrud`) and the documentation pages, which are not listed here. Internal routes between services are not listed.
 
-## center (68)
+## center (69)
 
 - `DELETE /auth/me`
 - `DELETE /auth/me/email`
@@ -334,6 +367,7 @@ The routes of each module, as the running app serves them (the full path, includ
 - `DELETE /auth/sessions/{sid}`
 - `DELETE /auth/totp`
 - `GET /auth/config`
+- `GET /auth/cv/{username}`
 - `GET /auth/liveness/challenge`
 - `GET /auth/me`
 - `GET /auth/me/passkeys`
@@ -565,13 +599,13 @@ The routes of each module, as the running app serves them (the full path, includ
 - `POST /jobs/{object_id}/comments`
 - `PUT /jobs/{job_id}/save`
 
-Total listed: 219 routes.
+Total listed: 220 routes.
 
 # 4. Backend test (unit test)
 
 Command: `cd backend && python -m pytest -q` (Python 3.13, PYTHONPATH covers `shared/backend` and `backend`).
 
-Result (full run, about 10 minutes, 2026-11-24): 2396 passed, 6 failed, 3 skipped (2405 tests). The 6 failing tests: `tests/center/test_email_hardening.py`, `tests/center/test_username_case.py`, `tests/center/test_username_chars.py`, `tests/center/test_virtual_seed.py`, and two in `tests/job/test_data.py` (`test_tables_and_ops` and `test_applicant_create_withdraw_and_forbidden`). The two job tests check older permission strings and an old 405 response of the generic records route; they are stale and not fixed yet. The others depend on state left by other tests and are not fixed yet.
+Result (full run, about 11 minutes, 2026-11-24): 2396 passed, 6 failed, 3 skipped (2405 tests). The 6 failing tests: `tests/center/test_email_hardening.py`, `tests/center/test_username_case.py`, `tests/center/test_username_chars.py`, `tests/center/test_virtual_seed.py`, and two in `tests/job/test_data.py` (`test_tables_and_ops`, `test_applicant_create_withdraw_and_forbidden`). The job tests check older permission strings and an old 405 response of the generic records route; they are stale. The center tests depend on state left by other tests. None is fixed yet. The CV tests (`tests/center/test_cv.py`, 4 tests) were added after this run and pass when run alone.
 
 # 5. Frontend
 
@@ -601,6 +635,7 @@ Plain building blocks, no dependency on other kit components.
 - `Alert`: message announced to screen readers (`role="alert"` for errors, `role="status"` otherwise).
 - `Card`: bordered panel on the surface colour.
 - `Icon`: named SVG icons (`ICON_NAMES`).
+- `JsonView`: a json value shown in plain sight, as its keys and values (read only, scrolls inside a cell).
 
 ### 5.1.2 Compounds
 
@@ -632,6 +667,7 @@ Records and tables:
 Inputs:
 
 - `LabelTextBox`: labelled text input or textarea; also `NumberBox`.
+- `JsonEditor` (`JsonEditor.tsx`): a json value in a monospace box, with a message when it is not valid json; read-only mode shows it formatted.
 - `InputBox`: search chips (`SearchBox`, `TermChips`), `PageSizeSelect`, and `TagBox`. (`SelectBar` was removed: `SelectAllBar` and a delete button do its job.)
 
 Files and media:
@@ -730,30 +766,29 @@ The layout of each app's page, and the components that fill each part of it. Com
 - **File** (`FileLibrary` → `Explorer`)
   - Left: the folder tree (`TreeView`). Middle: the list and the grid (`GridView`), with `ContextMenu`.
   - Dialogs: `VersionsSection`, `TrashPanel`, `ShareSection`, `Dialog`.
-  - `FilesPanel` (with `SplitPanel`, `DataTable`, `CrudToolbar`, `SearchPanel`, `UploadZone`) is a second file view; to be confirmed whether it is still used.
 
 - **Job** (`JobLibrary`)
-  - A `TabPanel` with the tabs `JobSearch`, `SavedList`, `MyPostings`, `ApplicationsList`.
+  - A `TabPanel` with the tabs, in order: `MyPostings` (CRUD descriptions), `SavedList` (Saved descriptions), `JobSearch` (Create application), `PendingApplications` (Update application), `ApproveList` (Approve application), `ApplicationsList` (My applications).
 
 - **Market** (`MarketLibrary`)
-  - A search box (`TextBox`), then a `TabPanel` with the tabs `Shop`, `CartView`, `OrderList`, `PayList`. The product list is a `GalleryView`.
+  - A `TabPanel` with the tabs, in order: CRUD products (`GalleryView`), `SavedProducts`, `Shop` (Create order), `CartView` (Update order), `PayList` (Pay order), `OrderList` (My orders).
 
 - **Database** (`DatabaseDock`)
   - Table choice (`TableChooser`, `MenuTables`), the grid (`GridEditor`) or the table (`TableEditor`), the record dialogs (`RecordDialog`, `FieldDialog`), and the reference picker (`RefPickHost`).
 
 - **Chat** (`ChatDock` → `SplitPanel`; the page is `RoomCall`)
   - Dock: `RoomsPanel`, `RoomView`, `MemberPanel`, `PastRoom`, `JoinPrompt`, `DmRequest`, `RoomForm` (make a room), `AvatarImage`.
-  - Page: `RoomCall` (`Meeting`, `CallRoom`).
+  - Page: `RoomCall` (`Meeting`, `CallRoom`). Editing a room opens the shared `RowDialog` from `RoomsPanel`.
 
 - **Users** (`LoginFlow` → `AuthPanel`)
-  - `AuthPanel` with a `TabPanel` of sign-in methods (`AuthTabContent`), and `ModeSwitch`, `AccountMode`, `UsernameField`, `ProfileFields`, `Alert`.
+  - `AuthPanel` with a `TabPanel` of sign-in methods (`AuthTabContent`), and `ModeSwitch`, `AccountMode`, `UsernameField`, `ProfileFields`, and the shared `Alert`.
   - `MfaStep` is the step after the method is chosen.
 
 # 6. Frontend test (UI test)
 
 Command: `cd frontend && npx vitest run` and `npx tsc --noEmit`.
 
-Result (full run, 2026-11-24): 88 test files, 1308 tests: 1274 pass, 34 fail. The failures are in files that pass when run alone or in small groups (for example `tests/center/Liveness.test.tsx`, `tests/center/LoginFlow.test.tsx`, `tests/file/files-panel.test.tsx`, `tests/chat`, `tests/roulette`): they come from timing under the full parallel run. They are not fixed yet; running the suite with fewer workers is the first thing to try.
+Result (full run in parallel, 2026-11-24, after the latest changes): 86 test files, 1273 tests: 1164 pass, 109 fail. Most of the failures are timing problems under the parallel run: the files in `tests/center` (Liveness, AccountChanges, Email, AccountFlows, Phone, Passkey, LoginFlow, ChangeUsername, AuthPanel) and `tests/chat/chat/chat.test.tsx` pass when run alone or in smaller groups. The real remaining failures are the 2 tests in `tests/center/Liveness.test.tsx` that look for the "Đang quay" button (sign-in with the webcam); they are not fixed yet. Running the suite with fewer workers is the first thing to try.
 
 Typecheck: `tsc --noEmit` passes.
 

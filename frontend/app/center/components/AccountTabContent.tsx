@@ -10,10 +10,10 @@ import LinkGoogle from "./LinkGoogle";
 import PasskeyMethod from "./PasskeyMethod";
 import PasswordForm from "./PasswordForm";
 import PhoneMethod from "./PhoneMethod";
-import QrMethod from "./QrMethod";
 import SessionsMethod from "./SessionsMethod";
 import TotpMethod from "./TotpMethod";
 import { INPUT, LABEL, SECONDARY_BUTTON, SECTION } from "./ui";
+import Link from "next/link";
 import { useAction } from "../hooks/useAction";
 import { useReauth } from "../hooks/useReauth";
 import { AuthConfig, Me, logout, unlinkGoogle } from "../lib/auth";
@@ -213,7 +213,13 @@ export default function AccountTabContent({ tab, me, config, onDone, codes, onCo
       );
     }
     case "qr":
-      return <QrMethod />;
+      return (
+        <section aria-label={tr("dang_nhap_bang_ma_qr")} className={SECTION}>
+          <h2 className="font-bold mb-1">{tr("dang_nhap_bang_ma_qr")}</h2>
+          <p className="text-sm mb-2">{tr("tren_thiet_bi_khac_mo_trang")}</p>
+          <Link href="/user" className="text-sm text-line underline">{tr("mo_trang_dang_nhap")}</Link>
+        </section>
+      );
     case "username":
       return null; // not a tab: AccountMode draws it, with the password confirmation at its end
     case "sessions":

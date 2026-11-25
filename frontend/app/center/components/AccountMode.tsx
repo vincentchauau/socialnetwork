@@ -86,6 +86,7 @@ function AccountBody({ me, config, reload }: BodyProps) {
       />
 
       <ProfileSection />
+      <p className="text-sm"><a href="/user/cv" className="underline">{tr("cv_cua")}: {tr("cv_xem")}</a></p>
       <AccountTabContent tab="sessions" me={me} config={config} onDone={reload} codes={codes} onCodes={showCodes} />
       <ChangeUsername
         username={me.username}

@@ -30,6 +30,24 @@ def rename_table(engine: Engine, old: str, new: str) -> None:
             connection.execute(text(f"ALTER TABLE {old} RENAME TO {new}"))
 
 
+def ensure_foreign_key(engine: Engine, table: str, column: str, ref_table: str, ref_column: str = "id") -> None:
+    """Add the foreign key the model declares, when the table was made before it (create_all only makes new tables).
+
+    The same rule as the model: nothing is deleted by it (no cascade); the code deletes the rows that refer to a row before it.
+    Only adds the key when no key already covers the column.
+    """
+    if engine.dialect.name != "postgresql":  # sqlite (tests) cannot add a key to a table; its tables get the keys when made
+        return
+    inspector = inspect(engine)
+    if table not in inspector.get_table_names() or ref_table not in inspector.get_table_names():
+        return
+    if any(column in fk["constrained_columns"] and fk["referred_table"] == ref_table for fk in inspector.get_foreign_keys(table)):
+        return
+    name = f"fk_{table}_{column}"
+    with engine.begin() as connection:
+        connection.execute(text(f"ALTER TABLE {table} ADD CONSTRAINT {name} FOREIGN KEY ({column}) REFERENCES {ref_table} ({ref_column})"))
+
+
 def ensure_columns(engine: Engine, table: str, columns: dict[str, str]) -> None:
     """Add the columns a table still lacks (`create_all` makes tables but never alters them).
 

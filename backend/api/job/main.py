@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from api.job import applicants, job_descriptions, questions, saved
 from api.job.db import Base, make_engine
 from sn_shared import comments, directory, skills, tags
-from sn_shared.db import ensure_columns, rename_table
+from sn_shared.db import ensure_columns, ensure_foreign_key, rename_table
 from api.job import admin as admin_routes
 from sn_shared.consumer import start_consumer, stop_consumer
 from sn_shared.jwtkeys import require_verification_keys
@@ -48,6 +48,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     rename_table(engine, "job_applicants", "job_applications")  # the name of the table before
     Base.metadata.create_all(engine)
+    ensure_foreign_key(engine, "job_applications", "job_description_id", "job_descriptions")
     ensure_columns(engine, "job_descriptions", JOB_DESCRIPTION_COLUMNS)  # postings made before these columns existed
     comments.ensure_table(engine)  # so is what people say about a thing (`sn_shared.comments`)
     skills.ensure_tables(engine)  # and the skills (`sn_shared.skills`)
