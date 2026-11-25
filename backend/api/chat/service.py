@@ -80,7 +80,10 @@ _ANNOUNCED: dict[tuple[int, str], datetime] = {}  # (room, what) -> when it was 
 
 
 def _secret() -> bytes:
-    return (os.environ.get("WEREWOLF_SECRET") or os.environ.get("JWT_SECRET") or "dev").encode()
+    secret = os.environ.get("WEREWOLF_SECRET") or os.environ.get("JWT_SECRET")
+    if not secret and os.environ.get("APP_ENV") == "production":
+        raise RuntimeError("WEREWOLF_SECRET or JWT_SECRET must be set in production")
+    return (secret or "dev").encode()
 
 
 def game_code(room: Room) -> str:

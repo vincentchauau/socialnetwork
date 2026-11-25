@@ -86,9 +86,8 @@ Notation:
 4. A risky change (password, email, phone, username, second factor, or account deletion) asks the person to sign in again first.
 5. Profile: name, headline, summary, birth date, address, city, region, country, picture, links, experience, education, skills, languages, certifications, projects, and the visibility of each part.
 6. CV: the page `/user/cv` shows your own CV in full, and `/user/cv?u=<name>` shows someone else's, with only the parts the visibility setting allows for that viewer (owner; any signed-in person sees "employers" and "public"; anyone sees "public"). A hidden part is shown as hidden.
-7. CV export: to PDF (the browser print dialog, "Save as PDF") and to JSON (a file with the content of the profile, without the picture or the visibility settings).
-8. CV import: from a JSON file exported by this site. Unknown fields are dropped; a file of another version or another kind is refused. Importing PDF or DOCX files is not supported yet.
-7. Delete account: an account event is published, and every module removes or anonymizes its rows. The deleted user is id `0`.
+7. CV export: to PDF only, through the browser print dialog ("Save as PDF"). There is no JSON export and no CV import (PDF or DOCX import is not supported).
+8. Delete account: an account event is published, and every module removes or anonymizes its rows. The deleted user is id `0`.
 
 ---
 
@@ -246,7 +245,7 @@ The tabs, in order: CRUD descriptions (the employer's job descriptions), Saved d
 
 ### Leaderboard
 
-1. Planned: the top 10 players by wins among the latest 2000 games, this month by default or all time. Not built yet: the leaderboard screen was removed from the code.
+1. The top 10 players by wins among the latest 2000 games, this month by default or all time (`GET /leaderboard?season=month|all`), shown on the Werewolf page.
 
 ---
 
@@ -825,7 +824,7 @@ Typecheck: `tsc --noEmit` passes.
 # 7. Local setup and deploy
 
 ```bash
-cp .env.example .env     # set JWT_SECRET, POSTGRES_PASSWORD, REDIS_PASSWORD, DB_PASSWORD_APP
+cp .env.example .env     # set JWT_SECRET, POSTGRES_PASSWORD, REDIS_PASSWORD, DB_PASSWORD_APP, RABBITMQ_PASSWORD, CALLEAR_SECRET, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
 docker compose --env-file .env -f shared/infra/docker-compose.yml up --build      # http://localhost:8080
 ```
 Outside Docker: `python -m venv .venv`, `pip install -r backend/requirements-dev.txt -e shared/backend`, `cd frontend && npm install && npm run dev`. Camera/mic need HTTPS (localhost excepted).
@@ -840,7 +839,7 @@ Outside Docker: `python -m venv .venv`, `pip install -r backend/requirements-dev
 | `WEREWOLF_SECRET` `WEREWOLF_SNAPSHOT_KEY` `RABBITMQ_*` | signed module calls, saved-game key, queue |
 | `ORDER_TTL_MINUTES` | tunable limits |
 
-Only the four secrets are needed to start.
+Only the eight secrets above are needed to start (compose refuses to start without them).
 
 **Access-token keys:** only `center` signs `sn_token` (JWT `EdDSA`); others verify with public keys (files). Dev: `center` makes a throwaway pair. Real pair:
 ```bash
@@ -869,7 +868,7 @@ Before "done": (1) backend + frontend tests pass and `scripts/smoke.sh` ends `AL
 # 8. Building from nothing
 
 1. First pass: leave out voice/face sign-in, SMS, video calls, Google, passkeys, RabbitMQ, Kafka; `AI_PROVIDER=dummy`
-2. Conventions first: integer ids; person = `user_id`; money = cents; lists = JSON columns; deleted account = user `0`; list routes take a limit (default 20, max 50; chat history up to 200); errors `{"detail": "..."}`; roles `user` / `moderator` / `admin`; cookie `sn_token`
+2. Conventions first: integer ids; person = `user_id`; money = cents; lists = JSON columns; deleted account = user `0`; list routes take a limit (market and most apps: default 20, max 50; chat rooms and members: default 50, max 100; chat history up to 200); errors `{"detail": "..."}`; roles `user` / `moderator` / `admin`; cookie `sn_token`
 3. Order: `sn_shared` + shared kit (theme, `CrudView`, `GalleryView`, `SplitPanel`, `SiteBar`, `PageDock`) → `center` → Database home → simple apps (Face, File, Roulette) → flows (Market, Jobs) → Chat, Werewolf → demo data; each app = tables in `admin.py`, routes, Library, pages
 4. Gate per step: backend test, frontend test, `scripts/smoke.sh`
 5. Write any choice not covered here (exact columns, route payloads, look beyond the measures) into this file before building

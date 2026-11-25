@@ -93,6 +93,9 @@ class RealBiometrics:
     def face_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool:
         import numpy as np
 
+        width = np.dtype(np.float32).itemsize
+        if not stored or not probe or len(stored) % width or len(probe) % width:
+            return False
         template, sample = np.frombuffer(stored, np.float32), np.frombuffer(probe, np.float32)
         if template.shape != sample.shape:
             return False

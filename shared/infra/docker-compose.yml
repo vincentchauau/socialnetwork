@@ -12,7 +12,7 @@ x-hardening: &hardening
 # Shared by every backend. JWT_SECRET is deliberately NOT here: only the process that hosts the center gets it.
 x-backend-env: &backend-env
   APP_ENV: ${APP_ENV:-development}
-  COOKIE_SECURE: ${COOKIE_SECURE:-0}
+  COOKIE_SECURE: ${COOKIE_SECURE:-1}
 
 services:
   postgres:

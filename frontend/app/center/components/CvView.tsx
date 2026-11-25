@@ -152,7 +152,7 @@ function buildBlocks(cv: Cv, hidden: (part: string) => boolean, style: CvStyle):
   if (!hidden("links") && cv.links.length > 0)
     side.push(["links", <Section key="links" title={tr("cv_lien_ket")} ornate={ornate}>
       {cv.links.map((item, index) => (
-        <a key={index} href={String(item.url ?? "")} rel="noopener noreferrer" target="_blank" style={{ display: "block" }}>
+        <a key={index} href={webHref(item.url)} rel="noopener noreferrer" target="_blank" style={{ display: "block" }}>
           {String(item.label || item.url || "")}
           {item.label && item.url ? <span className="muted"> · {String(item.url)}</span> : null}
         </a>
@@ -162,6 +162,12 @@ function buildBlocks(cv: Cv, hidden: (part: string) => boolean, style: CvStyle):
   // Classic and minimal keep the reading order in one column; modern puts the side sections on the left.
   if (style === "modern") return { main: main.map(([, node]) => node), side: side.map(([, node]) => node) };
   return { main: [...main, ...side].map(([, node]) => node), side: [] };
+}
+
+/** The address as a link only when it is http(s); anything else (javascript:, data:) gets no href. */
+function webHref(value: unknown): string | undefined {
+  const text = String(value ?? "");
+  return /^https?:\/\//i.test(text) ? text : undefined;
 }
 
 /** A date range; an open end reads as "present". */
@@ -192,7 +198,7 @@ function Entry({ title, sub, when, text, url = "" }: { title: string; sub: strin
         {dates ? <span style={{ fontSize: "0.85rem", opacity: 0.7, whiteSpace: "nowrap" }}>{dates}</span> : null}
       </div>
       {text ? <p style={{ margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{text}</p> : null}
-      {url ? <a href={url} rel="noopener noreferrer" target="_blank" style={{ fontSize: "0.85rem", wordBreak: "break-all" }}>{url}</a> : null}
+      {url ? <a href={webHref(url)} rel="noopener noreferrer" target="_blank" style={{ fontSize: "0.85rem", wordBreak: "break-all" }}>{url}</a> : null}
     </div>
   );
 }

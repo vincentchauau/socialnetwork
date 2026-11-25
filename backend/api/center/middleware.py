@@ -18,7 +18,11 @@ class SecurityHeadersMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        no_store = scope.get("path", "").startswith("/auth/")
+        path = scope.get("path", "")
+        root = scope.get("root_path", "")
+        if root and path.startswith(root):
+            path = path[len(root):]
+        no_store = path.startswith("/auth/")
 
         async def add_headers(message: Message) -> None:
             if message["type"] == "http.response.start":

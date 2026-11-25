@@ -49,7 +49,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
     @app.middleware("http")
     async def ensure_upload_length(request: Request, call_next) -> Response:
         # Chunked bodies carry no Content-Length and would bypass size checks.
-        limit = UPLOAD_LIMITS.get(request.url.path) if request.method == "POST" else None
+        path = request.scope.get("path", "")
+        root = request.scope.get("root_path", "")
+        if root and path.startswith(root):
+            path = path[len(root):]
+        limit = UPLOAD_LIMITS.get(path) if request.method == "POST" else None
         if limit is not None:
             declared = request.headers.get("content-length", "")
             if not declared.isdigit():

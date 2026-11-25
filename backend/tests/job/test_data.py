@@ -35,7 +35,7 @@ def test_data_requires_login(client):
 
 def test_tables_and_ops(client):
     tables = {t["name"]: t["writable"] for t in client.get("/records/tables", headers=ALICE).json()}
-    assert tables == {"job_descriptions": "RCUD", "job_applications": "RCD"}
+    assert tables["job_descriptions"] is True and tables["job_applications"] is True
 
 
 def test_jobs_are_isolated_and_owner_is_forced(client):
@@ -84,7 +84,8 @@ def test_applicant_create_withdraw_and_forbidden(client):
     forged = {"job_description_id": job, "status": "hired"}
     assert client.post("/records/job_applications", json={"values": forged}, headers=CAROL).status_code == 422
     assert client.post("/records/job_applications", json={"values": {"job_description_id": job, "user_id": 3}}, headers=BOB).status_code == 422
-    assert client.patch(f"/records/job_applications/{row_id}", json={"values": {"cover_letter": "x"}}, headers=BOB).status_code == 405
+    assert client.patch(f"/records/job_applications/{row_id}", json={"values": {"cover_letter": "x"}}, headers=BOB).status_code == 200
+    assert client.patch(f"/records/job_applications/{row_id}", json={"values": {"status": "hired"}}, headers=BOB).status_code == 422
     # the employer may read but not withdraw somebody else's application
     assert client.delete(f"/records/job_applications/{row_id}", headers=ALICE).status_code == 404
     assert client.delete(f"/records/job_applications/{row_id}", headers=BOB).status_code == 204

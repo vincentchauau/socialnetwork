@@ -154,6 +154,14 @@ def update_job_description(
         check_salary_range(salary_min, salary_max)
     except ValueError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
+    if changes.get("status") == "open" and job.status != "open":
+        open_count = db.scalar(
+            select(func.count()).select_from(JobDescription).where(
+                JobDescription.owner_id == user.user_id, JobDescription.status == "open"
+            )
+        )
+        if (open_count or 0) >= MAX_OPEN_JOBS_PER_USER:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Too many open jobs; close one first")
     for field, value in changes.items():
         setattr(job, field, value)
     if "skills_required" in changes or "skills_preferred" in changes:

@@ -384,7 +384,7 @@ x-hardening: &hardening
 # Shared by every backend. JWT_SECRET is deliberately NOT here: only the process that hosts the center gets it.
 x-backend-env: &backend-env
   APP_ENV: ${{APP_ENV:-development}}
-  COOKIE_SECURE: ${{COOKIE_SECURE:-0}}
+  COOKIE_SECURE: ${{COOKIE_SECURE:-1}}
 
 services:
   postgres:
@@ -596,6 +596,7 @@ server {{
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "SAMEORIGIN" always;  # the chat is shown in a frame under the page of each app
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000" always;  # only honoured over HTTPS
 
     # Internal subrequest used by `auth_request`: valid cookie -> 200, otherwise 401.
     location = /_auth {{

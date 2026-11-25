@@ -58,6 +58,8 @@ def create_app(
 
     app = FastAPI(title="socialnetwork market", lifespan=lifespan)
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
+    if payment_provider is None and os.environ.get("APP_ENV") == "production":
+        raise RuntimeError("No payment provider is configured: the stub must not run in production")
     app.state.payment_provider = payment_provider or FakePaymentProvider()
     app.state.clock = clock or utcnow
     if order_ttl_minutes is None:
