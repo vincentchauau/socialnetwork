@@ -8,6 +8,7 @@ export type ListKey = "links" | "experience" | "education" | "skills" | "languag
 export interface Profile {
   name: string | null;
   address: string | null;
+  phone?: string | null;
   headline: string | null;
   summary: string | null;
   birth_date: string | null;

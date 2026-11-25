@@ -496,7 +496,11 @@
     "cv_muc_intermediate": "Trung bình",
     "cv_muc_advanced": "Nâng cao",
     "cv_muc_expert": "Chuyên gia",
-    "cv_nam": "năm"
+    "cv_nam": "năm",
+    "cv_kieu": "Kiểu CV",
+    "cv_kieu_classic": "Cổ điển",
+    "cv_kieu_modern": "Hiện đại (hai cột)",
+    "cv_kieu_minimal": "Tối giản"
   },
   "en": {
     "chua_co_thay_doi_nao_dien": "No changes yet: fill in a tab, then press Change account.",
@@ -995,6 +999,10 @@
     "cv_muc_intermediate": "Intermediate",
     "cv_muc_advanced": "Advanced",
     "cv_muc_expert": "Expert",
-    "cv_nam": "yrs"
+    "cv_nam": "yrs",
+    "cv_kieu": "CV style",
+    "cv_kieu_classic": "Classic",
+    "cv_kieu_modern": "Modern (two columns)",
+    "cv_kieu_minimal": "Minimal"
   }
 }

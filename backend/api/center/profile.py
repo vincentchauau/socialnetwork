@@ -177,6 +177,7 @@ class ProfileBody(BaseModel):
 class ProfileOut(BaseModel):
     name: str | None = None
     address: str | None = None
+    phone: str | None = None  # read-only here: set at sign-up or by the phone flow, shown under the "contact" part
     headline: str | None = None
     summary: str | None = None
     birth_date: date | None = None
@@ -224,6 +225,7 @@ CV_PART_FIELDS: dict[str, tuple[str, ...]] = {
     "address": ("address",),
     "birth_date": ("birth_date",),
     "location": ("city", "region", "country"),
+    "contact": ("phone",),
     "avatar": ("avatar_url",),
     "headline": ("headline",),
     "summary": ("summary",),

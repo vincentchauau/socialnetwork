@@ -58,9 +58,7 @@ def test_each_name_has_the_same_adult_profile_every_time():
     assert (date.today() - first["birth_date"]).days > 18 * 365
 
 
-def test_the_seeded_people_carry_their_profile_and_announce_its_public_part(client):
-    import json
-
+def test_the_seeded_people_carry_their_profile_and_announce_nothing(client):
     from api.center.models import AccountEvent
 
     with client.app.state.session_factory() as db:
@@ -68,7 +66,6 @@ def test_the_seeded_people_carry_their_profile_and_announce_its_public_part(clie
         db.commit()
         person = db.scalar(select(User).where(User.kind == "virtual").order_by(User.id))
         assert person.city and person.birth_date and person.persona_role and person.interests
-        event = db.scalar(select(AccountEvent).where(AccountEvent.user_id == person.id))
-        body = json.loads(event.payload)
-        assert body["interests"] == person.interests and body["birth_year"] == person.birth_date.year
-        assert body["persona_role"] == person.persona_role and body["speaking_style"] == person.speaking_style  # the agent needs the script
+        assert person.speaking_style  # the agent reads the script from the row
+        # Virtual people are read in place by the other apps: no account event is written for them (see virtual.py).
+        assert db.scalar(select(AccountEvent).where(AccountEvent.user_id == person.id)) is None

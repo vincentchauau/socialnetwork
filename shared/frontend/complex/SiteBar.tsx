@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo } from "react";
 
 import { LanguageSwitcher, ThemePicker } from "../compounds/SiteSettings";
 import { LocaleProvider, useLocale } from "../lib/i18n";
@@ -10,7 +10,6 @@ import { useSession } from "../lib/useSession";
 import { useT } from "../locales";
 import Select from "../elements/Select";
 import { AppsMenuExtras } from "../compounds/appsMenuExtras";
-import { CHAT_API, apiFetch } from "../api";
 import { BORDER } from "../lib/theme";
 
 const SITE_LOCALES = ["vi", "en"];
@@ -78,7 +77,6 @@ function Bar({ href }: { href: string }) {
           ))}
         </Select>
       </div>
-      <UnreadBadge />
       {auth.status === "signed-in" ? (
         <span style={{ color: "inherit", fontSize: "0.9rem", whiteSpace: "nowrap" }}>
           {t("site.greeting")}, {auth.user.username}
@@ -89,50 +87,5 @@ function Bar({ href }: { href: string }) {
         <ThemePicker inline expanded labels={{ theme: t("site.theme"), color: t("site.themeColor"), count: t("site.themeCount") }} />
       </div>
     </nav>
-  );
-}
-
-const POLL_MS = 60_000;
-
-interface Summary {
-  messages: number;
-  requests: number;
-  notices: number;
-}
-
-/** What waits for a signed-in person in the chat (unread messages, requests to write, notices), as a number next to the name of the page. */
-function UnreadBadge() {
-  const auth = useSession();
-  const { t } = useT();
-  const [waiting, setWaiting] = useState(0);
-  const signedIn = auth.status === "signed-in";
-
-  useEffect(() => {
-    if (!signedIn) return;
-    let current = true;
-    const look = () =>
-      apiFetch<Summary>(`${CHAT_API}/inbox/summary`).then(
-        (summary) => current && setWaiting((summary?.messages ?? 0) + (summary?.requests ?? 0) + (summary?.notices ?? 0)),
-        () => undefined, // the chat is not there (or not reachable): no number, and the page goes on
-      );
-    void look();
-    const timer = setInterval(look, POLL_MS);
-    window.addEventListener("focus", look);
-    return () => {
-      current = false;
-      clearInterval(timer);
-      window.removeEventListener("focus", look);
-    };
-  }, [signedIn]);
-
-  if (waiting <= 0) return null;
-  return (
-    <a
-      href="/chat"
-      aria-label={`${t("site.inbox")}: ${t("site.inboxWaiting").replace("{n}", String(waiting))}`}
-      style={{ marginLeft: 8, fontSize: "0.8rem", fontWeight: 700, color: "inherit", textDecoration: "none", border: `1px solid ${BORDER}`, borderRadius: 999, padding: "1px 8px" }}
-    >
-      💬 {waiting > 99 ? "99+" : waiting}
-    </a>
   );
 }
