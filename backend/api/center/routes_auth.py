@@ -40,7 +40,7 @@ MAX_HANDLE_ATTEMPTS = 5
 
 # Verified against when the username is unknown, so response time does not
 # reveal whether an account exists.
-_DUMMY_HASH = hash_password("dummy-password")
+DUMMY_HASH = hash_password("dummy-password")
 
 
 def me_out(user: User, token: str) -> MeOut:
@@ -93,7 +93,7 @@ def register(
     return begin_session(response, request, db, user, settings_of(request), "password")
 
 
-def _login_throttles(request: Request, ip: str, name: str) -> tuple[list, list[str]]:
+def login_throttles(request: Request, ip: str, name: str) -> tuple[list, list[str]]:
     """(throttles, keys) in matching order: per ip+user, per ip, per account (all IPs)."""
     state = request.app.state
     return (
@@ -107,12 +107,12 @@ def login(
     body: LoginBody, request: Request, response: Response, db: Session = Depends(get_db)
 ) -> SessionOut | MfaRequired:
     ip, name = client_ip(request), key_of(body.username)  # throttles and lookup use the key
-    throttles, keys = _login_throttles(request, ip, name)
+    throttles, keys = login_throttles(request, ip, name)
     if any(t.is_blocked(k) for t, k in zip(throttles, keys)):
         audit.warning("login locked user=%r ip=%s", name, ip)
         raise too_many()
     user = db.scalar(select(User).where(func.lower(User.username) == name))
-    password_ok = verify_password(body.password, user.password_hash if user else _DUMMY_HASH)
+    password_ok = verify_password(body.password, user.password_hash if user else DUMMY_HASH)
     if user is None or not password_ok:
         for throttle, key in zip(throttles, keys):
             throttle.record(key)
@@ -130,7 +130,7 @@ def login(
     return result
 
 
-def _reject_refresh(settings, reason: str, ip: str) -> JSONResponse:
+def reject_refresh(settings, reason: str, ip: str) -> JSONResponse:
     audit.warning("refresh rejected ip=%s reason=%s", ip, reason)
     rejected = JSONResponse({"detail": "Invalid refresh token"}, status_code=status.HTTP_401_UNAUTHORIZED)
     clear_session_cookies(rejected, settings)
@@ -145,18 +145,18 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db))
         raise too_many()
     token = request.cookies.get(REFRESH_COOKIE)
     if not token:
-        return _reject_refresh(settings, "missing", ip)
+        return reject_refresh(settings, "missing", ip)
     try:
         claims = decode_claims(token, "refresh")
     except AuthError:
-        return _reject_refresh(settings, "invalid", ip)
+        return reject_refresh(settings, "invalid", ip)
     user = db.get(User, int(claims["sub"]))
     if user is None or user.token_version != int(claims["ver"]):
-        return _reject_refresh(settings, "revoked", ip)
+        return reject_refresh(settings, "revoked", ip)
     sid = claims.get("sid")
     row = usersessions.live_session(db, sid, user.id) if sid else None
     if row is None:  # revoked, unknown, or a pre-sessions token without a sid (no longer accepted)
-        return _reject_refresh(settings, "revoked", ip)
+        return reject_refresh(settings, "revoked", ip)
     usersessions.touch(db, row)
     audit.info("refresh ok user=%r ip=%s", user.username, ip)
     return issue_session(response, user, settings, sid)
@@ -183,7 +183,7 @@ def me(session: AuthSession = Depends(current_session)) -> MeOut:
     return me_out(session.user, session.token)
 
 
-def _verify_google(request: Request, id_token: str) -> GoogleIdentity:
+def verify_google(request: Request, id_token: str) -> GoogleIdentity:
     verifier = request.app.state.google_verifier
     if verifier is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, GOOGLE_NOT_CONFIGURED)
@@ -200,14 +200,14 @@ def verify_google_or_throttle(request: Request, id_token: str) -> GoogleIdentity
     if throttle.is_blocked(ip):
         raise too_many()
     try:
-        return _verify_google(request, id_token)
+        return verify_google(request, id_token)
     except HTTPException as exc:
         if exc.status_code == status.HTTP_401_UNAUTHORIZED:
             throttle.record(ip)
         raise
 
 
-def _create_google_user(db: Session, identity: GoogleIdentity) -> User:
+def create_google_user(db: Session, identity: GoogleIdentity) -> User:
     for _ in range(MAX_HANDLE_ATTEMPTS):
         handle = unique_handle(
             identity.email, lambda h: usernames.unavailable(db, h)
@@ -245,7 +245,7 @@ def google_login(
         throttle = request.app.state.register_throttle
         if not throttle.check_and_record(ip):
             raise too_many()
-        user = _create_google_user(db, identity)
+        user = create_google_user(db, identity)
     audit.info("google %s user=%r ip=%s", "register" if created else "login", user.username, ip)
     return start_login(
         response, user, settings_of(request), biometrics_available(request), request=request, db=db, method="google"

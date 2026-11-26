@@ -48,7 +48,7 @@ class Result:
     skipped: dict[str, str] = field(default_factory=dict)  # group -> why nothing was added
 
 
-def _create_tables(module: str, engine: Engine) -> None:
+def create_tables(module: str, engine: Engine) -> None:
     """Only the tables that are missing (an existing table is never touched)."""
     if module == "job":
         from api.job.db import Base
@@ -88,7 +88,7 @@ def seed(url: str | None = None, dry_run: bool = False, embedder: str = "env", n
         engines[module] = by_url.setdefault(target, make_engine(target))
     if not dry_run:
         for module in MODULES[1:]:
-            _create_tables(module, engines[module])
+            create_tables(module, engines[module])
     with Session(engines["center"]) as db:
         people = load_people(db)
     if not people:

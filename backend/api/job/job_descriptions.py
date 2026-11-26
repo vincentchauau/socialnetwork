@@ -38,7 +38,7 @@ LIST_FIELDS = ("skills_required", "skills_preferred", "languages")
 router = APIRouter()
 
 
-def _index_skills(db: Session, job: JobDescription) -> None:
+def index_skills(db: Session, job: JobDescription) -> None:
     """The skills of the job go into the catalog (for suggestions) and their keys into the row (for search by skill)."""
     names = [item["name"] for item in (job.skills_required or []) + (job.skills_preferred or [])]
     shared_skills.register(db, names)
@@ -71,7 +71,7 @@ def create_job_description(
     job = JobDescription(owner_id=user.user_id, **fields)
     db.add(job)
     db.flush()
-    _index_skills(db, job)
+    index_skills(db, job)
     db.commit()
     return detail(db, user, job)
 
@@ -165,7 +165,7 @@ def update_job_description(
     for field, value in changes.items():
         setattr(job, field, value)
     if "skills_required" in changes or "skills_preferred" in changes:
-        _index_skills(db, job)
+        index_skills(db, job)
     db.commit()
     return detail(db, user, job)
 

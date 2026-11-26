@@ -319,7 +319,7 @@ def test_scan_ignores_unreadable_entries(tmp_path, monkeypatch):
 
 def test_spool_from_stream(tmp_path, monkeypatch):
     monkeypatch.setenv("FILE_DATA_DIR", str(tmp_path))
-    path, size = files._spool(io.BytesIO(b"abc"), 10)
+    path, size = files.spool(io.BytesIO(b"abc"), 10)
     assert size == 3 and path.read_bytes() == b"abc"
 
 

@@ -174,7 +174,7 @@ def kafka_bootstrap() -> str:
     return os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
 
 
-async def _quiet_stop(client) -> None:
+async def quiet_stop(client) -> None:
     with contextlib.suppress(BaseException):
         await client.stop()
 
@@ -221,7 +221,7 @@ class EventLog:
                 await asyncio.wait_for(producer.start(), CONNECT_TIMEOUT_SECONDS + 0.5)
                 await asyncio.wait_for(ensure_topic(self.topic), CONNECT_TIMEOUT_SECONDS + 1)
             except BaseException:
-                await _quiet_stop(producer)
+                await quiet_stop(producer)
                 raise
             self._producer = producer
             return producer
@@ -229,7 +229,7 @@ class EventLog:
     async def _reset(self) -> None:
         producer, self._producer = self._producer, None
         if producer is not None:
-            await _quiet_stop(producer)
+            await quiet_stop(producer)
 
     async def publish(self, key: str, value: bytes) -> tuple[int, int]:
         try:
@@ -267,7 +267,7 @@ class EventLog:
         except Exception as exc:
             raise Unavailable("kafka") from exc
         finally:
-            await _quiet_stop(consumer)
+            await quiet_stop(consumer)
 
     async def close(self) -> None:
         await self._reset()

@@ -27,7 +27,7 @@ class ChatMessage:
 
 
 # Ký tự điều khiển và ký tự đổi chiều chữ / vô hình (dùng để giả mạo hiển thị); giữ ZWJ và variation selector cho emoji.
-_STRIPPED = {0x200B, 0x200E, 0x200F, 0x2028, 0x2029, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+STRIPPED = {0x200B, 0x200E, 0x200F, 0x2028, 0x2029, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
              0x2060, 0x2066, 0x2067, 0x2068, 0x2069, 0xFEFF, 0x061C}
 
 
@@ -36,7 +36,7 @@ def clean(text: str) -> str:
 
     Nội dung luôn là văn bản thuần: server không escape HTML, client phải hiển thị như text (không innerHTML).
     """
-    text = "".join(c for c in text if c.isspace() or (unicodedata.category(c) != "Cc" and ord(c) not in _STRIPPED))
+    text = "".join(c for c in text if c.isspace() or (unicodedata.category(c) != "Cc" and ord(c) not in STRIPPED))
     text = " ".join(text.split())
     if not text:
         raise ChatError("Tin nhắn không được để trống")

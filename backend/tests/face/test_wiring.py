@@ -46,9 +46,9 @@ def test_stop_consumer_variants():
         async def close(self):
             calls.append("async")
 
-    asyncio.run(main._stop_account_consumer(Sync()))
-    asyncio.run(main._stop_account_consumer(Async()))
-    asyncio.run(main._stop_account_consumer(object()))
+    asyncio.run(main.stop_account_consumer(Sync()))
+    asyncio.run(main.stop_account_consumer(Async()))
+    asyncio.run(main.stop_account_consumer(object()))
     assert calls == ["sync", "async"]
 
 

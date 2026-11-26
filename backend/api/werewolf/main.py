@@ -23,10 +23,10 @@ from sn_shared.jwtkeys import require_verification_keys
 DEFAULT_DATABASE_URL = "sqlite:///./werewolf.db"
 
 
-_stop_account_consumer = stop_consumer
+stop_account_consumer = stop_consumer
 
 
-def _played_finished_game(db, user):
+def played_finished_game(db, user):
     return and_(Game.status == FINISHED, Game.player_ids.like(f"%|{int(user.user_id)}|%"))
 
 
@@ -52,7 +52,7 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
                 with suppress(asyncio.CancelledError):
                     await task
             if handle is not None:
-                await _stop_account_consumer(handle)
+                await stop_account_consumer(handle)
 
     app = FastAPI(title="socialnetwork werewolf", lifespan=lifespan)
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
@@ -70,6 +70,6 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
     app.include_router(internal_router, dependencies=access_dependencies(public=True))
     # `state` (LargeBinary) is always masked and not writable: it holds every role and secret action of a live game.
     # /data: a person reads only the finished games they played (never `state`).
-    specs = [TableSpec(Game, secret_columns=("state",), scope=_played_finished_game, user_hidden_columns=("state",))]
+    specs = [TableSpec(Game, secret_columns=("state",), scope=played_finished_game, user_hidden_columns=("state",))]
     mount_crud(app, specs, database="werewolf")
     return app

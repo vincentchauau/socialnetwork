@@ -83,7 +83,7 @@ def create_token(
     return jwt.encode(claims, signer.private_key, algorithm=ACCESS_ALGORITHM, headers={"kid": signer.kid})
 
 
-def _verification_key(token: str):
+def verification_key(token: str):
     """The public key named by the token's `kid`; only alg EdDSA is ever accepted (no HS256/none confusion)."""
     header = jwt.get_unverified_header(token)
     if header.get("alg") != ACCESS_ALGORITHM:
@@ -99,7 +99,7 @@ def decode_token(token: str) -> TokenPayload:
     try:
         claims = jwt.decode(
             token,
-            _verification_key(token),
+            verification_key(token),
             algorithms=[ACCESS_ALGORITHM],
             issuer=ISSUER,
             options={"require": ["exp", "iss", "sub"]},

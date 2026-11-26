@@ -114,11 +114,11 @@ class TableSpec:
         for target in self.refs.values():
             if len(target) not in (2, 3) or not all(isinstance(part, str) and part for part in target):
                 raise ValueError("a ref is (table, label column) or (table, label column, key column)")
-        self._check_media(names)
+        self.check_media(names)
         if self.owner is not None and self.owner not in names:
             raise ValueError(f"unknown owner column on {self.model.__table__.name}: {self.owner}")
 
-    def _check_media(self, names: set[str]) -> None:
+    def check_media(self, names: set[str]) -> None:
         where = self.model.__table__.name
         unknown = set(self.media) - names
         if unknown:
@@ -176,7 +176,7 @@ def _bad(detail: str) -> HTTPException:
     return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail)
 
 
-def _coerce(name: str, kind: str, value: Any) -> Any:
+def coerce(name: str, kind: str, value: Any) -> Any:
     try:
         if kind == "bool":
             if isinstance(value, bool):
@@ -208,7 +208,7 @@ def _coerce(name: str, kind: str, value: Any) -> Any:
         raise _bad(f"Column '{name}' expects {kind}") from None
 
 
-def _escape_like(text: str) -> str:
+def escape_like(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
@@ -308,7 +308,7 @@ class _Admin:
         term = q.strip()
         if not term:
             return {"values": [], "options": []} if is_ref else {"values": []}
-        pattern = f"%{_escape_like(term)}%"
+        pattern = f"%{escape_like(term)}%"
         if is_ref:
             ref_table, label_col, key_col = self.refs[name]
             ref = table(ref_table, column(key_col), column(label_col))
@@ -354,7 +354,7 @@ class _Admin:
         for column, part in zip(self.pk, parts):
             kind = _kind(column)
             try:
-                value = _coerce(column.name, kind, int(part) if kind == "int" else part)
+                value = coerce(column.name, kind, int(part) if kind == "int" else part)
             except (HTTPException, ValueError):
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found") from None
             clause.append(column == value)
@@ -379,7 +379,7 @@ class _Admin:
                     raise _bad(f"Column '{name}' must not be null")
                 cleaned[name] = None
             else:
-                cleaned[name] = _coerce(name, _kind(column), raw)
+                cleaned[name] = coerce(name, _kind(column), raw)
         if creating:
             for column in self.columns:
                 if column.name in cleaned or self.is_readonly(column) or self.is_secret(column):
@@ -394,7 +394,7 @@ class _Admin:
 BATCH_MAX = 200  # rows per batch request
 
 
-def _db_error(exc: SQLAlchemyError, db: Session) -> HTTPException:
+def db_error(exc: SQLAlchemyError, db: Session) -> HTTPException:
     db.rollback()
     if isinstance(exc, IntegrityError):
         return HTTPException(status.HTTP_409_CONFLICT, "Conflicts with an existing row or a constraint")
@@ -404,7 +404,7 @@ def _db_error(exc: SQLAlchemyError, db: Session) -> HTTPException:
     return HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Database error")
 
 
-def _unknown_table() -> HTTPException:
+def unknown_table() -> HTTPException:
     return HTTPException(status.HTTP_404_NOT_FOUND, "Unknown table")
 
 
@@ -412,7 +412,7 @@ def _not_found() -> HTTPException:
     return HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
 
 
-def _fetch_one(db: Session, admin: _Admin, clause: list) -> Any:
+def fetch_one(db: Session, admin: _Admin, clause: list) -> Any:
     row = db.execute(select(*admin.table.columns).where(*clause)).mappings().first()
     if row is None:
         raise _not_found()
@@ -422,22 +422,22 @@ def _fetch_one(db: Session, admin: _Admin, clause: list) -> Any:
 FILTER_PREFIX = "filter_"
 
 
-def _filters_of(request: Request) -> dict[str, str]:
+def filters_of(request: Request) -> dict[str, str]:
     """The `filter_<column>=<value>` query parameters of a list request."""
     return {k[len(FILTER_PREFIX):]: v for k, v in request.query_params.items() if k.startswith(FILTER_PREFIX)}
 
 
-def _filter_conditions(admin: _Admin, filters: dict[str, str]) -> list:
+def filter_conditions(admin: _Admin, filters: dict[str, str]) -> list:
     conditions = []
     for name, raw in filters.items():
         col = admin.by_name.get(name)
         if col is None or admin.is_secret(col) or _kind(col) in ("json", "bytes"):
             raise _bad(f"Cannot filter on column '{name}'")
-        conditions.append(col == _coerce(name, _kind(col), raw))
+        conditions.append(col == coerce(name, _kind(col), raw))
     return conditions
 
 
-def _sort_order(admin: _Admin, sort: str | None) -> list:
+def sort_order(admin: _Admin, sort: str | None) -> list:
     if not sort:
         return [c.desc() for c in admin.pk]
     name = sort.lstrip("-") if sort.startswith("-") else sort
@@ -459,44 +459,44 @@ def _list_rows(
     admin: _Admin, db: Session, q: str, offset: int, limit: int, base: list,
     sort: str | None = None, filters: dict[str, str] | None = None,
 ) -> dict:
-    conditions = [*base, *_filter_conditions(admin, filters or {})]
-    order = _sort_order(admin, sort)
+    conditions = [*base, *filter_conditions(admin, filters or {})]
+    order = sort_order(admin, sort)
     text_columns = [c for c in admin.columns if _kind(c) in ("string", "text") and not admin.is_secret(c)]
     for term in _terms(q):
         name, _, value = term.partition(":")
         column = next((c for c in text_columns if c.name == name.strip()), None) if value.strip() else None
         if column is not None:
-            conditions.append(column.ilike(f"%{_escape_like(value.strip())}%", escape="\\"))
+            conditions.append(column.ilike(f"%{escape_like(value.strip())}%", escape="\\"))
             continue
         if not text_columns:
             return {"total": 0, "rows": []}
-        escaped = _escape_like(term)
+        escaped = escape_like(term)
         patterns = [f"%{escaped}%"] if not term.isalnum() or (len(term) >= SHORT_TERM_LENGTH and not term.isdigit()) else [escaped, f"{escaped} %", f"% {escaped}", f"% {escaped} %"]
         conditions.append(or_(*[c.ilike(pattern, escape="\\") for c in text_columns for pattern in patterns]))
     total = db.scalar(select(func.count()).select_from(admin.table).where(*conditions)) or 0
     rows = db.execute(select(*admin.table.columns).where(*conditions).order_by(*order).offset(offset).limit(limit))
     out = [admin.out(r) for r in rows.mappings()]
-    return _with_labels({"total": total, "rows": out}, admin, db, out)
+    return with_labels({"total": total, "rows": out}, admin, db, out)
 
 
-def _with_labels(payload: dict, admin: _Admin, db: Session, rows: list[dict]) -> dict:
+def with_labels(payload: dict, admin: _Admin, db: Session, rows: list[dict]) -> dict:
     labels = admin.labels_for(db, rows) if admin.refs and rows else {}
     return {**payload, "labels": labels} if labels else payload
 
 
-def _row_payload(admin: _Admin, db: Session, row: Any) -> dict:
+def row_payload(admin: _Admin, db: Session, row: Any) -> dict:
     out = admin.out(row)
-    return _with_labels(out, admin, db, [out])
+    return with_labels(out, admin, db, [out])
 
 
-def _insert_row(admin: _Admin, db: Session, values: dict) -> Any:
+def insert_row(admin: _Admin, db: Session, values: dict) -> Any:
     try:
         result = db.execute(insert(admin.table).values(**values))
         clause = [c == v for c, v in zip(admin.pk, result.inserted_primary_key)]
-        row = _fetch_one(db, admin, clause)
+        row = fetch_one(db, admin, clause)
         db.commit()
     except SQLAlchemyError as exc:
-        raise _db_error(exc, db) from None
+        raise db_error(exc, db) from None
     return row
 
 
@@ -505,9 +505,9 @@ def _update_row(admin: _Admin, db: Session, clause: list, values: dict) -> Any:
         if values:
             db.execute(update(admin.table).where(*clause).values(**values))
         db.commit()
-        return _fetch_one(db, admin, clause)
+        return fetch_one(db, admin, clause)
     except SQLAlchemyError as exc:
-        raise _db_error(exc, db) from None
+        raise db_error(exc, db) from None
 
 
 def _delete_row(admin: _Admin, db: Session, request: Request, user: TokenPayload, clause: list, row: Any) -> None:
@@ -522,7 +522,7 @@ def _delete_row(admin: _Admin, db: Session, request: Request, user: TokenPayload
         db.rollback()
         raise
     except SQLAlchemyError as exc:
-        raise _db_error(exc, db) from None
+        raise db_error(exc, db) from None
     if after_commit is not None:
         after_commit()
 
@@ -537,7 +537,7 @@ def update_row(admin: _Admin, db: Session, user: TokenPayload, pk: str, body: di
             raise HTTPException(status.HTTP_405_METHOD_NOT_ALLOWED, "Table is not editable for people")
         clause = [*admin.pk_clause(pk), admin.table.c[admin.spec.owner] == user.user_id]
     values = admin.clean_values(body.get("values", {}), creating=False)
-    _fetch_one(db, admin, clause)
+    fetch_one(db, admin, clause)
     row = _update_row(admin, db, clause, values)
     logger.info("%s update user_id=%s table=%s pk=%s", "admin" if as_admin else "data", user.user_id, admin.name, pk)
     return admin.out(row)
@@ -547,7 +547,7 @@ def _audit(user: TokenPayload, action: str, admin: _Admin, pk: str, *, as_admin:
     logger.info("%s %s user_id=%s table=%s pk=%s", "admin" if as_admin else "data", action, user.user_id, admin.name, pk)
 
 
-def _excel_rows(data: bytes) -> list[dict]:
+def excel_rows(data: bytes) -> list[dict]:
     try:
         return recordfiles.read_excel(data, BATCH_MAX)
     except recordfiles.FileRefused as exc:
@@ -567,9 +567,9 @@ def _exists(admin: _Admin, db: Session, key: Any) -> bool:
     return key is not None and pk_column is not None and db.execute(select(pk_column).where(pk_column == key)).first() is not None
 
 
-def _plan_import(admin: _Admin, data: bytes, db: Session) -> dict:
+def plan_import(admin: _Admin, data: bytes, db: Session) -> dict:
     """What an import would do, row by row: whether its id is already in the table (then the person chooses to overwrite it or not)."""
-    rows = _excel_rows(data)
+    rows = excel_rows(data)
     plan = []
     for index, values in enumerate(rows):
         key = _key_of(admin, values)
@@ -577,7 +577,7 @@ def _plan_import(admin: _Admin, data: bytes, db: Session) -> dict:
     return {"rows": plan, "new": sum(1 for r in plan if not r["exists"]), "existing": sum(1 for r in plan if r["exists"]), "data": rows}
 
 
-def _apply_import(admin: _Admin, rows: list[dict], overwrite: bool, user: TokenPayload, db: Session) -> dict:
+def apply_import(admin: _Admin, rows: list[dict], overwrite: bool, user: TokenPayload, db: Session) -> dict:
     """Creates the rows of an import. A row whose id is in the table is overwritten only when `overwrite` is set; otherwise skipped."""
     results = []
     for index, values in enumerate(rows):
@@ -594,7 +594,7 @@ def _apply_import(admin: _Admin, rows: list[dict], overwrite: bool, user: TokenP
                 _audit(user, "update", admin, str(key), as_admin=True)
                 results.append({"index": index, "status": "updated", "id": key})
             else:
-                row = _insert_row(admin, db, admin.clean_values(values, creating=True))
+                row = insert_row(admin, db, admin.clean_values(values, creating=True))
                 _audit(user, "create", admin, admin.pk_text(row), as_admin=True)
                 results.append({"index": index, "status": "created", "id": key if key is not None else admin.pk_text(row)})
         except HTTPException as exc:
@@ -628,7 +628,7 @@ def records_router(
     def find(name: str, user: TokenPayload, as_admin: bool) -> _Admin:
         found = (full if as_admin else own).get(name)
         if found is None or user.group not in found.spec.groups:
-            raise _unknown_table()
+            raise unknown_table()
         return found
 
     def require_write(admin: _Admin, as_admin: bool) -> None:
@@ -661,7 +661,7 @@ def records_router(
     def fetch_row(table: str, pk: str, scope: str | None, user: TokenPayload, db: Session) -> dict:
         as_admin = admin_view(user, scope)
         admin = find(table, user, as_admin)
-        return _row_payload(admin, db, _fetch_one(db, admin, [*admin.pk_clause(pk), *visible(admin, db, user, as_admin)]))
+        return row_payload(admin, db, fetch_one(db, admin, [*admin.pk_clause(pk), *visible(admin, db, user, as_admin)]))
 
     c = SimpleNamespace(full=full, own=own, models=models, database=database, admin_view=admin_view, find=find, require_write=require_write, visible=visible, require_managers=require_managers, excel_check=excel_check, media_column=media_column, fetch_row=fetch_row, get_user_dep=get_user_dep, get_db_dep=get_db_dep)
     read_routes(router, c)
@@ -693,7 +693,7 @@ def read_routes(router: APIRouter, c: SimpleNamespace) -> None:
     ) -> dict:
         as_admin = admin_view(user, scope)
         admin = find(table, user, as_admin)
-        return _list_rows(admin, db, q, offset, limit, visible(admin, db, user, as_admin), sort, _filters_of(request))
+        return _list_rows(admin, db, q, offset, limit, visible(admin, db, user, as_admin), sort, filters_of(request))
 
     @router.get("/{table}/suggest")
     def suggest(
@@ -745,13 +745,13 @@ def write_routes(router: APIRouter, c: SimpleNamespace) -> None:
         if not isinstance(raw, dict):
             raise _bad("'values' must be an object")
         if as_admin:
-            row = _insert_row(admin, db, admin.clean_values(raw, creating=True))
+            row = insert_row(admin, db, admin.clean_values(raw, creating=True))
         else:
             owner = admin.spec.owner
             if owner in raw and raw[owner] is not None and str(raw[owner]) != str(user.user_id):
                 raise _bad(f"Column '{owner}' is not writable")
             values = admin.clean_values({k: v for k, v in raw.items() if k != owner}, creating=True)
-            row = _insert_row(admin, db, {**values, owner: user.user_id})
+            row = insert_row(admin, db, {**values, owner: user.user_id})
         _audit(user, "create", admin, admin.pk_text(row), as_admin=as_admin)
         return admin.out(row)
 
@@ -771,7 +771,7 @@ def write_routes(router: APIRouter, c: SimpleNamespace) -> None:
                 pk = str(item["pk"])
                 values = admin.clean_values(item.get("values", {}), creating=False)
                 clause = admin.pk_clause(pk)
-                _fetch_one(db, admin, clause)
+                fetch_one(db, admin, clause)
                 _update_row(admin, db, clause, values)
                 _audit(user, "update", admin, pk, as_admin=True)
                 results.append({"index": index, "ok": True})
@@ -803,7 +803,7 @@ def write_routes(router: APIRouter, c: SimpleNamespace) -> None:
         admin = find(table, user, as_admin)
         require_write(admin, as_admin)
         clause = admin.pk_clause(pk) if as_admin else [*admin.pk_clause(pk), admin.table.c[admin.spec.owner] == user.user_id]
-        row = _fetch_one(db, admin, clause)
+        row = fetch_one(db, admin, clause)
         _delete_row(admin, db, request, user, clause, row)
         _audit(user, "delete", admin, pk, as_admin=as_admin)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -817,7 +817,7 @@ def import_routes(router: APIRouter, c: SimpleNamespace) -> None:
         """What importing this Excel file would do: how many of its rows are new and how many have an id already in the table (managers)."""
         require_managers(user, "Only an admin or a moderator may import rows")
         excel_check(table, file)
-        plan = _plan_import(find(table, user, True), await file.read(), db)
+        plan = plan_import(find(table, user, True), await file.read(), db)
         return {"rows": plan["rows"], "new": plan["new"], "existing": plan["existing"]}
 
     @router.post("/{table}/import")
@@ -833,8 +833,8 @@ def import_routes(router: APIRouter, c: SimpleNamespace) -> None:
         require_managers(user, "Only an admin or a moderator may import rows")
         excel_check(table, file)
         admin = find(table, user, True)
-        plan = _plan_import(admin, await file.read(), db)
-        return _apply_import(admin, plan["data"], overwrite, user, db)
+        plan = plan_import(admin, await file.read(), db)
+        return apply_import(admin, plan["data"], overwrite, user, db)
 
 
 def file_routes(router: APIRouter, c: SimpleNamespace) -> None:
@@ -866,9 +866,9 @@ def file_routes(router: APIRouter, c: SimpleNamespace) -> None:
         except recordfiles.FileRefused as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from None
         admin = find(table, user, True)
-        if _row_payload(admin, db, _fetch_one(db, admin, admin.pk_clause(pk))).get(column) != folder:
+        if row_payload(admin, db, fetch_one(db, admin, admin.pk_clause(pk))).get(column) != folder:
             update_row(admin, db, user, pk, {"values": {column: folder}}, as_admin=True)
-        return _row_payload(admin, db, _fetch_one(db, admin, admin.pk_clause(pk)))
+        return row_payload(admin, db, fetch_one(db, admin, admin.pk_clause(pk)))
 
     @router.get("/{table}/{pk}/files/{column}")
     def list_files(
@@ -920,7 +920,7 @@ def file_routes(router: APIRouter, c: SimpleNamespace) -> None:
         require_managers(user, "Only an admin or a moderator may remove files here")
         media_column(table, column)
         admin = find(table, user, True)
-        row = _row_payload(admin, db, _fetch_one(db, admin, admin.pk_clause(pk)))
+        row = row_payload(admin, db, fetch_one(db, admin, admin.pk_clause(pk)))
         held = {entry.rsplit("/", 1)[-1]: entry for entry in recordfiles.files_of(str(row.get(column) or ""))}
         if name not in held:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No such file here")

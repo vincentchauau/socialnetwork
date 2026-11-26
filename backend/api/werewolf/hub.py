@@ -73,7 +73,7 @@ class GameHub:
             pass
 
     async def send_state(self, room: str, socket: WebSocket, state: dict[str, Any]) -> None:
-        await self._push_state(room, socket, dumps({"type": "state", "state": state}))
+        await self.push_state(room, socket, dumps({"type": "state", "state": state}))
 
     async def broadcast(self, room: str, state_for: Callable[[int], dict[str, Any] | None]) -> None:
         """Send every connected user their own state; users without a seat any more are disconnected."""
@@ -89,10 +89,10 @@ class GameHub:
                     sends.append(self._close(socket))
                 continue
             frame = dumps({"type": "state", "state": state})
-            sends.extend(self._push_state(room, socket, frame) for socket in sockets)
+            sends.extend(self.push_state(room, socket, frame) for socket in sockets)
         await asyncio.gather(*sends)
 
-    async def _push_state(self, room: str, socket: WebSocket, frame: str) -> None:
+    async def push_state(self, room: str, socket: WebSocket, frame: str) -> None:
         if self._last.get(socket) == frame:
             return
         if await self._deliver(room, socket, frame):

@@ -49,7 +49,7 @@ def _hosts(urls: dict[str, str]) -> set[str]:
     return {(urlsplit(url).hostname or "").lower().rstrip(".") for url in urls.values()} - {""}
 
 
-def _event_data(body: str) -> str:
+def event_data(body: str) -> str:
     """A streamable HTTP server may answer as text/event-stream: the JSON-RPC message is in the `data:` lines."""
     datas = [line[5:].strip() for line in body.splitlines() if line.startswith("data:")]
     return datas[-1] if datas else body
@@ -74,7 +74,7 @@ def call(server: str, tool: str, arguments: dict[str, Any]) -> McpResult:
     if fetched.status >= 400:
         raise McpError(f"The MCP server answered HTTP {fetched.status}")
     try:
-        message = json.loads(_event_data(fetched.body))
+        message = json.loads(event_data(fetched.body))
         result = message["result"] if "result" in message else None
     except (ValueError, TypeError):
         raise McpError("The MCP server's answer is not JSON-RPC") from None

@@ -70,16 +70,16 @@ def load_product_out(db: Session, product_id: int) -> ProductOut:
     row = db.execute(active_product_query().where(Product.id == product_id)).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
-    return _outs(db, [row])[0]
+    return outs(db, [row])[0]
 
 
-def _outs(db: Session, rows: list[Any]) -> list[ProductOut]:
+def outs(db: Session, rows: list[Any]) -> list[ProductOut]:
     """Product views with the seller names read once for all rows."""
     found = directory.names(db, [row[0].seller_id for row in rows])
     return [to_product_out(row[0], row[1], row[2], found[row[0].seller_id]) for row in rows]
 
 
-def _escape_like(term: str) -> str:
+def escape_like(term: str) -> str:
     return term.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2).replace("%", "\\%").replace("_", "\\_")
 
 
@@ -89,7 +89,7 @@ def _page(db: Session, query: Select[Any], cursor: int | None, limit: int) -> Pr
     rows = db.execute(query.order_by(Product.id.desc()).limit(limit + 1)).all()
     page = rows[:limit]
     next_cursor = page[-1][0].id if len(rows) > limit else None
-    return ProductPage(items=_outs(db, page), next_cursor=next_cursor)
+    return ProductPage(items=outs(db, page), next_cursor=next_cursor)
 
 
 @router.get("/products", response_model=ProductPage, dependencies=[Depends(expire_stale)])
@@ -108,7 +108,7 @@ def list_products(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "min_price exceeds max_price")
     query = active_product_query()
     if q and q.strip():
-        pattern = f"%{_escape_like(q.strip())}%"
+        pattern = f"%{escape_like(q.strip())}%"
         query = query.where(
             Product.name.ilike(pattern, escape=LIKE_ESCAPE)
             | Product.description.ilike(pattern, escape=LIKE_ESCAPE)
@@ -163,7 +163,7 @@ def create_product(
     return load_product_out(db, product.id)
 
 
-def _owned_product(db: Session, product_id: int, user: TokenPayload) -> Product:
+def owned_product(db: Session, product_id: int, user: TokenPayload) -> Product:
     product = db.get(Product, product_id)
     if product is None or not product.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
@@ -179,7 +179,7 @@ def update_product(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ProductOut:
-    product = _owned_product(db, product_id, user)
+    product = owned_product(db, product_id, user)
     for field, value in body.model_dump().items():
         setattr(product, field, value)
     db.commit()
@@ -193,7 +193,7 @@ def delete_product(
     db: Session = Depends(get_db),
 ) -> Response:
     # Soft delete: past orders keep their snapshot rows and foreign keys intact.
-    product = _owned_product(db, product_id, user)
+    product = owned_product(db, product_id, user)
     product.is_active = False
     db.execute(delete(CartItem).where(CartItem.product_id == product_id))
     db.commit()

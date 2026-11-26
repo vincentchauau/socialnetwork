@@ -47,7 +47,7 @@ def reset() -> None:
     _override, _cached, _last_logged = _UNSET, None, None
 
 
-def _log_failure(action: str, exc: BaseException) -> None:
+def log_failure(action: str, exc: BaseException) -> None:
     """One line per minute at most, so an outage cannot flood the logs."""
     global _last_logged
     with _lock:
@@ -71,7 +71,7 @@ def _client() -> Any:
         try:
             import redis  # lazily: an app without the package still works, just without revocation
         except ImportError as exc:
-            _log_failure("import", exc)
+            log_failure("import", exc)
             return None
         client = redis.Redis.from_url(
             url, socket_timeout=SOCKET_TIMEOUT_SECONDS, socket_connect_timeout=SOCKET_TIMEOUT_SECONDS,
@@ -97,7 +97,7 @@ def is_revoked(user_id: int, sid: str | None, ver: int | None) -> bool:
     try:
         values = client.mget(keys)
     except Exception as exc:  # noqa: BLE001 - any store failure must never take the app down
-        _log_failure("check", exc)
+        log_failure("check", exc)
         return False
     if sid and values[0] is not None:
         return True
@@ -116,12 +116,12 @@ def publish_session_revoked(sid: str, ttl_seconds: int) -> bool:
     try:
         client.set(f"{SID_PREFIX}{sid}", 1, ex=ttl_seconds)
     except Exception as exc:  # noqa: BLE001
-        _log_failure("publish", exc)
+        log_failure("publish", exc)
         return False
     return True
 
 
-def _watch_error():
+def watch_error():
     from redis.exceptions import WatchError
 
     return WatchError
@@ -149,9 +149,9 @@ def publish_min_version(user_id: int, ver: int, ttl_seconds: int) -> bool:
                     pipe.set(key, ver, ex=ttl_seconds)
                     pipe.execute()
                     return True
-                except _watch_error():
+                except watch_error():
                     continue
         return False
     except Exception as exc:  # noqa: BLE001
-        _log_failure("publish", exc)
+        log_failure("publish", exc)
         return False

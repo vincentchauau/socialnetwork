@@ -167,7 +167,7 @@ class ActBody(BaseModel):
     action: int = Field(ge=0, le=10)
 
 
-def _card_for(db: Session, slug: str, message_id: int, user: TokenPayload, kinds: tuple[str, ...] | None):
+def card_for(db: Session, slug: str, message_id: int, user: TokenPayload, kinds: tuple[str, ...] | None):
     """The room, the message and its card, when the person is a member of the open room and the card is for them."""
     room, me = visible(db, slug, user)
     if me is None or me.status != service.JOINED or room.state != service.OPEN:
@@ -181,7 +181,7 @@ def _card_for(db: Session, slug: str, message_id: int, user: TokenPayload, kinds
     return room, message, card
 
 
-def _post_card(request: Request, db: Session, room: Room, like: Message, card: dict) -> MessageOut:
+def post_card(request: Request, db: Session, room: Room, like: Message, card: dict) -> MessageOut:
     """Save a card as a message of the same virtual person and show it to the room."""
     saved = Message(room_id=room.id, user_id=like.user_id, content=assistant.encode(card))
     db.add(saved)
@@ -191,7 +191,7 @@ def _post_card(request: Request, db: Session, room: Room, like: Message, card: d
     return shown
 
 
-def _set_card(db: Session, message: Message, before: str, card: dict) -> bool:
+def set_card(db: Session, message: Message, before: str, card: dict) -> bool:
     """Replace the content of a card only if it still is `before`: of two clicks at once, one wins."""
     done = db.execute(update(Message).where(Message.id == message.id, Message.content == before).values(content=assistant.encode(card)))
     db.commit()
@@ -203,13 +203,13 @@ def _set_card(db: Session, message: Message, before: str, card: dict) -> bool:
 def submit_card(slug: Slug, message_id: int, body: SubmitBody, request: Request, user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)) -> MessageOut:
     """The person a form is for sends it. It is the confirmation: the agent does it with THEIR token, once. If it does not fit, the form
     stays (with the reason) to be corrected; if it works, the form is closed and the result follows."""
-    room, message, card = _card_for(db, slug, message_id, user, ("form",))
+    room, message, card = card_for(db, slug, message_id, user, ("form",))
     if card.get("status") != "pending":
         raise HTTPException(status.HTTP_409_CONFLICT, "This form was already sent")
     if len(body.values) > MAX_FORM_VALUES or len(json.dumps(body.values, default=str)) > MAX_FORM_BYTES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Too much in the form")
     before = message.content
-    if not _set_card(db, message, before, {**card, "status": "running"}):  # taken: a second click finds it running
+    if not set_card(db, message, before, {**card, "status": "running"}):  # taken: a second click finds it running
         raise HTTPException(status.HTTP_409_CONFLICT, "This form was already sent")
     args = {**body.values, **(card.get("args") or {})}  # what the form fixed (which product) cannot be changed by the values
     outcome = assistant.ask_tool(card["tool"], args, user.user_id, assistant.token_of(request.cookies), True) or assistant.failure()
@@ -222,7 +222,7 @@ def submit_card(slug: Slug, message_id: int, body: SubmitBody, request: Request,
     shown = MessageOut.model_validate(service.show_one(db, message))
     emit(request, slug, shown.frame())
     if not failed:
-        _post_card(request, db, room, message, assistant.for_person(outcome, user.user_id))
+        post_card(request, db, room, message, assistant.for_person(outcome, user.user_id))
     return shown
 
 
@@ -230,14 +230,14 @@ def submit_card(slug: Slug, message_id: int, body: SubmitBody, request: Request,
 def act_on_card(slug: Slug, message_id: int, body: ActBody, request: Request, user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)) -> MessageOut:
     """A button of a card, pressed by the person the card is for. What it does comes from the card as saved: `open` shows the result,
     `do` does it at once, `ask` first puts a question in the room."""
-    room, message, card = _card_for(db, slug, message_id, user, None)
+    room, message, card = card_for(db, slug, message_id, user, None)
     spec = assistant.action_of(card, body.item, body.action)
     if spec is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such button")
     token = assistant.token_of(request.cookies)
     run = spec.get("run")
     outcome = assistant.ask_tool(spec["tool"], spec["args"], user.user_id, token, run == "do") or assistant.failure()
-    return _post_card(request, db, room, message, assistant.for_person(outcome, user.user_id))
+    return post_card(request, db, room, message, assistant.for_person(outcome, user.user_id))
 
 
 @router.post("/rooms/{slug}/cards/{message_id}/{action}", response_model=MessageOut)
@@ -256,11 +256,11 @@ def answer_card(slug: Slug, message_id: int, action: CardAction, request: Reques
         raise HTTPException(status.HTTP_409_CONFLICT, "This question was already answered")
     before = message.content
     if action == "cancel":
-        if not _set_card(db, message, before, {**card, "status": "cancelled"}):
+        if not set_card(db, message, before, {**card, "status": "cancelled"}):
             raise HTTPException(status.HTTP_409_CONFLICT, "This question was already answered")
         outcome = None
     else:
-        if not _set_card(db, message, before, {**card, "status": "running"}):  # taken: a second click finds it running
+        if not set_card(db, message, before, {**card, "status": "running"}):  # taken: a second click finds it running
             raise HTTPException(status.HTTP_409_CONFLICT, "This question was already answered")
         outcome = assistant.ask_tool(card["tool"], card["args"], user.user_id, assistant.token_of(request.cookies), True) or assistant.failure()
         db.refresh(message)

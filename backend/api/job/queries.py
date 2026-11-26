@@ -72,7 +72,7 @@ def _filters(params: SearchParams, now: datetime, score: ColumnElement[int]) -> 
     return conditions
 
 
-def _after_cursor(cursor: str, score: ColumnElement[int]) -> ColumnElement[bool]:
+def after_cursor(cursor: str, score: ColumnElement[int]) -> ColumnElement[bool]:
     last_score, last_id = (int(part) for part in cursor.split(":"))
     return or_(score < last_score, and_(score == last_score, JobDescription.id < last_id))
 
@@ -84,7 +84,7 @@ def search_job_descriptions(
     score = relevance(params.q)
     conditions = _filters(params, now_utc(), score)
     if params.cursor:
-        conditions.append(_after_cursor(params.cursor, score))
+        conditions.append(after_cursor(params.cursor, score))
     statement = (
         select(JobDescription, score.label("score"))
         .where(*conditions)

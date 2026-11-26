@@ -65,7 +65,7 @@ def as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def _require_future(value: datetime | None) -> datetime | None:
+def require_future(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     normalised = as_utc(value)
@@ -75,7 +75,7 @@ def _require_future(value: datetime | None) -> datetime | None:
 
 
 UtcDatetime = Annotated[datetime, AfterValidator(as_utc)]
-FutureDatetime = Annotated[datetime | None, AfterValidator(_require_future)]
+FutureDatetime = Annotated[datetime | None, AfterValidator(require_future)]
 Tag = Annotated[str, AfterValidator(clean_tag)]  # the same words of a tag for every app: see `sn_shared.tags`
 Salary = Annotated[int, Field(ge=0, le=SALARY_MAX_VALUE)]
 Email = Annotated[str, StringConstraints(max_length=EMAIL_MAX, pattern=EMAIL_PATTERN)]
@@ -134,10 +134,10 @@ class JobDescriptionCreate(BaseModel):
     status: Literal["draft", "open"] = "open"
     expires_at: FutureDatetime = None
 
-    _dedupe_tags = field_validator("tags")(unique_tags)
+    dedupe_tags = field_validator("tags")(unique_tags)
 
     @model_validator(mode="after")
-    def _salary_range(self) -> "JobDescriptionCreate":
+    def salary_range(self) -> "JobDescriptionCreate":
         check_salary_range(self.salary_min, self.salary_max)
         return self
 
@@ -188,11 +188,11 @@ class JobDescriptionUpdate(BaseModel):
 
     @field_validator("tags")
     @classmethod
-    def _dedupe_tags(cls, tags: list[str] | None) -> list[str] | None:
+    def dedupe_tags(cls, tags: list[str] | None) -> list[str] | None:
         return None if tags is None else unique_tags(tags)
 
     @model_validator(mode="after")
-    def _no_null_for_required(self) -> "JobDescriptionUpdate":
+    def no_null_for_required(self) -> "JobDescriptionUpdate":
         for name in NON_NULLABLE_UPDATE_FIELDS:
             if name in self.model_fields_set and getattr(self, name) is None:
                 raise ValueError(f"{name} cannot be null")

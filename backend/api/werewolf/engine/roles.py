@@ -35,32 +35,32 @@ class GameError(ValueError):
     """Hành động không hợp lệ (sai phase, sai mục tiêu...)."""
 
 
-_DEFENSIVE = [Ability.BLOCK_EFFECTS, Ability.REVERSE_EFFECTS]
-_DISRUPTIVE = [Ability.BLOCK_ABILITY, Ability.REVERSE_ABILITY]
-_INTEL = [Ability.SEE_FACTION, Ability.SEE_ABILITY, Ability.REVEAL_ON_DEATH]
-_PASSIVE = (Ability.NONE, Ability.KILL_ON_DEATH, Ability.REVEAL_ON_DEATH)
+DEFENSIVE = [Ability.BLOCK_EFFECTS, Ability.REVERSE_EFFECTS]
+DISRUPTIVE = [Ability.BLOCK_ABILITY, Ability.REVERSE_ABILITY]
+INTEL = [Ability.SEE_FACTION, Ability.SEE_ABILITY, Ability.REVEAL_ON_DEATH]
+PASSIVE = (Ability.NONE, Ability.KILL_ON_DEATH, Ability.REVEAL_ON_DEATH)
 
 # Mỗi phe chỉ được chọn chức năng trong nhóm của phe đó. Vote giết ban đêm không phải chức năng:
 # mọi Sói luôn có sẵn (xem wolf_options).
-_OFFENSIVE = [Ability.KILL, Ability.KILL_ON_DEATH]
+OFFENSIVE = [Ability.KILL, Ability.KILL_ON_DEATH]
 ALLOWED_ABILITIES: dict[Faction, list[Ability]] = {
-    Faction.VILLAGER: [Ability.NONE] + _OFFENSIVE + _DEFENSIVE + _DISRUPTIVE + _INTEL,
-    Faction.WOLF: list(_OFFENSIVE),  # Sói chỉ có chức năng tấn công (+ vote giết đêm mặc định)
+    Faction.VILLAGER: [Ability.NONE] + OFFENSIVE + DEFENSIVE + DISRUPTIVE + INTEL,
+    Faction.WOLF: list(OFFENSIVE),  # Sói chỉ có chức năng tấn công (+ vote giết đêm mặc định)
     Faction.GHOST: [Ability.TRANSFORM],  # Ma chỉ có Biến hình
 }
 
 # Chức năng mặc định (không chọn được, hiển thị dạng nút bị khóa): người chơi nào cũng có vote ban ngày.
 # `label` ngắn để hiện trên giao diện, `hint` là mô tả đầy đủ.
-_DAY_VOTE = {"icon": "🗳", "label": "Vote ngày",
+DAY_VOTE = {"icon": "🗳", "label": "Vote ngày",
              "hint": "Vote chết ban ngày (có thể bỏ phiếu trắng)"}
-_NIGHT_VOTE = {"icon": "🌙", "label": "Vote đêm",
+NIGHT_VOTE = {"icon": "🌙", "label": "Vote đêm",
                "hint": "Vote chết ban đêm của Sói (có thể bỏ phiếu trắng)"}
-_TRANSFORM_DEFAULT = {"icon": "✨", "label": "Biến hình",
+TRANSFORM_DEFAULT = {"icon": "✨", "label": "Biến hình",
                       "hint": "Mỗi đêm biến một người thành Ma"}
 DEFAULT_ABILITIES: dict[Faction, list[dict[str, str]]] = {
-    Faction.VILLAGER: [_DAY_VOTE],
-    Faction.WOLF: [_NIGHT_VOTE, _DAY_VOTE],
-    Faction.GHOST: [_TRANSFORM_DEFAULT, _DAY_VOTE],
+    Faction.VILLAGER: [DAY_VOTE],
+    Faction.WOLF: [NIGHT_VOTE, DAY_VOTE],
+    Faction.GHOST: [TRANSFORM_DEFAULT, DAY_VOTE],
 }
 
 
@@ -108,13 +108,13 @@ def check_bans(banned: Iterable[Ability]) -> frozenset[Ability]:
     fixed = banned & UNBANNABLE
     if fixed:
         raise GameError("Không thể cấm: " + ", ".join(sorted(ability.value for ability in fixed)))
-    for group in (_OFFENSIVE, _DEFENSIVE, _DISRUPTIVE, _INTEL):
+    for group in (OFFENSIVE, DEFENSIVE, DISRUPTIVE, INTEL):
         if all(ability in banned for ability in group):
             raise GameError("Không thể cấm hết một nhóm chức năng")
     return banned
 
 
-def _wolf_abilities(count: int, banned: frozenset[Ability] = frozenset()) -> list[Ability]:
+def wolf_abilities(count: int, banned: frozenset[Ability] = frozenset()) -> list[Ability]:
     """Sói luôn có chức năng tấn công; đảm bảo ít nhất một Sói có Giết trực tiếp (chủ động)."""
     if count == 0:
         return []
@@ -126,10 +126,10 @@ def _wolf_abilities(count: int, banned: frozenset[Ability] = frozenset()) -> lis
     return abilities
 
 
-def _holder_abilities(count: int, banned: frozenset[Ability] = frozenset()) -> list[Ability]:
+def holder_abilities(count: int, banned: frozenset[Ability] = frozenset()) -> list[Ability]:
     """4 người có chức năng đầu tiên mỗi người một nhóm khác nhau (đủ tấn công/phòng thủ/gây rối/tình báo);
     từ người thứ 5 trở đi chọn nhóm theo trọng số HOLDER_GROUP_WEIGHTS."""
-    groups = [[ability for ability in group if ability not in banned] for group in (_OFFENSIVE, _DEFENSIVE, _DISRUPTIVE, _INTEL)]
+    groups = [[ability for ability in group if ability not in banned] for group in (OFFENSIVE, DEFENSIVE, DISRUPTIVE, INTEL)]
     rotation = groups[:]
     random.shuffle(rotation)
     abilities = []
@@ -146,9 +146,9 @@ def suggest_roles(m: int, banned: Iterable[Ability] = ()) -> list[Role]:
     """Phe + chức năng ngẫu nhiên theo giới hạn cứng role_counts(m) (đã xáo); `banned` là các chức năng không được chia (xem check_bans)."""
     c = role_counts(m)
     banned = check_bans(banned)
-    roles: list[Role] = [(Faction.WOLF, a) for a in _wolf_abilities(c.wolves, banned)]
+    roles: list[Role] = [(Faction.WOLF, a) for a in wolf_abilities(c.wolves, banned)]
     roles += [(Faction.GHOST, Ability.TRANSFORM)] * c.ghosts
-    roles += [(Faction.VILLAGER, a) for a in _holder_abilities(c.holders, banned)]
+    roles += [(Faction.VILLAGER, a) for a in holder_abilities(c.holders, banned)]
     roles += [(Faction.VILLAGER, Ability.NONE)] * c.plain
     random.shuffle(roles)
     return roles

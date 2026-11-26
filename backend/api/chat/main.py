@@ -55,20 +55,20 @@ RATE_LIMIT_MESSAGES = 20
 RATE_LIMIT_WINDOW_SECONDS = 10.0
 
 
-def _joined_room_ids(user: TokenPayload):
+def joined_room_ids(user: TokenPayload):
     return select(RoomMember.room_id).where(RoomMember.user_id == user.user_id, RoomMember.status == "joined")
 
 
 def joined_rooms_scope(db, user: TokenPayload):
-    return Room.id.in_(_joined_room_ids(user))
+    return Room.id.in_(joined_room_ids(user))
 
 
 def fellow_members_scope(db, user: TokenPayload):
-    return RoomMember.room_id.in_(_joined_room_ids(user))
+    return RoomMember.room_id.in_(joined_room_ids(user))
 
 
 def joined_messages_scope(db, user: TokenPayload):
-    return and_(Message.room_id.in_(_joined_room_ids(user)), Message.deleted_at.is_(None))
+    return and_(Message.room_id.in_(joined_room_ids(user)), Message.deleted_at.is_(None))
 
 
 def _enter(factory: sessionmaker, slug: str, user: TokenPayload) -> str | None:
@@ -87,7 +87,7 @@ def _enter(factory: sessionmaker, slug: str, user: TokenPayload) -> str | None:
         return None
 
 
-def _save_message(
+def save_message(
     factory: sessionmaker, slug: str, user: TokenPayload, content: str, reply_to: int | None
 ) -> tuple[MessageOut | None, str | None]:
     """The saved message, or the reason it was not saved (a rule of the room: not a member, muted, closed...)."""
@@ -112,7 +112,7 @@ def _save_message(
         return MessageOut.model_validate(service.show_one(session, message)), None
 
 
-def _parse_incoming(raw: str) -> IncomingMessage | None:
+def parse_incoming(raw: str) -> IncomingMessage | None:
     """The validated message, or None when the frame is not a valid chat message."""
     try:
         data = json.loads(raw)
@@ -129,21 +129,21 @@ def _parse_incoming(raw: str) -> IncomingMessage | None:
         return None
 
 
-def _valid_room(room: str) -> bool:
+def valid_room(room: str) -> bool:
     return re.fullmatch(ROOM_PATTERN, room) is not None
 
 
-_stop_account_consumer = stop_consumer
+stop_account_consumer = stop_consumer
 
 
-_TRY_AGAIN_LATER = 1013
+TRY_AGAIN_LATER = 1013
 
 
-class _Expired(Exception):
+class Expired(Exception):
     pass
 
 
-def _authorize(websocket: WebSocket) -> TokenPayload | None:
+def authorize(websocket: WebSocket) -> TokenPayload | None:
     """The user for a socket handshake, or None. Cookies are sent automatically by
     browsers, so a foreign page could open the socket on a visitor's behalf;
     browsers always send Origin, so a missing or foreign one is refused."""
@@ -157,12 +157,12 @@ def _authorize(websocket: WebSocket) -> TokenPayload | None:
 
 async def _receive(websocket: WebSocket, user: TokenPayload) -> str | None:
     """Next text frame; None for a binary one. The token is only checked at connect,
-    so stop listening when it expires (raises _Expired)."""
+    so stop listening when it expires (raises Expired)."""
     remaining = max(user.expires_at - time.time(), 0)
     try:
         return await asyncio.wait_for(websocket.receive_text(), timeout=remaining)
     except TimeoutError as error:
-        raise _Expired from error
+        raise Expired from error
     except KeyError:
         return None
 
@@ -172,7 +172,7 @@ def _public_slugs(factory: sessionmaker) -> set[str]:
         return service.public_slugs(session)
 
 
-def _delete_room(request, db, room, admin_user):
+def delete_room(request, db, room, admin_user):
     """A room removed by an admin goes with its members and messages (nothing is left that points to it)."""
     room_id = room["id"]  # (the row is a mapping)
     db.execute(delete(Message).where(Message.room_id == room_id))
@@ -213,7 +213,7 @@ def mount_admin(app: FastAPI) -> None:
     # live messages, and the person's own social edges, notices and reports.
     specs = [
         TableSpec(
-            Room, on_delete=_delete_room, scope=joined_rooms_scope),
+            Room, on_delete=delete_room, scope=joined_rooms_scope),
         TableSpec(
             RoomMember, scope=fellow_members_scope,
             user_hidden_columns=("status_reason", "last_read_message_id", "hidden_at", "notify"),
@@ -230,13 +230,13 @@ def mount_admin(app: FastAPI) -> None:
 
 async def serve_lobby(websocket: WebSocket, rt: SimpleNamespace) -> None:
     hub, lobby, lobby_sockets, connections, online_users, people_changed = rt.hub, rt.lobby, rt.lobby_sockets, rt.connections, rt.online_users, rt.people_changed
-    user = _authorize(websocket)
+    user = authorize(websocket)
     if user is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     await websocket.accept()
     if lobby_sockets[user.user_id] >= MAX_LOBBY_SOCKETS_PER_USER:
-        await websocket.close(code=_TRY_AGAIN_LATER, reason="Too many lobby connections")
+        await websocket.close(code=TRY_AGAIN_LATER, reason="Too many lobby connections")
         return
     newly_online = user.user_id not in online_users()
     lobby_sockets[user.user_id] += 1
@@ -249,7 +249,7 @@ async def serve_lobby(websocket: WebSocket, rt: SimpleNamespace) -> None:
         while True:
             try:
                 raw = await _receive(websocket, user)
-            except _Expired:
+            except Expired:
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                 return
             if raw is not None and len(raw) > MAX_FRAME_CHARS:
@@ -291,8 +291,8 @@ async def answer_command(app: FastAPI, hub: RoomHub, room: str, user: TokenPaylo
 async def serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> None:
     app, hub, presence, lobby, chat_sockets, connections, online_users, people_changed, presence_changed = rt.app, rt.hub, rt.presence, rt.lobby, rt.chat_sockets, rt.connections, rt.online_users, rt.people_changed, rt.presence_changed
     announce_leave = rt.announce_leave
-    user = _authorize(websocket)
-    if user is None or not _valid_room(room):
+    user = authorize(websocket)
+    if user is None or not valid_room(room):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     await websocket.accept()
@@ -306,7 +306,7 @@ async def serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> No
     else:
         refusal = presence.refusal(room, user.user_id)
     if refusal is not None:
-        await websocket.close(code=_TRY_AGAIN_LATER, reason=refusal)
+        await websocket.close(code=TRY_AGAIN_LATER, reason=refusal)
         return
 
     limiter = SlidingWindow(RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS)
@@ -328,7 +328,7 @@ async def serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> No
         while True:
             try:
                 raw = await _receive(websocket, user)
-            except _Expired:
+            except Expired:
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                 return
             if raw is None:  # binary frame
@@ -340,7 +340,7 @@ async def serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> No
             if not limiter.allow():
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                 return
-            incoming = _parse_incoming(raw)
+            incoming = parse_incoming(raw)
             if incoming is None:
                 await websocket.send_json(
                     {"type": "error", "error": "Message must be 1-2000 characters"}
@@ -356,7 +356,7 @@ async def serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> No
                     await websocket.send_json({"type": "error", "error": problem})
                 continue
             saved, problem = await run_in_threadpool(
-                _save_message, app.state.session_factory, room, user, incoming.content, incoming.reply_to
+                save_message, app.state.session_factory, room, user, incoming.content, incoming.reply_to
             )
             if saved is None:
                 await websocket.send_json({"type": "error", "error": problem})
@@ -468,7 +468,7 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
             if application.state.cluster is not None:
                 await application.state.cluster.stop()
             if handle is not None:
-                await _stop_account_consumer(handle)
+                await stop_account_consumer(handle)
 
     app = FastAPI(title="socialnetwork chat", lifespan=lifespan)
     app.state.session_factory = session_factory

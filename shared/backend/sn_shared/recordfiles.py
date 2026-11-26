@@ -24,8 +24,8 @@ CONTENT_TYPES = {
     ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".flac": "audio/flac",
     ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".mkv": "video/x-matroska",
 }
-_UNSAFE = re.compile(r"[^A-Za-z0-9._ -]+")
-_PART = re.compile(r"^[A-Za-z0-9_.~-]+$")
+UNSAFE = re.compile(r"[^A-Za-z0-9._ -]+")
+PART = re.compile(r"^[A-Za-z0-9_.~-]+$")
 
 
 class FileRefused(ValueError):
@@ -39,7 +39,7 @@ def root() -> Path:
 def clean_name(name: str) -> str:
     """The file's own name with nothing that could leave its folder: no path, no odd characters."""
     base = os.path.basename(name.replace("\\", "/")).strip()
-    cleaned = _UNSAFE.sub("_", base).strip("._ ")
+    cleaned = UNSAFE.sub("_", base).strip("._ ")
     if not cleaned:
         raise FileRefused("the file needs a name")
     return cleaned[:120]
@@ -59,7 +59,7 @@ def check(kind: str, name: str, size: int) -> str:
 
 def relative_path(database: str, table: str, column: str, row_id: str, name: str) -> str:
     parts = (database, table, column, row_id, name)
-    if not all(_PART.match(part) for part in parts):
+    if not all(PART.match(part) for part in parts):
         raise FileRefused("a path part has characters that are not allowed")
     return "/".join(parts)
 
@@ -130,7 +130,7 @@ MEDIA_KINDS = {".jpg": "image", ".jpeg": "image", ".png": "image", ".gif": "imag
 def folder_of(database: str, table: str, column: str, row_id: str) -> str:
     """The folder of one cell of one row: every file of that cell lives in it (`market/showcases/cover/3`)."""
     parts = (database, table, column, row_id)
-    if not all(_PART.match(part) for part in parts):
+    if not all(PART.match(part) for part in parts):
         raise FileRefused("a path part has characters that are not allowed")
     return "/".join(parts)
 

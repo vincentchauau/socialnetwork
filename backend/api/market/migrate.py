@@ -44,13 +44,13 @@ def migrate_orders(engine: Engine) -> None:
             return
         by_id = {order.id: order for order in empty}
         if "order_items" in tables:
-            _copy_lines(db, by_id)
+            copy_lines(db, by_id)
         if "idempotency_records" in tables:
-            _copy_keys(db, by_id)
+            copy_keys(db, by_id)
         db.commit()
 
 
-def _copy_lines(db: Session, orders: dict[int, Order]) -> None:
+def copy_lines(db: Session, orders: dict[int, Order]) -> None:
     lines: dict[int, list[dict]] = {}
     for row in db.execute(LINES, {"ids": list(orders)}):
         lines.setdefault(row.order_id, []).append(
@@ -67,7 +67,7 @@ def _copy_lines(db: Session, orders: dict[int, Order]) -> None:
         orders[order_id].seller_ids = seller_ids_text(items)
 
 
-def _copy_keys(db: Session, orders: dict[int, Order]) -> None:
+def copy_keys(db: Session, orders: dict[int, Order]) -> None:
     for row in db.execute(KEYS, {"ids": list(orders)}).all():
         order = orders[row.order_id]
         if row.user_id != order.buyer_id:

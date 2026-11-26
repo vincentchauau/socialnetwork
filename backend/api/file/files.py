@@ -56,7 +56,7 @@ class RenameIn(BaseModel):
     new_name: str = Field(alias="newName", max_length=300)
 
 
-def _ensure_root(user_id: int) -> Path:
+def ensure_root(user_id: int) -> Path:
     root = store.files_root(user_id)
     root.mkdir(parents=True, exist_ok=True)
     return root
@@ -69,7 +69,7 @@ def data_root() -> Path:
 def _area(user: TokenPayload, area: str) -> tuple[Path, bool]:
     """(the root of the area, whether the limits of one person's sandbox hold in it)."""
     if area == "mine":
-        return _ensure_root(user.user_id), True
+        return ensure_root(user.user_id), True
     ensure_group(user, GROUP_ADMIN, detail="Chỉ quản trị viên được quản lý thư mục dữ liệu của máy chủ")
     root = data_root()
     if not root.is_dir():
@@ -117,7 +117,7 @@ def _directory(root: Path, raw: str, limited: bool = True) -> Resolved:
     return target
 
 
-def _check_new_entry(root: Path, parent: Resolved, name: str, limited: bool = True) -> Path:
+def check_new_entry(root: Path, parent: Resolved, name: str, limited: bool = True) -> Path:
     """The real path a new child `name` of `parent` would get, after depth / collision / count limits."""
     if len(parent.parts) + 1 > MAX_DEPTH:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Đường dẫn quá sâu (tối đa 6 cấp)")
@@ -174,11 +174,11 @@ def create_folder(body: FolderIn, area: Area = "mine", user: TokenPayload = Depe
     root, limited = _area(user, area)
     with _lock(user, limited):
         parent = _directory(root, body.path, limited)
-        os.mkdir(_check_new_entry(root, parent, name, limited))
+        os.mkdir(check_new_entry(root, parent, name, limited))
     return {"name": name}
 
 
-def _spool(source, limit: int) -> tuple[Path, int]:
+def spool(source, limit: int) -> tuple[Path, int]:
     """Copy the upload to a temp file on the data volume (same filesystem as the target: atomic rename)."""
     incoming = store.incoming_dir()
     incoming.mkdir(parents=True, exist_ok=True)
@@ -212,9 +212,9 @@ def upload(
         parent = _directory(root, path, limited)
         existing = parent.real / name
         replacing = replace and limited and existing.is_file() and not existing.is_symlink()
-        target = existing if replacing else _check_new_entry(root, parent, name, limited)
+        target = existing if replacing else check_new_entry(root, parent, name, limited)
         used = _scan(root)[0] if limited else 0
-        temp, size = _spool(file.file, MAX_FILE_BYTES)
+        temp, size = spool(file.file, MAX_FILE_BYTES)
         try:
             if limited and used - (existing.stat().st_size if replacing else 0) + size > QUOTA_BYTES:
                 raise HTTPException(413, "Vượt quá dung lượng 100 MB")
@@ -325,7 +325,7 @@ def list_trash(user: TokenPayload = Depends(get_current_user)) -> dict:
     return {"entries": trash.entries(user.user_id), "keepDays": trash.KEEP_DAYS}
 
 
-def _free_name(parent: Path, name: str) -> str:
+def free_name(parent: Path, name: str) -> str:
     """`name` when nothing of that name is in `parent`, else `name (2)`, `name (3)`..., short enough to be a name."""
     if not os.path.lexists(parent / name):
         return name
@@ -350,8 +350,8 @@ def restore(body: RestoreIn, user: TokenPayload = Depends(writer)) -> dict:
             parent = _directory(root, meta["parent"])
         except HTTPException:
             parent = _directory(root, "/")  # the folder it was in is gone
-        name = _free_name(parent.real, meta["name"])
-        target = _check_new_entry(root, parent, name)
+        name = free_name(parent.real, meta["name"])
+        target = check_new_entry(root, parent, name)
         if _scan(root)[0] + meta["size"] > QUOTA_BYTES:
             raise HTTPException(413, "Vượt quá dung lượng 100 MB")
         shutil.move(str(folder / trash.ITEM), str(target))
@@ -402,7 +402,7 @@ def move(body: MoveIn, area: Area = "mine", user: TokenPayload = Depends(writer)
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể đưa thư mục vào chính nó")
         if destination_folder.parts == target.parts[:-1]:
             return {"moved": False}
-        new_path = _check_new_entry(root, destination_folder, target.parts[-1], limited)
+        new_path = check_new_entry(root, destination_folder, target.parts[-1], limited)
         os.rename(target.real, new_path)
     return {"moved": True}
 
@@ -424,7 +424,7 @@ def copy(body: CopyIn, area: Area = "mine", user: TokenPayload = Depends(writer)
         destination_folder = _directory(root, body.to_folder, limited)
         if source.real.is_dir() and destination_folder.parts[: len(source.parts)] == source.parts:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể sao chép thư mục vào chính nó")
-        new_path = _check_new_entry(root, destination_folder, source.parts[-1], limited)
+        new_path = check_new_entry(root, destination_folder, source.parts[-1], limited)
         if source.real.is_dir():
             shutil.copytree(source.real, new_path, symlinks=True)
         else:

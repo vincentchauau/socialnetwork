@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from api.center.biometrics import RealBiometrics
 from api.center.config import Settings
-from api.center.identify import _DUMMY_FACE, _DUMMY_VOICE, identify_voice
+from api.center.identify import DUMMY_FACE, DUMMY_VOICE, identify_voice
 from api.center.models import User
 from tests.center.fakes import fake_google_verifier
 from tests.center.helpers import csrf
@@ -117,7 +117,7 @@ def test_no_candidate_does_one_dummy_comparison(bio_client, monkeypatch):
     original = engine.audio_similarity
     monkeypatch.setattr(engine, "audio_similarity", lambda a, b: calls.append(a) or original(a, b))
     assert shape(_post(bio_client, ANA)) == FAILED
-    assert calls == [_DUMMY_VOICE]
+    assert calls == [DUMMY_VOICE]
 
 
 def test_zero_candidates_with_the_real_engine_does_not_crash(bio_client):
@@ -130,7 +130,7 @@ def test_zero_candidates_with_the_real_engine_does_not_crash(bio_client):
 
     with bio_client.app.state.session_factory() as db:
         assert identify_voice(Request, db, bytes(1024)) is None
-        assert identify_voice(Request, db, _DUMMY_VOICE) is None
+        assert identify_voice(Request, db, DUMMY_VOICE) is None
 
 
 def test_username_given_path_unchanged(three):
@@ -278,7 +278,7 @@ def floats(*values: float) -> bytes:
     [
         (b"A:" + bytes(17), bytes(1024)),
         (bytes(1024), bytes(1024)),
-        (_DUMMY_VOICE, bytes(512)),
+        (DUMMY_VOICE, bytes(512)),
         (b"", b""),
         (bytes(1024), b"A:" + bytes(17)),
         (floats(float("nan"), 1.0), floats(1.0, 1.0)),
@@ -293,15 +293,15 @@ def test_audio_similarity_never_raises_and_is_minus_one(stored, probe):
 def test_audio_similarity_of_real_vectors():
     assert real().audio_similarity(floats(1, 0), floats(2, 0)) == pytest.approx(1.0)
     assert real().audio_similarity(floats(1, 0), floats(0, 1)) == pytest.approx(0.0)
-    assert real().audio_similarity(_DUMMY_VOICE, _DUMMY_VOICE) == pytest.approx(1.0)
+    assert real().audio_similarity(DUMMY_VOICE, DUMMY_VOICE) == pytest.approx(1.0)
 
 
 def test_face_distance_with_malformed_and_placeholder_inputs():
     assert real().face_distance(b"", b"") == float("inf")
     assert real().face_distance(b"F:" + bytes(17), bytes(512)) == float("inf")
-    assert real().face_distance(_DUMMY_FACE, bytes(512)) == 0.0
-    assert real().face_distance(_DUMMY_FACE, bytes(1024)) == float("inf")
+    assert real().face_distance(DUMMY_FACE, bytes(512)) == 0.0
+    assert real().face_distance(DUMMY_FACE, bytes(1024)) == float("inf")
 
 
 def test_voice_placeholder_is_well_formed_with_a_non_zero_norm():
-    assert len(_DUMMY_VOICE) == 256 * 4 and any(_DUMMY_VOICE)
+    assert len(DUMMY_VOICE) == 256 * 4 and any(DUMMY_VOICE)

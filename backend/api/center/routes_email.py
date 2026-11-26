@@ -67,14 +67,14 @@ def _fail(code: int, detail: str) -> HTTPException:
     return HTTPException(code, detail)
 
 
-def _gate_submit(request: Request) -> None:
+def gate_submit(request: Request) -> None:
     """Link/code submissions: per address, every one counts (the 429 depends on counters only)."""
     throttle, ip = request.app.state.email_submit_throttle, client_ip(request)
     if not throttle.check_and_record(ip):
         raise too_many()
 
 
-def _gate_request(request: Request, kind: str, address: str) -> None:
+def gate_request(request: Request, kind: str, address: str) -> None:
     """Mail requests, every one counts (known account or not): per IP, per (IP, normalised email) and per email.
 
     The pair counter stops one IP from spending the whole per-email budget, so a stranger cannot lock the owner out.
@@ -92,34 +92,34 @@ def _gate_request(request: Request, kind: str, address: str) -> None:
         throttle.record(key)
 
 
-def _code_failure_key(address: str) -> str:
+def code_failure_key(address: str) -> str:
     return f"code|{address}"
 
 
-def _guard_code_attempts(request: Request, key: str) -> None:
+def guard_code_attempts(request: Request, key: str) -> None:
     """Failed code submissions per address across all rows (the 429 depends on the submitted string only)."""
     if request.app.state.email_code_fail_throttle.is_blocked(key):
         raise too_many()
 
 
-def _count_code_failure(request: Request, key: str) -> None:
+def count_code_failure(request: Request, key: str) -> None:
     request.app.state.email_code_fail_throttle.record(key)
 
 
-def _jitter() -> None:
+def jitter() -> None:
     """A small uniform random delay so the answer time does not tell a known address from an unknown one."""
     time.sleep(secrets.randbelow(MAX_JITTER_MS + 1) / 1000)
 
 
-def _verified_owner_id(db: Session, address: str) -> int | None:
+def verified_owner_id(db: Session, address: str) -> int | None:
     return db.scalar(select(User.id).where(User.email == address, User.email_verified.is_(True)))
 
 
-def _verified_user(db: Session, address: str) -> User | None:
+def verified_user(db: Session, address: str) -> User | None:
     return db.scalar(select(User).where(User.email == address, User.email_verified.is_(True)))
 
 
-def _drop_tokens(db: Session, user_id: int, purpose: str) -> None:
+def drop_tokens(db: Session, user_id: int, purpose: str) -> None:
     db.execute(
         delete(VerificationCode)
         .where(VerificationCode.user_id == user_id, VerificationCode.channel == EMAIL, VerificationCode.purpose == purpose)
@@ -127,7 +127,7 @@ def _drop_tokens(db: Session, user_id: int, purpose: str) -> None:
     )
 
 
-def _login_result(request: Request, response: Response, db: Session, user: User) -> SessionOut | MfaRequired:
+def login_result(request: Request, response: Response, db: Session, user: User) -> SessionOut | MfaRequired:
     """Email is a primary factor: same hand-off as password and Google (the opt-in second factor applies)."""
     result = start_login(
         response, user, settings_of(request), biometrics_available(request), request=request, db=db, method="email"
@@ -153,7 +153,7 @@ def set_email(
     ensure_reauth(request, user, body.password)
     user_throttle.record(str(user.id))
     target_throttle.record(body.email)  # per target address: this route cannot be used to mail-bomb a stranger
-    owner = _verified_owner_id(db, body.email)
+    owner = verified_owner_id(db, body.email)
     if owner is not None and owner != user.id:
         # Verified elsewhere: answer exactly like a success and send nothing, so the answer never says whose it is.
         et.issue(db, None, et.VERIFY, body.email, with_code=True)
@@ -171,23 +171,23 @@ def verify_email(
     body: EmailVerifyBody, request: Request, background: BackgroundTasks, db: Session = Depends(get_db)
 ) -> EmailVerifiedOut:
     """`{token}` (the link, public) or `{code}` (typed in the account: needs the session)."""
-    _gate_submit(request)
+    gate_submit(request)
     failure_key = None
     if body.token:
         row, bad = et.find_by_token(db, body.token, et.VERIFY), BAD_LINK
         accepted = row is not None
     else:
         user = current_session(request, db).user
-        failure_key = _code_failure_key(f"user:{user.id}")  # the address is not submitted here: key by the account
-        _guard_code_attempts(request, failure_key)
+        failure_key = code_failure_key(f"user:{user.id}")  # the address is not submitted here: key by the account
+        guard_code_attempts(request, failure_key)
         row, bad = et.find_for_user(db, user.id, et.VERIFY), BAD_CODE
         accepted = et.check_code(db, row, body.code or "")
     if not accepted or row is None:
         if failure_key:
-            _count_code_failure(request, failure_key)
+            count_code_failure(request, failure_key)
         audit.warning("email verification failed ip=%s", client_ip(request))
         raise _fail(status.HTTP_400_BAD_REQUEST, bad)
-    owner = _verified_owner_id(db, row.target)
+    owner = verified_owner_id(db, row.target)
     if owner is not None and owner != row.user_id:
         raise _fail(status.HTTP_409_CONFLICT, EMAIL_TAKEN)  # verified elsewhere in the meantime
     user = db.get(User, row.user_id)
@@ -221,7 +221,7 @@ def remove_email(
         raise _fail(status.HTTP_409_CONFLICT, KEEP_ONE)
     previous = user.email if has_verified_email(user) else None
     user.email, user.email_verified, user.email_from_google = None, False, False
-    _drop_tokens(db, user.id, et.VERIFY)
+    drop_tokens(db, user.id, et.VERIFY)
     db.commit()
     audit.info("email removed user=%r ip=%s", user.username, client_ip(request))
     if previous:
@@ -232,14 +232,14 @@ def remove_email(
 # --- sign in with an email -----------------------------------------------------------------------
 
 
-def _request_mail(
+def request_mail(
     request: Request, background: BackgroundTasks, db: Session, address: str, purpose: str
 ) -> OkOut:
     """Always the same work and the same answer; the mail goes out only for a VERIFIED matching account."""
-    _gate_request(request, purpose, address)
-    user = _verified_user(db, address)
+    gate_request(request, purpose, address)
+    user = verified_user(db, address)
     issued = et.issue(db, user, purpose, address, with_code=purpose == et.LOGIN)
-    _jitter()  # the same for both paths
+    jitter()  # the same for both paths
     if user is not None:
         send_link_mail(request, background, purpose, address, issued.token, issued.code)
     audit.info("email %s requested ip=%s", purpose, client_ip(request))
@@ -250,32 +250,32 @@ def _request_mail(
 def login_request(
     body: EmailBody, request: Request, background: BackgroundTasks, db: Session = Depends(get_db)
 ) -> OkOut:
-    return _request_mail(request, background, db, body.email, et.LOGIN)
+    return request_mail(request, background, db, body.email, et.LOGIN)
 
 
 @router.post("/email/login/verify", response_model=SessionOut | MfaRequired)
 def login_with_code(
     body: EmailCodeBody, request: Request, response: Response, db: Session = Depends(get_db)
 ) -> SessionOut | MfaRequired:
-    _gate_submit(request)
-    failure_key = _code_failure_key(body.email)  # the submitted string only: existence is not revealed
-    _guard_code_attempts(request, failure_key)
-    user = _verified_user(db, body.email)
+    gate_submit(request)
+    failure_key = code_failure_key(body.email)  # the submitted string only: existence is not revealed
+    guard_code_attempts(request, failure_key)
+    user = verified_user(db, body.email)
     row = et.find_for_user(db, user.id, et.LOGIN, body.email) if user else None
     if not et.check_code(db, row, body.code) or user is None or row is None or not et.consume(db, row.id):
         db.rollback()
-        _count_code_failure(request, failure_key)
+        count_code_failure(request, failure_key)
         audit.warning("email code login failed ip=%s", client_ip(request))
         raise _fail(status.HTTP_401_UNAUTHORIZED, BAD_CODE)
     db.commit()
-    return _login_result(request, response, db, user)
+    return login_result(request, response, db, user)
 
 
 @router.post("/email/login/magic", response_model=SessionOut | MfaRequired)
 def login_with_link(
     body: TokenBody, request: Request, response: Response, db: Session = Depends(get_db)
 ) -> SessionOut | MfaRequired:
-    _gate_submit(request)
+    gate_submit(request)
     row = et.find_by_token(db, body.token, et.LOGIN)
     user = db.get(User, row.user_id) if row else None
     still_theirs = user is not None and has_verified_email(user) and row is not None and user.email == row.target
@@ -284,7 +284,7 @@ def login_with_link(
         audit.warning("email link login failed ip=%s", client_ip(request))
         raise _fail(status.HTTP_401_UNAUTHORIZED, BAD_LINK)
     db.commit()
-    return _login_result(request, response, db, user)
+    return login_result(request, response, db, user)
 
 
 # --- forgot / reset password ---------------------------------------------------------------------
@@ -294,7 +294,7 @@ def login_with_link(
 def forgot_password(
     body: EmailBody, request: Request, background: BackgroundTasks, db: Session = Depends(get_db)
 ) -> OkOut:
-    return _request_mail(request, background, db, body.email, et.RESET)
+    return request_mail(request, background, db, body.email, et.RESET)
 
 
 @router.post("/password/reset", response_model=OkOut)
@@ -302,7 +302,7 @@ def reset_password(
     body: ResetBody, request: Request, background: BackgroundTasks, db: Session = Depends(get_db)
 ) -> OkOut:
     """New password from a reset link. Does NOT sign in; every existing session and refresh token dies."""
-    _gate_submit(request)
+    gate_submit(request)
     row = et.find_by_token(db, body.token, et.RESET)
     user = db.get(User, row.user_id) if row else None
     if row is None or user is None or not has_verified_email(user) or user.email != row.target:
@@ -316,7 +316,7 @@ def reset_password(
         raise _fail(status.HTTP_400_BAD_REQUEST, BAD_LINK)
     user.password_hash = hash_password(body.new_password)
     bump_token_version(db, user)
-    _drop_tokens(db, user.id, et.RESET)
+    drop_tokens(db, user.id, et.RESET)
     db.commit()
     publish_token_version(user, settings_of(request))
     audit.info("password reset user=%r ip=%s", user.username, client_ip(request))

@@ -44,12 +44,12 @@ LEGACY_COLUMNS: dict[str, tuple[str, ...]] = {
     "messages": ("kind",),
 }
 # (constraint, table, column, referenced table): added where the database can (PostgreSQL), after orphans are cleared
-_FOREIGN_KEYS = (
+FOREIGN_KEYS = (
     ("fk_messages_room_id", "messages", "room_id", "rooms"),
     ("fk_messages_reply_to_id", "messages", "reply_to_id", "messages"),
     ("fk_meetings_room_id", "meetings", "room_id", "rooms"),
 )
-_ROOM_COLUMN_DEFAULTS = {"kind": "chat", "visibility": "public", "join_policy": "open"}
+ROOM_COLUMN_DEFAULTS = {"kind": "chat", "visibility": "public", "join_policy": "open"}
 
 
 def _columns(engine: Engine, table: str) -> set[str]:
@@ -109,7 +109,7 @@ def ensure_foreign_keys(engine: Engine) -> list[str]:
                 connection.execute(text(f"ALTER TABLE room_members DROP CONSTRAINT {fk['name']}"))
                 connection.execute(text(f"ALTER TABLE room_members ADD CONSTRAINT {fk['name']} FOREIGN KEY (room_id) REFERENCES rooms (id)"))
                 added.append(fk["name"])
-        for name, table, column, target in _FOREIGN_KEYS:
+        for name, table, column, target in FOREIGN_KEYS:
             if table not in inspector.get_table_names() or any(column in fk["constrained_columns"] for fk in inspector.get_foreign_keys(table)):
                 continue
             if table == target:  # a reply to a message that is gone stands on its own
@@ -129,14 +129,14 @@ def migrate_statuses(session: Session) -> None:
     session.execute(text("UPDATE rooms SET join_policy = 'approval' WHERE kind = 'chat' AND join_policy = 'invite'"))
 
 
-def _has_room_column(session: Session) -> bool:
+def has_room_column(session: Session) -> bool:
     return "room" in {column["name"] for column in inspect(session.get_bind()).get_columns("messages")}
 
 
 def backfill_rooms(session: Session) -> int:
     """Make a room for every name old messages use, then point those messages at it; returns the rooms made. Old messages name their room
     in a column `room` that is dropped afterwards (`drop_room_column`), so this reads it with plain SQL, and only while it is there."""
-    if not _has_room_column(session):
+    if not has_room_column(session):
         return 0
     names = session.execute(text("SELECT DISTINCT room FROM messages WHERE room_id IS NULL")).scalars().all()
     made = 0
@@ -144,7 +144,7 @@ def backfill_rooms(session: Session) -> int:
         room = session.scalar(select(Room).where(Room.slug == name))
         if room is None:
             first = session.execute(text("SELECT user_id FROM messages WHERE room = :n AND user_id > 0 ORDER BY id LIMIT 1"), {"n": name}).scalar()
-            room = Room(slug=name, title=name, user_id=first or 0, **_ROOM_COLUMN_DEFAULTS)
+            room = Room(slug=name, title=name, user_id=first or 0, **ROOM_COLUMN_DEFAULTS)
             session.add(room)
             session.flush()
             made += 1

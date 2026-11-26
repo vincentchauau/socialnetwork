@@ -24,7 +24,7 @@ WRONG_CODE = "The code does not match the one shown on the new device"
 QR_PATH = "/login/qr"
 
 
-def _open_request(db: Session, request_id: str) -> QrLogin:
+def open_request(db: Session, request_id: str) -> QrLogin:
     """A pending, unexpired request, or 404 (the same answer for every other state)."""
     row = db.get(QrLogin, request_id)
     if row is None or row.status != "pending" or qr.is_expired(row):
@@ -76,7 +76,7 @@ def poll(body: QrPollBody, request: Request, response: Response, db: Session = D
 
 @router.get("/{request_id}", response_model=QrInfoOut)
 def info(request_id: str, session: AuthSession = Depends(current_session), db: Session = Depends(get_db)) -> QrInfoOut:
-    row = _open_request(db, request_id)
+    row = open_request(db, request_id)
     return QrInfoOut(
         requester_ip=row.requester_ip, requester_user_agent=row.requester_user_agent,
         created_at=as_utc(row.created_at), expires_in=qr.seconds_left(row),
@@ -89,7 +89,7 @@ def approve(
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> QrStatusOut:  # fmt: skip
     qr.maybe_purge(db)
-    row = _open_request(db, request_id)
+    row = open_request(db, request_id)
     if session.sid is not None and row.requester_sid == session.sid:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This browser cannot approve its own request")
     if not qr.take_attempt(db, request_id):  # counted before comparing: parallel guesses cannot outrun the limit
@@ -112,7 +112,7 @@ def approve(
 def deny(
     request_id: str, request: Request, session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db)
 ) -> QrStatusOut:
-    _open_request(db, request_id)
+    open_request(db, request_id)
     if not qr.deny(db, request_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
     audit.info("qr denied user=%r ip=%s", session.user.username, client_ip(request))

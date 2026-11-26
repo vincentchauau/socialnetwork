@@ -41,15 +41,15 @@ def purge(db: Session) -> None:
 
 
 PURGE_EVERY_SECONDS = 60.0
-_last_purge = 0.0
+last_purge = 0.0
 
 
 def maybe_purge(db: Session) -> None:
     """purge() at most once a minute per process (called from poll/approve)."""
-    global _last_purge
+    global last_purge
     now = time.monotonic()
-    if now - _last_purge >= PURGE_EVERY_SECONDS:
-        _last_purge = now
+    if now - last_purge >= PURGE_EVERY_SECONDS:
+        last_purge = now
         purge(db)
         db.commit()
 

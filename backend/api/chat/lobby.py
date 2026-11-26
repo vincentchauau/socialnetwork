@@ -44,9 +44,9 @@ class Lobby:
         if wait <= 0:
             await self._push()
         else:
-            self._pending = asyncio.create_task(self._delayed(wait))
+            self._pending = asyncio.create_task(self.delayed(wait))
 
-    async def _delayed(self, wait: float) -> None:
+    async def delayed(self, wait: float) -> None:
         try:
             await self._sleep(wait)
         finally:

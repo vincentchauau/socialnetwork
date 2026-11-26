@@ -13,13 +13,13 @@ USERNAME_HINT = (
 )
 
 
-def _normalize_username(value: str) -> str:
+def normalize_username(value: str) -> str:
     return value.strip()  # capitalisation is kept; identity is key_of(name)
 
 
 def checked_username(value: str) -> str:
     """Normalise and validate a username (raises ValueError with the user-facing hint)."""
-    value = _normalize_username(value)
+    value = normalize_username(value)
     if not is_valid_username(value):
         raise ValueError(USERNAME_HINT)
     return value
@@ -57,7 +57,7 @@ class LoginBody(BaseModel):
     @field_validator("username")
     @classmethod
     def normalize(cls, value: str) -> str:
-        return _normalize_username(value)
+        return normalize_username(value)
 
 
 class GoogleBody(BaseModel):

@@ -354,7 +354,7 @@ def open_dm(body: DmCreate, request: Request, user: TokenPayload = Depends(get_c
     return one_out(request, db, room, me, user)
 
 
-def _asked_of_me(db: Session, slug: str, user: TokenPayload) -> tuple[Room, RoomMember]:
+def asked_of_me(db: Session, slug: str, user: TokenPayload) -> tuple[Room, RoomMember]:
     """The private chat that someone asked me for and I have not answered."""
     room, me = visible(db, slug, user)
     if room.kind != "dm" or me is None or me.status != service.PENDING_STATUS:
@@ -365,7 +365,7 @@ def _asked_of_me(db: Session, slug: str, user: TokenPayload) -> tuple[Room, Room
 @router.post("/rooms/{slug}/accept", response_model=RoomOut)
 def accept_request(slug: Slug, request: Request, user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)) -> RoomOut:
     """Say yes to a private chat that someone asked for: it is a chat of two from now on."""
-    room, me = _asked_of_me(db, slug, user)
+    room, me = asked_of_me(db, slug, user)
     if social_service.blocked_between(db, user.user_id, room.user_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, social_service.CANNOT_MESSAGE)
     service.set_status(db, room, me, service.JOINED, actor_id=user.user_id)
@@ -378,7 +378,7 @@ def accept_request(slug: Slug, request: Request, user: TokenPayload = Depends(ge
 @router.post("/rooms/{slug}/decline", status_code=status.HTTP_204_NO_CONTENT)
 def decline_request(slug: Slug, user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)) -> None:
     """Say no: the asker is not told, and cannot ask again (unless they become friends)."""
-    room, me = _asked_of_me(db, slug, user)
+    room, me = asked_of_me(db, slug, user)
     service.set_status(db, room, me, service.LEFT, actor_id=user.user_id, reason=service.DECLINED)
     db.commit()
 

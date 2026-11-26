@@ -84,7 +84,7 @@ def _envelope(room: Room, user_id: int | None) -> dict[str, Any]:
     return {"id": room.code, "state": room.state_for(user_id)}
 
 
-def _parse_roles(body: CreateBody) -> list[tuple[Faction, Ability]] | None:
+def parse_roles(body: CreateBody) -> list[tuple[Faction, Ability]] | None:
     """The per-seat setup from the client, checked against the rules (422 on anything invalid)."""
     if body.seats is None:
         return None
@@ -100,7 +100,7 @@ def _parse_roles(body: CreateBody) -> list[tuple[Faction, Ability]] | None:
     return roles
 
 
-async def _mutate(request: Request, code: str, user: TokenPayload, change) -> dict[str, Any]:
+async def mutate(request: Request, code: str, user: TokenPayload, change) -> dict[str, Any]:
     """Apply `change(room)` (host/player checks live in Room), then store results and push the new state."""
     try:
         room = request.app.state.ww_store.require(code)
@@ -145,7 +145,7 @@ def _ability(name: str) -> Ability:
 @router.post("/rooms", status_code=status.HTTP_201_CREATED)
 async def create_room(request: Request, user: CurrentUser, body: CreateBody = CreateBody()) -> dict[str, Any]:
     _limit(request, "create", user)
-    roles = _parse_roles(body)
+    roles = parse_roles(body)
     store = request.app.state.ww_store
     try:
         room = store.create(
@@ -185,7 +185,7 @@ async def get_room(code: RoomCode, request: Request, user: CurrentUser) -> dict[
 async def join_room(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
     _limit(request, "join", user)
     store = request.app.state.ww_store
-    return await _mutate(request, code, user, lambda room: store.join(room.code, user.user_id, user.username))
+    return await mutate(request, code, user, lambda room: store.join(room.code, user.user_id, user.username))
 
 
 @router.post("/rooms/{code}/leave")
@@ -206,31 +206,31 @@ async def leave_room(code: RoomCode, request: Request, user: CurrentUser) -> dic
 
 @router.post("/rooms/{code}/start")
 async def start_room(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await _mutate(request, code, user, lambda room: room.start(user.user_id))
+    return await mutate(request, code, user, lambda room: room.start(user.user_id))
 
 
 @router.post("/rooms/{code}/options")
 async def set_options(code: RoomCode, body: OptionsBody, request: Request, user: CurrentUser) -> dict[str, Any]:
     """The host sets how the game is played (night turn time, event cards, whether the dead chat with the living) before it starts."""
-    return await _mutate(request, code, user, lambda room: room.set_options(user.user_id, body.timerSeconds, body.events, body.deadTalk))
+    return await mutate(request, code, user, lambda room: room.set_options(user.user_id, body.timerSeconds, body.events, body.deadTalk))
 
 
 @router.post("/rooms/{code}/roles")
 async def set_roles(code: RoomCode, body: RolesBody, request: Request, user: CurrentUser) -> dict[str, Any]:
     """The host sets (or deals at random) the role of each seat before the game starts."""
-    roles = _parse_roles(CreateBody(seats=body.seats)) if body.seats is not None else None
+    roles = parse_roles(CreateBody(seats=body.seats)) if body.seats is not None else None
     banned = tuple(_ability(name) for name in body.banned)
-    return await _mutate(request, code, user, lambda room: room.set_roles(user.user_id, roles, body.random, banned))
+    return await mutate(request, code, user, lambda room: room.set_roles(user.user_id, roles, body.random, banned))
 
 
 @router.post("/rooms/{code}/bots")
 async def add_bots(code: RoomCode, body: BotsBody, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await _mutate(request, code, user, lambda room: room.add_bots(user.user_id, body.count))
+    return await mutate(request, code, user, lambda room: room.add_bots(user.user_id, body.count))
 
 
 @router.post("/rooms/{code}/action")
 async def action(code: RoomCode, body: ActionBody, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await _mutate(request, code, user, lambda room: room.submit(user.user_id, body.target, body.kind))
+    return await mutate(request, code, user, lambda room: room.submit(user.user_id, body.target, body.kind))
 
 
 @router.post("/rooms/{code}/chat")
@@ -247,17 +247,17 @@ async def chat(code: RoomCode, body: ChatBody, request: Request, user: CurrentUs
 
 @router.post("/rooms/{code}/force")
 async def force(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await _mutate(request, code, user, lambda room: room.force(user.user_id))
+    return await mutate(request, code, user, lambda room: room.force(user.user_id))
 
 
 @router.post("/rooms/{code}/rematch")
 async def rematch(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await _mutate(request, code, user, lambda room: room.rematch(user.user_id))
+    return await mutate(request, code, user, lambda room: room.rematch(user.user_id))
 
 
 @router.post("/rooms/{code}/reset")
 async def reset(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await _mutate(request, code, user, lambda room: room.reset(user.user_id))
+    return await mutate(request, code, user, lambda room: room.reset(user.user_id))
 
 
 @router.get("/rooms/{code}/perspective/{seat}")

@@ -26,7 +26,7 @@ COMMON_PASSWORDS = frozenset(
 )  # fmt: skip
 
 
-def _alphanumeric(text: str) -> str:
+def alphanumeric(text: str) -> str:
     return "".join(c for c in text if c.isalnum())
 
 
@@ -50,7 +50,7 @@ def password_problem(password: str) -> str | None:
     if missing_character_classes(password):
         return CLASS_RULE_MESSAGE
     lowered = password.lower()
-    if lowered in COMMON_PASSWORDS or _alphanumeric(lowered) in COMMON_PASSWORDS:  # "Password1!" is still "password1"
+    if lowered in COMMON_PASSWORDS or alphanumeric(lowered) in COMMON_PASSWORDS:  # "Password1!" is still "password1"
         return "Password is too common"
     return None
 

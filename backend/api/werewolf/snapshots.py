@@ -26,8 +26,8 @@ from api.werewolf.rooms import Room
 
 log = logging.getLogger(__name__)
 
-_ALLOWED_MODULES = ("api.werewolf.",)
-_ALLOWED_NAMES = {
+ALLOWED_MODULES = ("api.werewolf.",)
+ALLOWED_NAMES = {
     ("random", "Random"),
     ("builtins", "set"),
     ("builtins", "frozenset"),
@@ -40,13 +40,13 @@ _ALLOWED_NAMES = {
 }
 
 
-class _GameUnpickler(pickle.Unpickler):
+class GameUnpickler(pickle.Unpickler):
     def find_class(self, module: str, name: str) -> Any:
         if module.startswith("app.werewolf."):  # a room saved before the modules were put in one package
             module = "api." + module[len("app."):]
         if module.startswith("api.chat.werewolf."):  # a room saved while the game was a part of the chat
             module = "api.werewolf." + module[len("api.chat.werewolf."):]
-        if module.startswith(_ALLOWED_MODULES) or (module, name) in _ALLOWED_NAMES:
+        if module.startswith(ALLOWED_MODULES) or (module, name) in ALLOWED_NAMES:
             return super().find_class(module, name)
         raise pickle.UnpicklingError(f"{module}.{name} is not part of a game")
 
@@ -89,7 +89,7 @@ def load(data: bytes, clock: Callable[[], float]) -> Room:
         if sealer is None:
             raise pickle.UnpicklingError("the room is sealed and there is no key")
         data = sealer.decrypt(data)  # raises when the key is not the one that sealed it
-    room = _GameUnpickler(io.BytesIO(data)).load()
+    room = GameUnpickler(io.BytesIO(data)).load()
     if not isinstance(room, Room):
         raise pickle.UnpicklingError("not a room")
     room.clock = clock

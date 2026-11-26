@@ -23,7 +23,7 @@ RECONNECT_SECONDS = 3.0
 HEARTBEAT_SECONDS = 20.0
 
 
-async def _keep_consuming(spec: QueueSpec, handler: Handler, stop: asyncio.Event) -> None:
+async def keep_consuming(spec: QueueSpec, handler: Handler, stop: asyncio.Event) -> None:
     while not stop.is_set():
         try:
             await consume(spec, handler, stop)
@@ -33,7 +33,7 @@ async def _keep_consuming(spec: QueueSpec, handler: Handler, stop: asyncio.Event
                 await asyncio.wait_for(stop.wait(), RECONNECT_SECONDS)
 
 
-async def _heartbeat(stop: asyncio.Event) -> None:
+async def heartbeat(stop: asyncio.Event) -> None:
     while not stop.is_set():
         with contextlib.suppress(OSError):
             ALIVE_FILE.touch()
@@ -44,7 +44,7 @@ async def _heartbeat(stop: asyncio.Event) -> None:
 async def run(consumers: list[tuple[QueueSpec, Handler]] | None = None, stop: asyncio.Event | None = None) -> None:
     stop = stop or asyncio.Event()
     entries = CONSUMERS if consumers is None else consumers
-    await asyncio.gather(_heartbeat(stop), *(_keep_consuming(spec, handler, stop) for spec, handler in entries))
+    await asyncio.gather(heartbeat(stop), *(keep_consuming(spec, handler, stop) for spec, handler in entries))
 
 
 def main() -> None:

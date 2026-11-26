@@ -290,7 +290,7 @@ def mcp_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
     return {"text": result.text, "is_error": result.is_error, "truncated": result.truncated}
 
 
-def _text_tools() -> tuple[Tool, ...]:
+def text_tools() -> tuple[Tool, ...]:
     """The tools that read the user's documents, ask the model and search the web."""
     return (
         Tool(
@@ -348,7 +348,7 @@ def _text_tools() -> tuple[Tool, ...]:
     )
 
 
-def _system_tools(schema: dict[str, str]) -> tuple[Tool, ...]:
+def system_tools(schema: dict[str, str]) -> tuple[Tool, ...]:
     """The tools that read the user's data (a copy), the network and the programs the operator allows."""
     return (
         Tool(
@@ -409,6 +409,6 @@ def _system_tools(schema: dict[str, str]) -> tuple[Tool, ...]:
 
 def tools_for(schema: dict[str, str]) -> tuple[Tool, ...]:
     """Every tool, described for a scope whose db_tool can read the tables in `schema`."""
-    return _text_tools() + _system_tools(schema)
+    return text_tools() + system_tools(schema)
 
 

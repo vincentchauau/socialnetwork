@@ -37,12 +37,12 @@ def ensure_columns(engine: Engine) -> list[str]:
                 if name not in existing:
                     conn.execute(text(add_column_sql(engine, table, name, type_, default)))
                     added.append(f"{table}.{name}")
-        _fold_role_columns(conn, tables)
-        _drop_stored_username(conn, tables)
+        fold_role_columns(conn, tables)
+        drop_stored_username(conn, tables)
     return added
 
 
-def _drop_stored_username(conn, tables: set[str]) -> None:
+def drop_stored_username(conn, tables: set[str]) -> None:
     """`game_players.username` is gone (the name is read from center's `users`): until the live column is dropped by hand
     it must not refuse new rows; a SQLite (development) database simply loses the column."""
     if "game_players" not in tables or "username" not in {c["name"] for c in inspect(conn).get_columns("game_players")}:
@@ -53,7 +53,7 @@ def _drop_stored_username(conn, tables: set[str]) -> None:
         conn.execute(text("ALTER TABLE game_players DROP COLUMN username"))
 
 
-def _fold_role_columns(conn, tables: set[str]) -> None:
+def fold_role_columns(conn, tables: set[str]) -> None:
     """Rows written while `faction` and `ability` were columns kept the faction alone in `role`: put both into the role
     code, so those two columns (dropped by hand) carry nothing that is lost. Idempotent: only rows without a code."""
     if "game_players" not in tables:
@@ -61,7 +61,7 @@ def _fold_role_columns(conn, tables: set[str]) -> None:
     columns = {column["name"] for column in inspect(conn).get_columns("game_players")}
     if not {"faction", "ability"} <= columns:
         return
-    _fold_rows(conn)
+    fold_rows(conn)
     for name in ("faction", "ability"):  # folded: new rows do not set them, so they must be allowed (SQLite: they go)
         if conn.dialect.name == "postgresql":
             conn.execute(text(f"ALTER TABLE game_players ALTER COLUMN {name} DROP NOT NULL"))
@@ -69,7 +69,7 @@ def _fold_role_columns(conn, tables: set[str]) -> None:
             conn.execute(text(f"ALTER TABLE game_players DROP COLUMN {name}"))
 
 
-def _fold_rows(conn) -> None:
+def fold_rows(conn) -> None:
     rows = conn.execute(text("SELECT id, faction, ability FROM game_players "
                              "WHERE outcome <> '' AND faction <> '' AND ability <> '' AND role NOT LIKE '%:%'")).all()
     for row_id, faction, ability in rows:
@@ -80,7 +80,7 @@ def _fold_rows(conn) -> None:
         conn.execute(text("UPDATE game_players SET role = :role WHERE id = :id"), {"role": code, "id": row_id})
 
 
-def _read_all(conn, table: str, wanted: tuple[str, ...]) -> list[dict]:
+def read_all(conn, table: str, wanted: tuple[str, ...]) -> list[dict]:
     """The rows of an old table, with the columns it has among `wanted` (an older database lacks some)."""
     if table not in set(inspect(conn).get_table_names()):
         return []
@@ -100,9 +100,9 @@ def merge_legacy_tables(engine: Engine) -> int:
     with engine.begin() as conn:
         if conn.execute(text("SELECT COUNT(*) FROM games")).scalar():
             return 0
-        results = _read_all(conn, "game_results", ("id", "room_id", "winner", "days", "size", "finished_at"))
-        players = _read_all(conn, "game_players", ("result_id", "user_id", "role", "outcome", "survived", "days_survived", "id"))
-        snapshots = _read_all(conn, "ww_snapshots", ("code", "data"))
+        results = read_all(conn, "game_results", ("id", "room_id", "winner", "days", "size", "finished_at"))
+        players = read_all(conn, "game_players", ("result_id", "user_id", "role", "outcome", "survived", "days_survived", "id"))
+        snapshots = read_all(conn, "ww_snapshots", ("code", "data"))
         of_game: dict[int, list[dict]] = {}
         for p in sorted(players, key=lambda row: row.get("id", 0)):
             of_game.setdefault(p["result_id"], []).append({

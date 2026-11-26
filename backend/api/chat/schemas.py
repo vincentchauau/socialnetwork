@@ -33,7 +33,7 @@ class MessageOut(BaseModel):
 
     @field_validator("content")
     @classmethod
-    def _without_the_card_mark(cls, value: str) -> str:
+    def without_the_card_mark(cls, value: str) -> str:
         """A card is kept with a mark in front (`CARD_PREFIX`) that nobody outside the chat needs: what is sent is the card itself."""
         return value[len(CARD_PREFIX):] if value.startswith(CARD_PREFIX) else value
 
@@ -57,7 +57,7 @@ def _picture(value: str | None) -> str | None:
     return value
 
 
-class _RoomFields(BaseModel):
+class RoomFields(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(min_length=1, max_length=80)
@@ -86,12 +86,12 @@ class _RoomFields(BaseModel):
         return self
 
 
-class RoomCreate(_RoomFields):
+class RoomCreate(RoomFields):
     slug: str | None = Field(default=None, pattern=NEW_SLUG_PATTERN)  # made from the title when left out (not `dm-…`: that is a chat of two)
 
     @field_validator("slug")
     @classmethod
-    def _not_a_chat_of_two(cls, value):
+    def not_a_chat_of_two(cls, value):
         if value is not None and value.startswith("dm-"):
             raise ValueError("An address that starts with dm- is for a chat of two")
         return value
@@ -117,7 +117,7 @@ class RoomUpdate(BaseModel):
 
     @field_validator("join_policy")
     @classmethod
-    def _not_by_invitation(cls, value):
+    def not_by_invitation(cls, value):
         if value == "invite":
             raise ValueError("A room is joined openly or with approval")
         return value

@@ -103,7 +103,7 @@ class Cluster:
                 log.warning("cluster: lost Redis, retrying")
                 await asyncio.sleep(RETRY_SECONDS)
 
-    async def _heartbeat(self, refresh: Callable[[], Awaitable[None]]) -> None:
+    async def heartbeat(self, refresh: Callable[[], Awaitable[None]]) -> None:
         while True:
             await self.write_presence()
             await refresh()
@@ -111,7 +111,7 @@ class Cluster:
 
     async def start(self, handler: Handler, snapshot: Callable[[], dict[str, Any]], refresh: Callable[[], Awaitable[None]]) -> None:
         self._handler, self._snapshot = handler, snapshot
-        self._tasks = [asyncio.create_task(self._listen()), asyncio.create_task(self._heartbeat(refresh))]
+        self._tasks = [asyncio.create_task(self._listen()), asyncio.create_task(self.heartbeat(refresh))]
         await asyncio.sleep(0)
 
     async def stop(self) -> None:

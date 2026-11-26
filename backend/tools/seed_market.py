@@ -19,7 +19,7 @@ SELLER_SLOTS = 5
 BUYER_SLOTS = 5
 
 
-def _slot_people(env: Env, count: int, exclude: set[int]) -> list[PersonInfo]:
+def slot_people(env: Env, count: int, exclude: set[int]) -> list[PersonInfo]:
     people: list[PersonInfo] = []
     for _ in range(count):
         people.append(env.cast.take(exclude=exclude | {p.id for p in people}))
@@ -30,8 +30,8 @@ def seed_market(env: Env, db: Session) -> str | None:
     names = [row[0] for row in PRODUCTS]
     if db.scalar(select(func.count()).select_from(Product).where(Product.name.in_(names))):
         return "the demo products are already there"
-    sellers = _slot_people(env, SELLER_SLOTS, set())
-    buyers = _slot_people(env, BUYER_SLOTS, {p.id for p in sellers})
+    sellers = slot_people(env, SELLER_SLOTS, set())
+    buyers = slot_people(env, BUYER_SLOTS, {p.id for p in sellers})
     admin = env.cast.admin
 
     def person(slot, pool: list[PersonInfo]) -> PersonInfo:

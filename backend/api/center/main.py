@@ -138,7 +138,7 @@ THROTTLES: dict[str, tuple[int, float]] = {
 }
 
 
-def _install_throttles(app: FastAPI, kv: Kv) -> None:
+def install_throttles(app: FastAPI, kv: Kv) -> None:
     state = app.state
     state.kv = kv
     for name, (max_attempts, window) in THROTTLES.items():
@@ -147,7 +147,7 @@ def _install_throttles(app: FastAPI, kv: Kv) -> None:
     state.biometric_slots = threading.BoundedSemaphore(MAX_CONCURRENT_BIOMETRICS)
 
 
-def _install_biometrics(app: FastAPI, settings: Settings) -> None:
+def install_biometrics(app: FastAPI, settings: Settings) -> None:
     app.state.biometrics = None
     app.state.cipher = None
     if settings.biometrics_enabled:
@@ -158,7 +158,7 @@ def _install_biometrics(app: FastAPI, settings: Settings) -> None:
         warn_if_optional(settings)
 
 
-def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+def validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
     first = exc.errors()[0] if exc.errors() else {}
     field = ".".join(str(part) for part in first.get("loc", ())[1:])
     message = str(first.get("msg", "Invalid request")).removeprefix("Value error, ")
@@ -200,8 +200,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
     app.state.event_relay = EventRelay(app.state.session_factory, redis_client_factory(settings.redis_url))
     relay_holder.append(app.state.event_relay)
-    _install_throttles(app, make_kv(settings.redis_url))
-    _install_biometrics(app, settings)
+    install_throttles(app, make_kv(settings.redis_url))
+    install_biometrics(app, settings)
     app.state.totp_cipher = make_cipher(settings)  # fails at startup on a bad DATA_KEY
     app.state.google_verifier = (
         make_google_verifier(settings.google_client_id) if settings.google_client_id else None
@@ -215,7 +215,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         else None
     )
     install_phone(app, settings, app.state.kv)  # SMS provider + throttles (refuses SMS_PROVIDER=mailbox in production)
-    app.add_exception_handler(RequestValidationError, _validation_error)
+    app.add_exception_handler(RequestValidationError, validation_error)
     app.add_exception_handler(ReauthRequired, reauth_response)
     app.include_router(auth_router, dependencies=access_dependencies(public=True))
     app.include_router(account_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))

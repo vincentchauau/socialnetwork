@@ -20,7 +20,7 @@ DEFAULT_DATABASE_URL = "sqlite:///./roulette.db"
 READS_PER_MINUTE = 240
 
 
-_stop_account_consumer = stop_consumer
+stop_account_consumer = stop_consumer
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
@@ -36,7 +36,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             yield
         finally:
             if handle is not None:
-                await _stop_account_consumer(handle)
+                await stop_account_consumer(handle)
 
     app = FastAPI(title="socialnetwork roulette", lifespan=lifespan)
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)

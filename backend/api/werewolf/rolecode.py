@@ -20,8 +20,8 @@ _ABILITY_CODES: dict[Ability, str] = {
     Ability.TRANSFORM: "T",
 }
 assert set(_ABILITY_CODES) == set(Ability), "every ability needs a role code"
-_FACTION_BY_LETTER = {faction.name[0]: faction for faction in Faction}
-_ABILITY_BY_CODE = {code: ability for ability, code in _ABILITY_CODES.items()}
+FACTION_BY_LETTER = {faction.name[0]: faction for faction in Faction}
+ABILITY_BY_CODE = {code: ability for ability, code in _ABILITY_CODES.items()}
 
 
 def role_code(faction: str, ability: str) -> str:
@@ -32,7 +32,7 @@ def role_code(faction: str, ability: str) -> str:
 def role_parts(role: str) -> tuple[str, str] | None:
     """(faction name, ability name) of a role code, or None when it is not one (a legacy row)."""
     letter, _, code = role.partition(":")
-    faction, ability = _FACTION_BY_LETTER.get(letter), _ABILITY_BY_CODE.get(code)
+    faction, ability = FACTION_BY_LETTER.get(letter), ABILITY_BY_CODE.get(code)
     if not code or faction is None or ability is None:
         return None
     return faction.name, ability.name

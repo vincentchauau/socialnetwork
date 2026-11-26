@@ -54,11 +54,11 @@ _COLUMNS: tuple[tuple[str, TypeEngine, tuple[str, str] | None], ...] = (
     ("projects", JSON(), None),
     ("visibility", JSON(), None),
 )
-_UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_sub"), ("uq_users_phone", "phone"),
+UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_sub"), ("uq_users_phone", "phone"),
                    ("uq_users_username_lower", "lower(username)"))  # case-insensitive identity (replaced users.username_key)
 
 
-def _column_ddl(engine: Engine, name: str, type_: TypeEngine, default: tuple[str, str] | None) -> str:
+def column_ddl(engine: Engine, name: str, type_: TypeEngine, default: tuple[str, str] | None) -> str:
     literal = None if default is None else (default[1] if engine.dialect.name == "postgresql" else default[0])
     return add_column_sql(engine, TABLE, name, type_, literal)
 
@@ -85,7 +85,7 @@ def ensure_columns(engine: Engine) -> list[str]:
     with engine.begin() as conn:
         for name, type_, default in _COLUMNS:
             if name not in existing:
-                conn.execute(text(_column_ddl(engine, name, type_, default)))
+                conn.execute(text(column_ddl(engine, name, type_, default)))
                 added.append(name)
         if "group" in added and "role" in existing:
             # users.role became users.group: copy the values once, then drop the old column.
@@ -113,7 +113,7 @@ def ensure_columns(engine: Engine) -> list[str]:
             else:
                 conn.execute(text("DROP INDEX IF EXISTS uq_users_username_key"))
                 conn.execute(text(f"ALTER TABLE {TABLE} DROP COLUMN username_key"))
-        for index_name, column in _UNIQUE_INDEXES:
+        for index_name, column in UNIQUE_INDEXES:
             conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {TABLE} ({column})"))
     merge_legacy_codes(engine)
     return added

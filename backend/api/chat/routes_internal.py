@@ -115,11 +115,11 @@ async def call_heard(request: Request) -> Response:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid request") from None
     if not 8000 <= rate <= 48000 or voice_stream.is_quiet(slug):
         return Response(status_code=status.HTTP_204_NO_CONTENT)  # (a virtual person is talking: this is its voice in the air)
-    await run_in_threadpool(_heard_in_call, request, slug, identity, sound, rate, humans)
+    await run_in_threadpool(heard_in_call, request, slug, identity, sound, rate, humans)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-def _heard_in_call(request: Request, slug: str, user_id: int, sound: bytes, rate: int, humans: int) -> None:
+def heard_in_call(request: Request, slug: str, user_id: int, sound: bytes, rate: int, humans: int) -> None:
     text = speech.transcribe(sound, rate)
     if len(text) < 2:
         return

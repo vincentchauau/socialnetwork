@@ -16,7 +16,7 @@ from api.werewolf.service import commit
 MAX_FRAME_CHARS = 8 * 1024
 
 router = APIRouter()
-_client_message = TypeAdapter(ActionMsg | ChatMsg | ForceMsg)
+client_message = TypeAdapter(ActionMsg | ChatMsg | ForceMsg)
 
 
 def _parse(raw: str) -> ActionMsg | ChatMsg | ForceMsg | None:
@@ -26,7 +26,7 @@ def _parse(raw: str) -> ActionMsg | ChatMsg | ForceMsg | None:
         data = json.loads(raw)
         if not isinstance(data, dict) or data.get("type") not in ("action", "chat", "force"):
             return None
-        return _client_message.validate_python(data)
+        return client_message.validate_python(data)
     except (ValueError, ValidationError):
         return None
 

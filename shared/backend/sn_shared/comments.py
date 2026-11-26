@@ -111,7 +111,7 @@ def _invalid(message: str) -> HTTPException:
     return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, message)
 
 
-def _checked_content(kind: CommentKind, value: str | None) -> str:
+def checked_content(kind: CommentKind, value: str | None) -> str:
     content = (value or "").strip()
     if len(content) < kind.content_min:
         raise _invalid("Write something" if kind.content_min else "The comment is too short")
@@ -123,7 +123,7 @@ def _checked_content(kind: CommentKind, value: str | None) -> str:
 # ---- the routes ---------------------------------------------------------------------------------------------------
 
 
-def _check_rating(kind: CommentKind, rating: int | None) -> None:
+def check_rating(kind: CommentKind, rating: int | None) -> None:
     """A kind of comment with no rating refuses one; a kind that needs a rating refuses none."""
     if kind.rating == "none" and rating is not None:
         raise _invalid("This kind of comment has no rating")
@@ -131,7 +131,7 @@ def _check_rating(kind: CommentKind, rating: int | None) -> None:
         raise _invalid("Give a rating")
 
 
-def _may_moderate(kind: CommentKind, db: Session, comment: Comment, user: TokenPayload) -> bool:
+def may_moderate(kind: CommentKind, db: Session, comment: Comment, user: TokenPayload) -> bool:
     """The owner of the thing may delete what others said about it, when the kind allows it."""
     if kind.moderator is None:
         return False
@@ -178,8 +178,8 @@ def comments_router(kind: CommentKind) -> APIRouter:
         thing = kind.visible(db, object_id, user)
         if kind.may_write is not None:
             kind.may_write(db, thing, user)
-        content = _checked_content(kind, body.content)
-        _check_rating(kind, body.rating)
+        content = checked_content(kind, body.content)
+        check_rating(kind, body.rating)
         if not content and body.rating is None:
             raise _invalid("Write something or give a rating")
         if kind.once and db.scalar(
@@ -210,9 +210,9 @@ def comments_router(kind: CommentKind) -> APIRouter:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only edit your own comments")
         sent = body.model_fields_set
         if "content" in sent:
-            comment.content = _checked_content(kind, body.content)
+            comment.content = checked_content(kind, body.content)
         if "rating" in sent:
-            _check_rating(kind, body.rating)
+            check_rating(kind, body.rating)
             comment.rating = body.rating
         comment.edited_at = _utcnow()
         db.commit()
@@ -222,7 +222,7 @@ def comments_router(kind: CommentKind) -> APIRouter:
     @router.delete(kind.item, status_code=status.HTTP_204_NO_CONTENT)
     def remove_comment(comment_id: CommentId, user: User, db: Db) -> Response:
         comment = own_kind(db, comment_id)
-        if comment.user_id != user.user_id and not _may_moderate(kind, db, comment, user):
+        if comment.user_id != user.user_id and not may_moderate(kind, db, comment, user):
             if kind.others_are_hidden:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Comment not found")
             raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot delete this comment")

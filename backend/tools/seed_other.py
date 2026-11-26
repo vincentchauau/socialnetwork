@@ -32,7 +32,7 @@ def seed_face(env: Env, db: Session) -> str | None:
     return None
 
 
-def _free_pair(db: Session, a: int, b: int) -> bool:
+def free_pair(db: Session, a: int, b: int) -> bool:
     return a != b and social.relationship_of(db, a, b) is None and not social.blocked_between(db, a, b)
 
 
@@ -49,7 +49,7 @@ def seed_friends(env: Env, db: Session) -> str | None:
             break
         recipient = recipients[made % len(recipients)]
         asker = env.cast.take(exclude={recipient.id, *askers})
-        if not _free_pair(db, asker.id, recipient.id):
+        if not free_pair(db, asker.id, recipient.id):
             askers.add(asker.id)
             continue
         askers.add(asker.id)
@@ -69,12 +69,12 @@ def seed_friends(env: Env, db: Session) -> str | None:
         made += 1
     reporters = [env.cast.admin or env.cast.take(), env.cast.take(), env.cast.take(), env.cast.take()]
     for number, ((reason, details, status, kind), reporter) in enumerate(zip(REPORTS, reporters)):
-        kind, target = _report_target(env, db, kind, reporter.id)
+        kind, target = report_target(env, db, kind, reporter.id)
         db.add(Report(reporter_id=reporter.id, target_type=kind, target_id=target, reason=reason, details=details, status=status, created_at=env.ago(40 - 9 * number)))
     return None
 
 
-def _report_target(env: Env, db: Session, kind: str, reporter: int) -> tuple[str, str]:
+def report_target(env: Env, db: Session, kind: str, reporter: int) -> tuple[str, str]:
     """What is reported: a message or a room that exists, else a person (never the reporter)."""
     tables = set(inspect(db.get_bind()).get_table_names())
     if kind == "message" and "messages" in tables:

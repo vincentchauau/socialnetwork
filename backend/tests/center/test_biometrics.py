@@ -492,10 +492,10 @@ def test_real_engine_missing_libraries_are_reported(monkeypatch):
     from api.center.biometrics import BiometricError, BiometricUnavailable, audio, video
 
     monkeypatch.setitem(sys.modules, "resemblyzer", None)
-    audio._build_encoder.cache_clear()
+    audio.build_encoder.cache_clear()
     with pytest.raises(BiometricUnavailable):
         audio.embed_audio(b"x", 5)
-    audio._build_encoder.cache_clear()
+    audio.build_encoder.cache_clear()
     monkeypatch.setitem(sys.modules, "cv2", None)
     with pytest.raises(BiometricUnavailable):
         video.embed_face(b"x", 5)

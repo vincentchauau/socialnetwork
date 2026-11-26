@@ -147,7 +147,7 @@ class TestHttp:
             return self.Response(b'{"ok": 1}')
 
         monkeypatch.setattr(gemini.urllib.request, "urlopen", fake_open)
-        assert gemini._http_post("/models/m:generateContent", {"a": 1}, "SECRET-KEY") == {"ok": 1}
+        assert gemini.http_post("/models/m:generateContent", {"a": 1}, "SECRET-KEY") == {"ok": 1}
         assert "SECRET-KEY" not in seen["url"] and seen["headers"]["X-goog-api-key"] == "SECRET-KEY"
         assert seen["url"].startswith("https://") and seen["timeout"] == gemini.TIMEOUT_SECONDS
 
@@ -162,7 +162,7 @@ class TestHttp:
             return outcome
 
         monkeypatch.setattr(gemini.urllib.request, "urlopen", fake_open)
-        assert gemini._http_post("/x", {}, "k") == {"ok": True}
+        assert gemini.http_post("/x", {}, "k") == {"ok": True}
         assert outcomes == []
 
     def test_a_client_error_is_not_retried_and_does_not_leak(self, monkeypatch):
@@ -174,7 +174,7 @@ class TestHttp:
 
         monkeypatch.setattr(gemini.urllib.request, "urlopen", fake_open)
         with pytest.raises(AiError) as caught:
-            gemini._http_post("/x", {}, "SECRET-KEY")
+            gemini.http_post("/x", {}, "SECRET-KEY")
         assert len(calls) == 1 and "SECRET-KEY" not in str(caught.value) and "400" in str(caught.value)
 
     def test_giving_up_after_the_retries(self, monkeypatch):
@@ -187,7 +187,7 @@ class TestHttp:
 
         monkeypatch.setattr(gemini.urllib.request, "urlopen", fake_open)
         with pytest.raises(AiError, match="TimeoutError"):
-            gemini._http_post("/x", {}, "k")
+            gemini.http_post("/x", {}, "k")
         assert len(calls) == gemini.RETRIES + 1
 
 

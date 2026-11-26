@@ -25,10 +25,10 @@ def send_in_background(
     mailer = request.app.state.mailer
     if mailer is None:
         return
-    background.add_task(_render_and_deliver, mailer, kind, to, context)
+    background.add_task(render_and_deliver, mailer, kind, to, context)
 
 
-def _render_and_deliver(mailer, kind: str, to: str, context: dict) -> None:
+def render_and_deliver(mailer, kind: str, to: str, context: dict) -> None:
     deliver(mailer, Message(to=to, **asdict(render(kind, **context))), kind)
 
 

@@ -47,7 +47,7 @@ SUPPORTED_ALGORITHMS = [
     COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,  # RS256
     COSEAlgorithmIdentifier.EDDSA,
 ]
-_TRANSPORT_VALUES = {t.value for t in AuthenticatorTransport}
+TRANSPORT_VALUES = {t.value for t in AuthenticatorTransport}
 
 
 class PasskeyError(Exception):
@@ -133,12 +133,12 @@ def user_handle_of(user: User) -> bytes | None:
     return user.passkeys[0].user_handle if user.passkeys else None
 
 
-def _descriptor(passkey: Passkey) -> PublicKeyCredentialDescriptor:
+def descriptor(passkey: Passkey) -> PublicKeyCredentialDescriptor:
     return PublicKeyCredentialDescriptor(id=passkey.credential_id, transports=transports_of(passkey) or None)
 
 
 def transports_of(passkey: Passkey) -> list[AuthenticatorTransport]:
-    return [AuthenticatorTransport(v) for v in (passkey.transports or "").split(",") if v in _TRANSPORT_VALUES]
+    return [AuthenticatorTransport(v) for v in (passkey.transports or "").split(",") if v in TRANSPORT_VALUES]
 
 
 def creation_options(
@@ -157,7 +157,7 @@ def creation_options(
             resident_key=ResidentKeyRequirement.REQUIRED,
             user_verification=UserVerificationRequirement.REQUIRED,
         ),
-        exclude_credentials=[_descriptor(p) for p in existing or []],
+        exclude_credentials=[descriptor(p) for p in existing or []],
         supported_pub_key_algs=SUPPORTED_ALGORITHMS,
     )
     return options_to_json_dict(options), options.challenge
@@ -178,7 +178,7 @@ def sanitized_transports(credential: Any) -> str | None:
     raw = response.get("transports") if isinstance(response, dict) else None
     if not isinstance(raw, list):
         return None
-    kept = [t for t in dict.fromkeys(raw) if isinstance(t, str) and t in _TRANSPORT_VALUES]
+    kept = [t for t in dict.fromkeys(raw) if isinstance(t, str) and t in TRANSPORT_VALUES]
     joined = ",".join(kept)
     return joined[:MAX_TRANSPORTS_LENGTH].rstrip(",") or None
 

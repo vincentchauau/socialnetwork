@@ -73,7 +73,7 @@ VIDEO_RULES = (
 Transport = Callable[[str, dict[str, Any]], dict[str, Any]]
 
 
-def _http_post(path: str, payload: dict[str, Any], key: str) -> dict[str, Any]:
+def http_post(path: str, payload: dict[str, Any], key: str) -> dict[str, Any]:
     """POST JSON to the API with retries on rate limits and server errors; raises AiError, never leaks the key."""
     data = json.dumps(payload).encode("utf-8")
     last = "no response"
@@ -107,7 +107,7 @@ class GeminiProvider:
 
     def __init__(self, key: str, transport: Transport | None = None) -> None:
         self._key = key
-        self._transport = transport or (lambda path, payload: _http_post(path, payload, self._key))
+        self._transport = transport or (lambda path, payload: http_post(path, payload, self._key))
         self.llm_model = os.environ.get("GEMINI_LLM_MODEL", DEFAULT_LLM_MODEL)
         self.embed_model = os.environ.get("GEMINI_EMBED_MODEL", DEFAULT_EMBED_MODEL)
         self.dimensions = int(os.environ.get("GEMINI_EMBED_DIMENSIONS", DEFAULT_EMBED_DIMENSIONS))
@@ -216,7 +216,7 @@ class GeminiProvider:
         return VideoScript(topic=topic, filename=topic, stories=stories, subtitles=subtitles)
 
     # -- embeddings --------------------------------------------------------------------------------------------
-    def _embed_one(self, text: str, purpose: str) -> list[float]:
+    def embed_one(self, text: str, purpose: str) -> list[float]:
         payload: dict[str, Any] = {
             "content": {"parts": [{"text": text}]},
             "taskType": "RETRIEVAL_QUERY" if purpose == "query" else "RETRIEVAL_DOCUMENT",
@@ -233,6 +233,6 @@ class GeminiProvider:
 
     def embed(self, texts: Sequence[str], purpose: str = "document") -> list[list[float]]:
         if len(texts) <= 1:
-            return [self._embed_one(text, purpose) for text in texts]
+            return [self.embed_one(text, purpose) for text in texts]
         with ThreadPoolExecutor(max_workers=EMBED_WORKERS) as pool:
-            return list(pool.map(lambda text: self._embed_one(text, purpose), texts))
+            return list(pool.map(lambda text: self.embed_one(text, purpose), texts))

@@ -32,7 +32,7 @@ MAX_PERSIST_ATTEMPTS = 5  # bounded retries for storing a result
 __all__ = ["MAX_ROOMS", "MAX_ROOMS_PER_USER", "RoomNotFound", "RoomStore"]
 
 
-def _never_connected(_code: str) -> bool:
+def never_connected(_code: str) -> bool:
     return False
 
 
@@ -54,7 +54,7 @@ class RoomStore:
     def __init__(
         self,
         clock: Callable[[], float] = time.monotonic,
-        is_connected: Callable[[str], bool] = _never_connected,
+        is_connected: Callable[[str], bool] = never_connected,
         rng: random.Random | None = None,
         max_rooms: int = MAX_ROOMS,
         max_rooms_per_user: int = MAX_ROOMS_PER_USER,

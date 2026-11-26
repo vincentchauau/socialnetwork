@@ -15,7 +15,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 log = logging.getLogger(__name__)
 
-_DB_FOLDS = {"on": False}  # set once at start: does the database have `fold_text`?
+DB_FOLDS = {"on": False}  # set once at start: does the database have `fold_text`?
 
 
 def fold(value: str) -> str:
@@ -26,7 +26,7 @@ def fold(value: str) -> str:
 
 def folded(column: ColumnElement) -> ColumnElement:
     """The column as the search sees it: folded in the database when it can, else only lower-cased."""
-    return func.fold_text(column) if _DB_FOLDS["on"] else func.lower(column)
+    return func.fold_text(column) if DB_FOLDS["on"] else func.lower(column)
 
 
 def pattern(words: str) -> str:
@@ -44,10 +44,10 @@ def register_sqlite(engine: Engine) -> None:
     def _add(connection, _record) -> None:  # noqa: ANN001 - the DBAPI connection
         connection.create_function("fold_text", 1, lambda value: None if value is None else fold(value), deterministic=True)
 
-    _DB_FOLDS["on"] = True
+    DB_FOLDS["on"] = True
 
 
-_POSTGRES_SETUP = (
+POSTGRES_SETUP = (
     "CREATE EXTENSION IF NOT EXISTS unaccent",
     "CREATE EXTENSION IF NOT EXISTS pg_trgm",
     # unaccent() is not marked immutable, which an index needs: this wrapper says it is (its rules never change). Everything
@@ -66,10 +66,10 @@ def ensure_postgres(engine: Engine) -> bool:
         return False
     try:
         with engine.begin() as connection:
-            for statement in _POSTGRES_SETUP:
+            for statement in POSTGRES_SETUP:
                 connection.execute(text(statement))
     except Exception:  # noqa: BLE001 - any refusal of the database means: search without folding there
         log.warning("accent-insensitive search is off: the database refused unaccent/pg_trgm", exc_info=True)
         return False
-    _DB_FOLDS["on"] = True
+    DB_FOLDS["on"] = True
     return True

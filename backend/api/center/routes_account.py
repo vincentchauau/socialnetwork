@@ -138,7 +138,7 @@ def delete_account(
         notify(request, background, user, "account_deleted", to=notice_to)
 
 
-def _too_soon(after) -> HTTPException:
+def too_soon(after) -> HTTPException:
     when = f" after {after.date().isoformat()}" if after is not None else " later"
     return HTTPException(status.HTTP_409_CONFLICT, f"Username can be changed again{when}")
 
@@ -170,7 +170,7 @@ def change_username(
     db.refresh(user)
     allowed_after = usernames.can_rename_after(user)
     if allowed_after is not None:
-        raise _too_soon(allowed_after)
+        raise too_soon(allowed_after)
     if usernames.unavailable(db, new, user.id):
         raise HTTPException(status.HTTP_409_CONFLICT, USERNAME_TAKEN)
     notice_to = user.email if has_verified_email(user) else None
@@ -185,7 +185,7 @@ def change_username(
     )
     if claimed.rowcount != 1:  # a concurrent rename won
         db.rollback()
-        raise _too_soon(None)
+        raise too_soon(None)
     db.refresh(user, ["username", "username_changed_at"])
     add_event(db, USER_RENAMED, user.id, {"username": new, "old_username": old}, with_seq=True)
     bump_token_version(db, user, keep_sid=session.sid)  # other sessions end; this one is re-issued below

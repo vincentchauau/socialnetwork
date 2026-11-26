@@ -45,7 +45,7 @@ def _store(request: Request) -> pk.ChallengeStore:
     return request.app.state.passkey_challenges
 
 
-def _options_gate(request: Request) -> None:
+def options_gate(request: Request) -> None:
     """Per-address cap on option requests (every call counts)."""
     throttle, ip = request.app.state.passkey_options_throttle, client_ip(request)
     if not throttle.check_and_record(ip):
@@ -53,7 +53,7 @@ def _options_gate(request: Request) -> None:
         raise too_many()
 
 
-def _options_out(options: dict, token: str) -> PasskeyOptionsOut:
+def options_out(options: dict, token: str) -> PasskeyOptionsOut:
     return PasskeyOptionsOut(options=options, challenge_token=token)
 
 
@@ -62,12 +62,12 @@ def _options_out(options: dict, token: str) -> PasskeyOptionsOut:
 
 @router.post("/passkey/options", response_model=PasskeyOptionsOut)
 def login_options(request: Request) -> PasskeyOptionsOut:
-    _options_gate(request)
+    options_gate(request)
     options, challenge = pk.request_options(settings_of(request))
-    return _options_out(options, pk.mint_challenge(pk.LOGIN, challenge))
+    return options_out(options, pk.mint_challenge(pk.LOGIN, challenge))
 
 
-def _verified_login(request: Request, db: Session, body: PasskeyLoginBody) -> Passkey:
+def verified_login(request: Request, db: Session, body: PasskeyLoginBody) -> Passkey:
     settings = settings_of(request)
     challenge = pk.read_challenge(body.challenge_token, pk.LOGIN, _store(request))
     passkey = db.scalar(select(Passkey).where(Passkey.credential_id == pk.credential_id_of(body.credential)))
@@ -92,7 +92,7 @@ def passkey_login(
         audit.warning("passkey login locked ip=%s", ip)
         raise too_many()
     try:
-        passkey = _verified_login(request, db, body)
+        passkey = verified_login(request, db, body)
     except pk.PasskeyError:
         db.rollback()
         throttle.record(ip)
@@ -109,14 +109,14 @@ def passkey_login(
 
 @router.post("/register/passkey/options", response_model=PasskeyOptionsOut)
 def signup_options(body: PasskeySignupOptionsBody, request: Request) -> PasskeyOptionsOut:
-    _options_gate(request)
+    options_gate(request)
     handle = pk.new_user_handle()
     name = (body.username or "").strip() or None
     options, challenge = pk.creation_options(
         settings_of(request), user_name=name or SIGNUP_DISPLAY_NAME, display_name=name or SIGNUP_DISPLAY_NAME,
         user_handle=handle,
     )  # fmt: skip
-    return _options_out(options, pk.mint_challenge(pk.SIGNUP, challenge, user_handle=handle, username=name))
+    return options_out(options, pk.mint_challenge(pk.SIGNUP, challenge, user_handle=handle, username=name))
 
 
 def verified_signup_passkey(request: Request, db: Session, credential_json: str, token: str) -> Passkey:
@@ -147,7 +147,7 @@ def link_options(
     request: Request, body: PasskeyOptionsBody | None = None, session: AuthSession = Depends(csrf_session)
 ) -> PasskeyOptionsOut:
     user = session.user
-    _options_gate(request)
+    options_gate(request)
     ensure_reauth(request, user, body.password if body else None)
     if len(user.passkeys) >= MAX_PASSKEYS_PER_ACCOUNT:
         raise HTTPException(status.HTTP_409_CONFLICT, PASSKEY_LIMIT)
@@ -157,10 +157,10 @@ def link_options(
         existing=list(user.passkeys),
     )  # fmt: skip
     token = pk.mint_challenge(pk.LINK, challenge, user_id=user.id, user_handle=handle)
-    return _options_out(options, token)
+    return options_out(options, token)
 
 
-def _require_room(db: Session, user: User) -> None:
+def require_room(db: Session, user: User) -> None:
     """The cap is counted in the transaction that inserts: the user row is locked first (a no-op on SQLite)."""
     db.execute(select(User.id).where(User.id == user.id).with_for_update())
     count = db.scalar(select(func.count()).select_from(Passkey).where(Passkey.user_id == user.id))
@@ -185,7 +185,7 @@ def add_passkey(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, REGISTRATION_FAILED) from None
     if db.scalar(select(Passkey.id).where(Passkey.credential_id == columns["credential_id"])) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, DUPLICATE)
-    _require_room(db, user)
+    require_room(db, user)
     columns["user_handle"] = pk.user_handle_of(user) or columns["user_handle"]  # one handle per account
     user.passkeys.append(Passkey(name=(body.name or "").strip() or pk.DEFAULT_PASSKEY_NAME, **columns))
     try:

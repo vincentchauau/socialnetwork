@@ -77,7 +77,7 @@ def read_probes(request: Request, audio: Upload, video: Upload) -> tuple[bytes |
         return None, None
     with biometric_slot(request) as engine:
         face = engine.face_embedding(video_raw) if video_raw else None
-        voice = engine.audio_embedding(audio_raw) if audio_raw else _voice_from_video(engine, video_raw)
+        voice = engine.audio_embedding(audio_raw) if audio_raw else voice_from_video(engine, video_raw)
         return voice, face
 
 
@@ -90,7 +90,7 @@ def read_face(request: Request, video: Upload) -> bytes | None:
         return engine.face_embedding(video_raw)
 
 
-def _voice_from_video(engine, video_raw: bytes | None) -> bytes | None:
+def voice_from_video(engine, video_raw: bytes | None) -> bytes | None:
     """A webcam clip carries sound too; a silent clip simply yields no voice sample."""
     if not video_raw:
         return None
@@ -129,7 +129,7 @@ def factors_match(
     return True
 
 
-def _count_attempts(throttles: list, keys: list[str], user_label: str, ip: str) -> None:
+def count_attempts(throttles: list, keys: list[str], user_label: str, ip: str) -> None:
     if any(t.is_blocked(k) for t, k in zip(throttles, keys)):
         audit.warning("biometric login locked user=%r ip=%s", user_label, ip)
         raise too_many()
@@ -162,7 +162,7 @@ def login_biometric(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_MFA)  # also: switched off meanwhile, or TOTP is on (it never accepts a biometric instead)
     throttles = [state.bio_throttle, state.bio_account_throttle]
     keys = [pair_key(ip, key_of(user.username)), key_of(user.username)]
-    _count_attempts(throttles, keys, user.username, ip)
+    count_attempts(throttles, keys, user.username, ip)
     if not factors_match(request, user, audio, video):
         audit.warning("mfa biometric failed user=%r ip=%s", user.username, ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, BIOMETRIC_FAILED)

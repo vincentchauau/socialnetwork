@@ -56,8 +56,8 @@ def test_stop_helper_handles_async_and_missing_stop():
         async def close(self):
             calls.append("closed")
 
-    asyncio.run(main._stop_account_consumer(AsyncHandle()))
-    asyncio.run(main._stop_account_consumer(object()))
+    asyncio.run(main.stop_account_consumer(AsyncHandle()))
+    asyncio.run(main.stop_account_consumer(object()))
     assert calls == ["closed"]
 
 

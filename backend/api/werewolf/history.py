@@ -14,9 +14,9 @@ from api.werewolf.schemas import HistoryEntry, HistoryPlayer, LeaderEntry
 logger = logging.getLogger(__name__)
 
 # Rows written by the old 4-role game (role/winner columns only) are mapped onto the new vocabulary.
-_LEGACY_FACTION = {"werewolf": "WOLF", "villager": "VILLAGER", "seer": "VILLAGER", "doctor": "VILLAGER"}
-_LEGACY_ABILITY = {"seer": "SEE_FACTION", "doctor": "BLOCK_EFFECTS", "villager": "NONE", "werewolf": "KILL"}
-_LEGACY_WINNER = {"village": "VILLAGER", "wolves": "WOLF"}
+LEGACY_FACTION = {"werewolf": "WOLF", "villager": "VILLAGER", "seer": "VILLAGER", "doctor": "VILLAGER"}
+LEGACY_ABILITY = {"seer": "SEE_FACTION", "doctor": "BLOCK_EFFECTS", "villager": "NONE", "werewolf": "KILL"}
+LEGACY_WINNER = {"village": "VILLAGER", "wolves": "WOLF"}
 
 
 def save_record(factory: sessionmaker, record: GameRecord) -> bool:
@@ -54,9 +54,9 @@ def _normalize(player: dict, winner: str, username: str) -> HistoryPlayer:
         return HistoryPlayer(username=username, faction=parts[0], ability=parts[1], outcome=outcome, survived=survived)
     if outcome:  # written between the two formats: the faction alone, the ability is not known
         return HistoryPlayer(username=username, faction=role, ability="", outcome=outcome, survived=survived)
-    faction = _LEGACY_FACTION.get(role, role.upper())
-    won = faction == _LEGACY_WINNER.get(winner, winner)
-    return HistoryPlayer(username=username, faction=faction, ability=_LEGACY_ABILITY.get(role, ""),
+    faction = LEGACY_FACTION.get(role, role.upper())
+    won = faction == LEGACY_WINNER.get(winner, winner)
+    return HistoryPlayer(username=username, faction=faction, ability=LEGACY_ABILITY.get(role, ""),
                          outcome="won" if won else "lost", survived=survived)
 
 
@@ -78,7 +78,7 @@ def list_history(session: Session, user_id: int, limit: int) -> list[HistoryEntr
                 game_id=game.id,
                 room_id=game.room_code,
                 finished_at=game.finished_at,
-                winner=_LEGACY_WINNER.get(game.winner, game.winner),
+                winner=LEGACY_WINNER.get(game.winner, game.winner),
                 days=game.days,
                 size=game.size or len(game.players),
                 your_faction=mine.faction,

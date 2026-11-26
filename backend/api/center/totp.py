@@ -31,7 +31,7 @@ RECOVERY_CODES_PER_SET = 10
 RECOVERY_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"  # 32 symbols = 5 bits each
 RECOVERY_LENGTH = 10  # 50 bits
 RECOVERY_GROUPS = (4, 4, 2)  # abcd-efgh-jk
-_DUMMY_SECRET = pyotp.random_base32()  # spent on failures that have no real secret, so they cost the same
+DUMMY_SECRET = pyotp.random_base32()  # spent on failures that have no real secret, so they cost the same
 
 
 def _subkey(label: bytes) -> bytes:
@@ -71,7 +71,7 @@ def _now() -> float:
 
 def matching_step(secret: str | None, code: str) -> int | None:
     """The time step (within the drift window) whose code equals `code`, else None. Always checks every step."""
-    totp = pyotp.TOTP(secret or _DUMMY_SECRET, digits=DIGITS, interval=STEP_SECONDS)
+    totp = pyotp.TOTP(secret or DUMMY_SECRET, digits=DIGITS, interval=STEP_SECONDS)
     presented = code.strip().replace(" ", "").encode()
     current = int(_now() // STEP_SECONDS)
     found = None

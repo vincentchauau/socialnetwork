@@ -58,7 +58,7 @@ SEQ_TTL_SECONDS = 30 * 86400
 SEQ_WATCH_RETRIES = 5
 
 
-class _Skip(Exception):
+class Skip(Exception):
     """Acknowledge without handling (nothing to run, or nothing a retry could fix)."""
 
 
@@ -130,18 +130,18 @@ class AccountConsumer:
     def _handle(self, message_id: str, fields: dict) -> None:
         try:
             self._dispatch(fields)
-        except _Skip as skip:
+        except Skip as skip:
             log.warning("account event %s skipped: %s", message_id, skip)
             self._ack(message_id)
         except Exception as exc:  # noqa: BLE001 - any handler failure is retried, then dead-lettered
             if self._deliveries(message_id) >= MAX_DELIVERIES:
-                self._dead_letter(message_id, fields, exc)
+                self.dead_letter(message_id, fields, exc)
             else:
                 log.warning("account event %s failed (%s): will be retried", message_id, type(exc).__name__)
         else:
             self._ack(message_id)
 
-    def _dead_letter(self, message_id: str, fields: dict, exc: Exception) -> None:
+    def dead_letter(self, message_id: str, fields: dict, exc: Exception) -> None:
         log.error("account event %s dead-lettered after %d deliveries (%s)", message_id, MAX_DELIVERIES,
                   type(exc).__name__)  # fmt: skip
         self._client.xadd(
@@ -163,7 +163,7 @@ class AccountConsumer:
                 if not self._warned_module:
                     self._warned_module = True
                     log.warning("%s not found: account events are skipped for %s", self._module_name, self.group)
-                raise _Skip(f"no {self._module_name}") from None
+                raise Skip(f"no {self._module_name}") from None
         return self._module
 
     def _dispatch(self, fields: dict) -> None:
@@ -173,27 +173,27 @@ class AccountConsumer:
             user_id = int(fields["user_id"])
             payload = json.loads(fields.get("payload") or "{}")
         except (KeyError, ValueError, TypeError):
-            raise _Skip("malformed event") from None
+            raise Skip("malformed event") from None
         if function_name is None:
-            raise _Skip(f"unknown event type {kind!r}")
+            raise Skip(f"unknown event type {kind!r}")
         handler = getattr(self._handlers(), function_name, None)
         if handler is None:
-            raise _Skip(f"{self._module_name} has no {function_name}")
+            raise Skip(f"{self._module_name} has no {function_name}")
         args: tuple = (user_id,)
         if kind == USER_CREATED:
             name = payload.get("username") if isinstance(payload, dict) else None
             if not isinstance(name, str) or not name:
-                raise _Skip("created event without a username")
+                raise Skip("created event without a username")
             args = (user_id, name, str(payload.get("kind") or "human"), payload)  # the whole body: each app takes what it needs
         if kind == USER_RENAMED:
             new_name = payload.get("username") if isinstance(payload, dict) else None
             if not isinstance(new_name, str) or not new_name:
-                raise _Skip("rename event without a username")
+                raise Skip("rename event without a username")
             args = (user_id, new_name)
             seq = payload.get("seq") if isinstance(payload, dict) else None
             seq = seq if isinstance(seq, int) and not isinstance(seq, bool) else None  # legacy events have none
-            if seq is not None and seq <= self._rename_mark(user_id):
-                raise _Skip(f"stale rename of user {user_id} (seq {seq})")
+            if seq is not None and seq <= self.rename_mark(user_id):
+                raise Skip(f"stale rename of user {user_id} (seq {seq})")
         extra: dict = {}
         wants_name = kind == USER_DELETED and "old_username" in inspect.signature(handler).parameters
         if wants_name and isinstance(payload, dict) and isinstance(payload.get("old_username"), str):
@@ -206,20 +206,20 @@ class AccountConsumer:
                 db.rollback()
                 raise
         if kind == USER_RENAMED and seq is not None:
-            self._raise_rename_mark(user_id, seq)
+            self.raise_rename_mark(user_id, seq)
 
-    def _mark_key(self, user_id: int) -> str:
+    def mark_key(self, user_id: int) -> str:
         return SEQ_KEY.format(app=self.group, user_id=user_id)
 
-    def _rename_mark(self, user_id: int) -> int:
+    def rename_mark(self, user_id: int) -> int:
         """Highest rename `seq` applied for the user (0: none), so a late older event cannot overwrite a newer name."""
-        raw = self._client.get(self._mark_key(user_id))
+        raw = self._client.get(self.mark_key(user_id))
         return int(raw) if raw else 0
 
-    def _raise_rename_mark(self, user_id: int, seq: int) -> None:
+    def raise_rename_mark(self, user_id: int, seq: int) -> None:
         import redis
 
-        key = self._mark_key(user_id)
+        key = self.mark_key(user_id)
         for _ in range(SEQ_WATCH_RETRIES):
             with self._client.pipeline() as pipe:
                 try:

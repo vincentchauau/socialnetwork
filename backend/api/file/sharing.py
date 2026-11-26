@@ -23,7 +23,7 @@ class ShareIn(BaseModel):
     days: int | None = Field(default=None, ge=1, le=shares.MAX_DAYS)
 
 
-def _file_of(user_id: int, path: str):
+def file_of(user_id: int, path: str):
     """The file a link of `user_id` points at, or None when it is gone (or has become a folder)."""
     try:
         target = resolve(store.files_root(user_id), path)
@@ -43,7 +43,7 @@ def _out(record: dict, size: int | None = None) -> dict:
 def make_share(body: ShareIn, user: TokenPayload = Depends(writer)) -> dict:
     """A link that gives one of the person's files to whoever has it; the file's earlier link stops working."""
     with store.user_lock(user.user_id):
-        target = _file_of(user.user_id, body.path)
+        target = file_of(user.user_id, body.path)
         if target is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy tệp")
         held = shares.mine(user.user_id)
@@ -57,7 +57,7 @@ def list_shares(user: TokenPayload = Depends(get_current_user)) -> dict:
     """The links of the person whose file is still there."""
     out = []
     for record in shares.mine(user.user_id):
-        target = _file_of(user.user_id, record["path"])
+        target = file_of(user.user_id, record["path"])
         if target is not None:
             out.append(_out(record, target.real.stat().st_size))
     return {"shares": out}
@@ -70,9 +70,9 @@ def take_back(token: Token, user: TokenPayload = Depends(writer)) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-def _shared_file(token: str):
+def shared_file(token: str):
     record = shares.find(token)
-    target = _file_of(record["user_id"], record["path"]) if record else None
+    target = file_of(record["user_id"], record["path"]) if record else None
     if record is None or target is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Liên kết này không còn dùng được")
     return record, target
@@ -81,14 +81,14 @@ def _shared_file(token: str):
 @router.get("/shared/{token}")
 def shared_info(token: Token) -> dict:
     """What the file behind a link is: open to anybody who has the link."""
-    _, target = _shared_file(token)
+    _, target = shared_file(token)
     info = target.real.stat()
     return {"name": target.parts[-1], "size": info.st_size, "modifiedAt": int(info.st_mtime), "download": f"/shared/{token}/download"}
 
 
 @router.get("/shared/{token}/download")
 def shared_download(token: Token) -> FileResponse:
-    _, target = _shared_file(token)
+    _, target = shared_file(token)
     return FileResponse(
         target.real,
         media_type="application/octet-stream",

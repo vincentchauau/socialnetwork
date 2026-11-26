@@ -43,7 +43,7 @@ def on_user_deleted(db: Session, user_id: int) -> None:
         .values(buyer_id=DELETED_USER_ID, idempotency_key=None, pay_key=None)
     )
     comments.anonymize_user(db, user_id, ["product"])  # the reviews stay for the other shoppers
-    _anonymize_seller_lines(db, user_id)
+    anonymize_seller_lines(db, user_id)
     db.execute(
         update(Product)
         .where(Product.seller_id == user_id)
@@ -51,7 +51,7 @@ def on_user_deleted(db: Session, user_id: int) -> None:
     )
 
 
-def _anonymize_seller_lines(db: Session, user_id: int) -> None:
+def anonymize_seller_lines(db: Session, user_id: int) -> None:
     for order in db.scalars(select(Order).where(Order.seller_ids.like(f"%|{user_id}|%"))):
         items = [
             {**item, "seller_id": DELETED_USER_ID} if item["seller_id"] == user_id else item

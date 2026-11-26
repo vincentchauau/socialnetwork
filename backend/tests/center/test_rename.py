@@ -277,7 +277,7 @@ def test_google_handle_avoids_a_system_name(google_client):
 
 
 def test_generated_names_still_work(client):
-    from api.center.routes_methods import _random_handle
+    from api.center.routes_methods import random_handle
 
     with client.app.state.session_factory() as db:
-        assert _random_handle(db).startswith("user-")
+        assert random_handle(db).startswith("user-")

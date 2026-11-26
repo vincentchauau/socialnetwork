@@ -58,18 +58,18 @@ class VerifyCodeBody(BaseModel):
     code: str = Field(max_length=32)
 
 
-def _valid_phone(request: Request, raw: str) -> str:
+def valid_phone(request: Request, raw: str) -> str:
     phone = normalize_phone(raw, settings_of(request).sms_allowed_prefixes)
     if phone is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, BAD_PHONE)
     return phone
 
 
-def _jitter() -> None:
+def jitter() -> None:
     time.sleep(secrets.randbelow(MAX_JITTER_MS + 1) / 1000)
 
 
-def _verified_user(db: Session, phone: str) -> User | None:
+def verified_user(db: Session, phone: str) -> User | None:
     return db.scalar(select(User).where(User.phone == phone, User.phone_verified.is_(True)))
 
 
@@ -79,7 +79,7 @@ def _spend_daily(request: Request, purpose: str) -> None:
         raise too_many()
 
 
-def _gate_request(request: Request, phone: str, purpose: str) -> None:
+def gate_request(request: Request, phone: str, purpose: str) -> None:
     state, ip = request.app.state, client_ip(request)
     if state.sms_daily_throttle[purpose].is_blocked(ph.DAILY_KEY):
         raise too_many()  # the same for every number: the cap says nothing about an account
@@ -103,13 +103,13 @@ def set_phone(
 ) -> OkOut:  # fmt: skip
     """Start (or resend) verification of a number. `users.phone` changes only when it is verified."""
     user, state = session.user, request.app.state
-    phone = _valid_phone(request, body.phone)
+    phone = valid_phone(request, body.phone)
     if state.sms_user_throttle.is_blocked(str(user.id)):
         raise too_many()
     ensure_reauth(request, user, body.password)
     if state.sms_user_day_throttle.is_blocked(str(user.id)):
         raise too_many()
-    _gate_request(request, phone, ph.VERIFY)
+    gate_request(request, phone, ph.VERIFY)
     state.sms_user_throttle.record(str(user.id))
     state.sms_user_day_throttle.record(str(user.id))
     owner = db.scalar(select(User.id).where(User.phone == phone, User.phone_verified.is_(True)))
@@ -186,11 +186,11 @@ def login_request(
     body: PhoneBody, request: Request, background: BackgroundTasks, db: Session = Depends(get_db)
 ) -> OkOut:
     """Always the same work and answer; an SMS goes out only for a VERIFIED number."""
-    phone = _valid_phone(request, body.phone)
-    _gate_request(request, phone, ph.LOGIN)
-    user = _verified_user(db, phone)
+    phone = valid_phone(request, body.phone)
+    gate_request(request, phone, ph.LOGIN)
+    user = verified_user(db, phone)
     code = ph.issue(db, user, ph.LOGIN, phone)
-    _jitter()
+    jitter()
     if user is not None:
         _spend_daily(request, ph.LOGIN)
         ph.queue_sms(request, background, ph.LOGIN, phone, code)
@@ -209,7 +209,7 @@ def login_verify(
     pair = f"{client_ip(request)}|{phone}"  # per (IP, number): a stranger's guesses cannot lock the owner out
     if not state.sms_fail_throttle.check_and_record(pair) or not state.sms_fail_phone_throttle.check_and_record(phone):
         raise too_many()
-    user = _verified_user(db, phone)
+    user = verified_user(db, phone)
     row = ph.find_for_user(db, user.id, ph.LOGIN, phone) if user else None
     if not ph.check_code(db, row, body.code) or user is None or row is None or not ph.consume(db, row.id):
         db.rollback()

@@ -24,7 +24,7 @@ from api.center.models import Passkey, User, utcnow
 from api.center.notify import send_code_mail
 from api.center.reauth import REAUTH_FAILED, available_methods, set_fresh
 from api.center.routes_auth import verify_google_or_throttle
-from api.center.routes_passkeys import _options_gate, _options_out, _store
+from api.center.routes_passkeys import options_gate, options_out, _store
 from api.center.schemas import FreshOut, GoogleBody, OkOut, PasskeyLoginBody, PasskeyOptionsOut, ReauthCodeBody, ReauthMethodsOut
 
 GOOGLE_PROOF_TTL_SECONDS = 3600.0  # Google ID tokens live an hour
@@ -32,24 +32,24 @@ GOOGLE_PROOF_TTL_SECONDS = 3600.0  # Google ID tokens live an hour
 router = APIRouter(prefix="/auth/reauth", tags=["reauth"], dependencies=[Depends(check_origin)])
 
 
-def _throttle_key(request: Request, user: User) -> str:
+def throttle_key(request: Request, user: User) -> str:
     return f"{user.id}|{client_ip(request)}"
 
 
 def _guard(request: Request, user: User) -> None:
-    if request.app.state.fresh_throttle.is_blocked(_throttle_key(request, user)):
+    if request.app.state.fresh_throttle.is_blocked(throttle_key(request, user)):
         audit.warning("reauth locked user=%r ip=%s", user.username, client_ip(request))
         raise too_many()
 
 
 def _fail(request: Request, user: User, how: str) -> HTTPException:
-    request.app.state.fresh_throttle.record(_throttle_key(request, user))
+    request.app.state.fresh_throttle.record(throttle_key(request, user))
     audit.warning("reauth %s failed user=%r ip=%s", how, user.username, client_ip(request))
     return HTTPException(status.HTTP_401_UNAUTHORIZED, REAUTH_FAILED)
 
 
 def _granted(request: Request, response: Response, user: User, how: str) -> FreshOut:
-    request.app.state.fresh_throttle.reset(_throttle_key(request, user))
+    request.app.state.fresh_throttle.reset(throttle_key(request, user))
     audit.info("reauth ok (%s) user=%r ip=%s", how, user.username, client_ip(request))
     return set_fresh(response, request, user, settings_of(request))
 
@@ -64,12 +64,12 @@ def methods(request: Request, session: AuthSession = Depends(current_session)) -
 
 @router.post("/passkey/options", response_model=PasskeyOptionsOut)
 def passkey_options(request: Request, session: AuthSession = Depends(csrf_session)) -> PasskeyOptionsOut:
-    _options_gate(request)
+    options_gate(request)
     options, challenge = pk.request_options(settings_of(request))
-    return _options_out(options, pk.mint_challenge(pk.REAUTH, challenge, user_id=session.user.id))
+    return options_out(options, pk.mint_challenge(pk.REAUTH, challenge, user_id=session.user.id))
 
 
-def _verified_own_passkey(request: Request, db: Session, user: User, body: PasskeyLoginBody) -> Passkey:
+def verified_own_passkey(request: Request, db: Session, user: User, body: PasskeyLoginBody) -> Passkey:
     challenge = pk.read_challenge(body.challenge_token, pk.REAUTH, _store(request))  # single use
     if challenge.user_id != user.id:
         raise pk.PasskeyError("challenge belongs to another account")
@@ -94,7 +94,7 @@ def passkey_verify(
     user = session.user
     _guard(request, user)
     try:
-        _verified_own_passkey(request, db, user, body)
+        verified_own_passkey(request, db, user, body)
     except pk.PasskeyError:
         db.rollback()
         raise _fail(request, user, "passkey") from None
@@ -139,9 +139,9 @@ def email_request(
     """Mail a code to the account's VERIFIED address (never to one the caller supplies). Same 202 either way."""
     user = session.user
     address = user.email if has_verified_email(user) else None
-    email_routes._gate_request(request, et.REAUTH, address or f"user:{user.id}")
+    email_routes.gate_request(request, et.REAUTH, address or f"user:{user.id}")
     issued = et.issue(db, user if address else None, et.REAUTH, address or "", with_code=True)
-    email_routes._jitter()
+    email_routes.jitter()
     if address and issued.code:
         send_code_mail(request, background, et.REAUTH, address, issued.code)
     audit.info("reauth mail requested user=%r ip=%s", user.username, client_ip(request))
@@ -155,14 +155,14 @@ def email_verify(
 ) -> FreshOut:  # fmt: skip
     user = session.user
     _guard(request, user)
-    email_routes._gate_submit(request)
-    failure_key = email_routes._code_failure_key(f"reauth:{user.id}")
-    email_routes._guard_code_attempts(request, failure_key)
+    email_routes.gate_submit(request)
+    failure_key = email_routes.code_failure_key(f"reauth:{user.id}")
+    email_routes.guard_code_attempts(request, failure_key)
     address = user.email if has_verified_email(user) else None
     row = et.find_for_user(db, user.id, et.REAUTH, address) if address else None
     if not et.check_code(db, row, body.code) or row is None or not et.consume(db, row.id):
         db.rollback()
-        email_routes._count_code_failure(request, failure_key)
+        email_routes.count_code_failure(request, failure_key)
         raise _fail(request, user, "email")
     db.commit()
     return _granted(request, response, user, "email")

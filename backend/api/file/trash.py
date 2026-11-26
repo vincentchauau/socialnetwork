@@ -29,7 +29,7 @@ def trash_dir(user_id: int) -> Path:
     return store.data_dir() / "trash" / str(int(user_id))
 
 
-def _size_of(path: Path) -> int:
+def size_of(path: Path) -> int:
     if path.is_file():
         return path.stat().st_size
     total = 0
@@ -54,7 +54,7 @@ def put(user_id: int, real: Path, parts: tuple[str, ...]) -> dict:
         "name": parts[-1],
         "parent": "/" + "/".join(parts[:-1]),
         "type": "folder" if real.is_dir() else "file",
-        "size": _size_of(real),
+        "size": size_of(real),
         "deletedAt": int(time.time()),
         "seq": time.time_ns(),  # tells apart what was deleted within the same second
     }

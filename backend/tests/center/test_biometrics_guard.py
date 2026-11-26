@@ -80,7 +80,7 @@ def test_face_distance_of_identical_vectors_is_zero():
 
 def test_identification_placeholder_is_a_valid_template_for_the_real_engine():
     """Compared when no account has a webcam, so the work does not vary: it must not crash the real engine."""
-    from api.center.identify import _DUMMY_FACE
+    from api.center.identify import DUMMY_FACE
 
-    assert len(_DUMMY_FACE) % 4 == 0
-    assert real_engine().face_distance(_DUMMY_FACE, bytes(512)) >= 0.0
+    assert len(DUMMY_FACE) % 4 == 0
+    assert real_engine().face_distance(DUMMY_FACE, bytes(512)) >= 0.0

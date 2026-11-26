@@ -23,7 +23,7 @@ QUIET_LINES = (
 
 def suspicion(game: Game, bot: Player) -> dict[int, float]:
     """Điểm nghi ngờ của `bot` với từng người, từ các ngày đã qua và lời buộc tội trong chat."""
-    know = game._knowledge_for(bot)
+    know = game.knowledge_for(bot)
     scores: dict[int, float] = defaultdict(float)
     for votes in game.vote_history:
         for voter_id, target_id in votes.items():
@@ -68,7 +68,7 @@ def wolf_day_target(game: Game) -> Player | None:
 
 def day_vote(game: Game, voter: Player, others: list[Player], cast: dict[int, int]) -> Player:
     """Chọn người để treo cổ. `cast`: các phiếu bot đã bỏ trước đó trong ngày (để theo phe đang dẫn đầu)."""
-    know = game._knowledge_for(voter)
+    know = game.knowledge_for(voter)
     exposed = [x for x in others if know.get(x.id, {}).get("faction") not in (None, voter.faction)]
     if exposed:
         return random.choice(exposed)
@@ -100,7 +100,7 @@ def chatter(game: Game) -> list[tuple[Player, str, int]]:
             if target is not None:
                 lines.append((bot, f"🤔 Tôi nghi {target.name} lắm, mọi người nghĩ sao?", target.id))
                 continue
-        know = game._knowledge_for(bot)
+        know = game.knowledge_for(bot)
         exposed = [x for x in others if know.get(x.id, {}).get("faction") not in (None, bot.faction)]
         if exposed:
             x = random.choice(exposed)

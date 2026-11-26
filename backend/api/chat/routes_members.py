@@ -46,12 +46,12 @@ def member_out(request: Request, room: Room, member: RoomMember, slug: str, show
     )  # fmt: skip
 
 
-def _people_of(db: Session, user_ids: list[int]) -> dict[int, Person]:
+def people_of(db: Session, user_ids: list[int]) -> dict[int, Person]:
     """The people (rows of `users`) with these ids: who is virtual, and what name and picture each shows."""
     return {person.user_id: person for person in db.scalars(select(Person).where(Person.user_id.in_(user_ids)))} if user_ids else {}
 
 
-def _listed_statuses(is_owner: bool) -> tuple[str, ...]:
+def listed_statuses(is_owner: bool) -> tuple[str, ...]:
     """Everyone who was ever in the room is listed with their status; a request to join is for the owner only."""
     return (service.JOINED, service.LEFT, service.KICKED, service.BANNED_STATUS) + ((service.PENDING_STATUS,) if is_owner else ())
 
@@ -68,14 +68,14 @@ def list_members(
     """The people of the room; `q` keeps the ones whose name holds those letters (any accent, any case), `status` the ones in that state."""
     room, me = visible(db, slug, user)
     is_mod = service.is_owner(room, me)
-    query = select(RoomMember).where(RoomMember.room_id == room.id, RoomMember.status.in_(_listed_statuses(is_mod)))
+    query = select(RoomMember).where(RoomMember.room_id == room.id, RoomMember.status.in_(listed_statuses(is_mod)))
     if member_status:
         query = query.where(RoomMember.status == member_status)
     if q.strip():
         query = query.join(Person, Person.user_id == RoomMember.user_id).where(textsearch.folded(Person.username).like(textsearch.pattern(q), escape="\\"))
     members = service.show(db, db.scalars(query.order_by(RoomMember.user_id)).all())
     online = {entry["userId"] for entry in request.app.state.presence.members(slug)[0]}
-    people = _people_of(db, [m.user_id for m in members])
+    people = people_of(db, [m.user_id for m in members])
     return [member_out(request, room, m, slug, is_mod, online, people) for m in members]
 
 
@@ -85,10 +85,10 @@ def read_member(slug: Slug, user_id: int, request: Request, user: TokenPayload =
     room, me = visible(db, slug, user)
     is_mod = service.is_owner(room, me)
     member = service.member_of(db, room.id, user_id)
-    if member is None or member.status not in _listed_statuses(is_mod):
+    if member is None or member.status not in listed_statuses(is_mod):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
     online = {entry["userId"] for entry in request.app.state.presence.members(slug)[0]}
-    return member_out(request, room, service.show_one(db, member), slug, is_mod, online, _people_of(db, [member.user_id]))
+    return member_out(request, room, service.show_one(db, member), slug, is_mod, online, people_of(db, [member.user_id]))
 
 
 class AddMemberBody(BaseModel):
@@ -142,7 +142,7 @@ def add_member(slug: Slug, body: AddMemberBody, request: Request, user: TokenPay
         emit(request, slug, {"type": "member", "event": "join", "user_id": person.user_id, "username": person.username})
         announce(request, slug, [line])
     online = {entry["userId"] for entry in request.app.state.presence.members(slug)[0]}
-    return member_out(request, room, service.show_one(db, member), slug, True, online, _people_of(db, [member.user_id]))
+    return member_out(request, room, service.show_one(db, member), slug, True, online, people_of(db, [member.user_id]))
 
 
 @router.patch("/rooms/{slug}/members/{user_id}", response_model=MemberOut)
@@ -178,7 +178,7 @@ def change_member(slug: Slug, user_id: int, body: MemberPatch, request: Request,
     emit(request, slug, {"type": "member", "event": "change", "user_id": user_id, "username": target_name})
     announce(request, slug, lines)
     online = {entry["userId"] for entry in request.app.state.presence.members(slug)[0]}
-    return member_out(request, room, service.show_one(db, target), slug, True, online, _people_of(db, [target.user_id]))
+    return member_out(request, room, service.show_one(db, target), slug, True, online, people_of(db, [target.user_id]))
 
 
 @router.delete("/rooms/{slug}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -212,7 +212,7 @@ def remove_member(
     announce(request, slug, lines)
 
 
-def _seat_virtual(request: Request, db: Session, room, slug: str, person: Person, actor_id: int, quiet: bool = False) -> bool:
+def seat_virtual(request: Request, db: Session, room, slug: str, person: Person, actor_id: int, quiet: bool = False) -> bool:
     """`person` (a virtual one) is in the room: True when they came in now, False when they were in already. Raises 403/409 when they may not."""
     member = service.member_of(db, room.id, person.user_id)
     if member is not None and member.status == service.JOINED:
@@ -234,7 +234,7 @@ def _seat_virtual(request: Request, db: Session, room, slug: str, person: Person
     return True
 
 
-def _member_of_open_room(db: Session, slug: str, user: TokenPayload):
+def member_of_open_room(db: Session, slug: str, user: TokenPayload):
     room, me = visible(db, slug, user)
     if me is None or me.status != service.JOINED or room.state != service.OPEN or room.kind == "dm":
         raise HTTPException(status.HTTP_403_FORBIDDEN, service.NOT_A_MEMBER)
@@ -250,7 +250,7 @@ def fill_with_virtual(request: Request, db: Session, room, slug: str, actor: Tok
     came = 0
     for person in companions.pick(db, actor.user_id, need, inside):
         try:
-            if _seat_virtual(request, db, room, slug, person, actor.user_id, quiet=True):
+            if seat_virtual(request, db, room, slug, person, actor.user_id, quiet=True):
                 came += 1
         except HTTPException:
             db.rollback()
@@ -279,7 +279,7 @@ def add_virtual(slug: Slug, body: VirtualBody, request: Request, user: TokenPayl
     """Bring `count` virtual people into the room at once: the ones I already drew who are not in it yet first, then new ones drawn at random
     (they become my companions). Fewer come when the room, the limit of companions or the pool is short; the answer says why. They answer
     what people write there (see `virtual_reply`)."""
-    room = _member_of_open_room(db, slug, user)
+    room = member_of_open_room(db, slug, user)
     left = virtual_reply.MAX_VIRTUAL_PER_ROOM - virtual_reply.virtual_count(db, room)
     wanted = min(body.count, max(left, 0))
     why = None if wanted == body.count else "The room has as many virtual people as allowed"
@@ -298,7 +298,7 @@ def add_virtual(slug: Slug, body: VirtualBody, request: Request, user: TokenPayl
     added = []
     for person in chosen:
         try:
-            if _seat_virtual(request, db, room, slug, person, user.user_id, quiet=True):
+            if seat_virtual(request, db, room, slug, person, user.user_id, quiet=True):
                 added.append({"user_id": person.user_id, "username": person.username, "display_name": person.view().display_name})
         except HTTPException as error:
             db.rollback()

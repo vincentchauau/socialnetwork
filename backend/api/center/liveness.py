@@ -46,7 +46,7 @@ SAME_PERSON_MAX_DISTANCE = 0.5  # first vs last frame face-embedding distance
 Point = tuple[float, float]
 
 
-def _dist(a: Point, b: Point) -> float:
+def dist(a: Point, b: Point) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
@@ -54,16 +54,16 @@ def eye_aspect_ratio(eye: Sequence[Point]) -> float:
     """EAR of the 6 landmarks of one eye (face_recognition order); 0.0 when degenerate."""
     if len(eye) != 6:
         return 0.0
-    width = _dist(eye[0], eye[3])
-    return (_dist(eye[1], eye[5]) + _dist(eye[2], eye[4])) / (2 * width) if width else 0.0
+    width = dist(eye[0], eye[3])
+    return (dist(eye[1], eye[5]) + dist(eye[2], eye[4])) / (2 * width) if width else 0.0
 
 
 def mouth_aspect_ratio(top_lip: Sequence[Point], bottom_lip: Sequence[Point]) -> float:
     """Inner mouth opening over mouth width (face_recognition 12-point lips); 0.0 when degenerate."""
     if len(top_lip) != 12 or len(bottom_lip) != 12:
         return 0.0
-    width = _dist(top_lip[0], top_lip[6])
-    return _dist(top_lip[9], bottom_lip[9]) / width if width else 0.0
+    width = dist(top_lip[0], top_lip[6])
+    return dist(top_lip[9], bottom_lip[9]) / width if width else 0.0
 
 
 def yaw_proxy(nose_bridge: Sequence[Point], chin: Sequence[Point]) -> float:

@@ -56,7 +56,7 @@ class ProductIn(BaseModel):
 
     @field_validator("image_url")
     @classmethod
-    def _check_image_url(cls, value: str | None) -> str | None:
+    def check_image_url(cls, value: str | None) -> str | None:
         if value is None or value == "":
             return None
         return validate_http_url(value)

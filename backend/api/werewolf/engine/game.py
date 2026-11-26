@@ -18,11 +18,11 @@ from api.werewolf.engine import bots
 from api.werewolf.engine.chat import Chat, ChatError, ChatMessage
 from api.werewolf.engine.events import NightEvent, draw_event
 from api.werewolf.engine.roles import (  # noqa: F401  (re-export)
-    _DEFENSIVE,
-    _DISRUPTIVE,
-    _INTEL,
-    _OFFENSIVE,
-    _PASSIVE,
+    DEFENSIVE,
+    DISRUPTIVE,
+    INTEL,
+    OFFENSIVE,
+    PASSIVE,
     ALLOWED_ABILITIES,
     DEFAULT_ABILITIES,
     HOLDER_GROUP_WEIGHTS,
@@ -75,11 +75,11 @@ class Event:
     full_text: str | None = None  # bản có tên cho người xem nhật ký đầy đủ ('' = ẩn)
 
 
-def _fac(f: Faction) -> dict[str, str]:
+def fac(f: Faction) -> dict[str, str]:
     return {"code": f.name, "label": f.value}
 
 
-def _abi(a: Ability) -> dict[str, str]:
+def abi(a: Ability) -> dict[str, str]:
     return {"code": a.name, "label": a.value}
 
 
@@ -155,7 +155,7 @@ class Game:
     def alive(self, faction: Faction | None = None) -> list[Player]:
         return [p for p in self.players if p.alive and (faction is None or p.faction == faction)]
 
-    def _knowledge_for(self, p: Player) -> dict[int, dict[str, Any]]:
+    def knowledge_for(self, p: Player) -> dict[int, dict[str, Any]]:
         merged = {pid: dict(info) for pid, info in self.public_info.items()}
         if p.faction == Faction.WOLF:
             for pid, info in self.wolf_info.items():
@@ -208,7 +208,7 @@ class Game:
     def start(self) -> None:
         if self.phase != Phase.SETUP:
             raise GameError("Game đã bắt đầu")
-        self._start_night()
+        self.start_night()
         self._advance()
 
     def submit(self, pid: int, target: int, kind: str = "ability") -> None:
@@ -224,14 +224,14 @@ class Game:
                 raise GameError("Bạn không có hành động này đêm nay")
             if pid in store or pid in self.skipped:
                 raise GameError("Bạn đã chọn rồi")
-            opts = self._exclusive(pid, kind, base)
+            opts = self.exclusive(pid, kind, base)
             if target in base and target not in opts:
                 raise GameError("Người này đã bị Giết trực tiếp (hoặc vote giết) rồi, hãy chọn người khác")
             if target not in opts and not (kind == "wolf" and target == 0):
                 raise GameError("Mục tiêu không hợp lệ")
             store[pid] = target
             if kind == "ability" and pid in self.wolf_options and pid not in self.wolf_actions \
-                    and not self._exclusive(pid, "wolf", self.wolf_options[pid]):
+                    and not self.exclusive(pid, "wolf", self.wolf_options[pid]):
                 self.wolf_actions[pid] = 0  # không còn ai khác để vote giết: tự bỏ phiếu trắng
         elif self.phase == Phase.DAY:
             if not p.alive:
@@ -282,14 +282,14 @@ class Game:
         self._advance()
 
     # ---------- đồng hồ ----------
-    def _timer_budget(self) -> int | None:
+    def timer_budget(self) -> int | None:
         if not self.timer or self.phase not in (Phase.NIGHT, Phase.DAY, Phase.REVENGE):
             return None
         return self.timer * (2 if self.phase == Phase.DAY else 1)
 
     def seconds_left(self, now: float | None = None) -> float | None:
         """Số giây còn lại của lượt hiện tại (None nếu không giới hạn). Đồng hồ bắt đầu khi lượt được quan sát lần đầu."""
-        budget = self._timer_budget()
+        budget = self.timer_budget()
         if budget is None:
             return None
         now = self._clock() if now is None else now
@@ -343,7 +343,7 @@ class Game:
         return {"seq": m.seq, "round": m.round, "channel": m.channel, "text": m.text, "target": m.target,
                 "dead": m.dead, "author": {"id": m.author, "name": names.get(m.author, "?")}}
 
-    def _visible_chat(self, viewer: Player, everything: bool) -> list[dict[str, Any]]:
+    def visible_chat(self, viewer: Player, everything: bool) -> list[dict[str, Any]]:
         return [self.chat_entry(m) for m in self.chat.messages[-CHAT_SNAPSHOT:]
                 if self.message_visible(viewer, m, everything)]
 
@@ -367,11 +367,11 @@ class Game:
             if self.phase == Phase.NIGHT:
                 if self._missing():
                     return
-                self._resolve_night()
+                self.resolve_night()
             elif self.phase == Phase.DAY:
                 if self._missing():
                     return
-                self._resolve_day()
+                self.resolve_day()
             elif self.phase == Phase.SETTLE:
                 if not self._settle():
                     return
@@ -388,27 +388,27 @@ class Game:
         self._deaths.append(death)
         self._announce(f"💀 {p.name} chết [{cause}]")
         if p.ability == Ability.REVEAL_ON_DEATH:
-            death["revealed"] = {"faction": _fac(p.faction), "ability": _abi(p.ability)}
+            death["revealed"] = {"faction": fac(p.faction), "ability": abi(p.ability)}
             self.public_info.setdefault(p.id, {}).update(faction=p.faction, ability=p.ability)
             self._announce(f"📢 Lộ: {p.name} = {p.faction.value}, {p.ability.value}")
         if p.ability == Ability.KILL_ON_DEATH:
             self._revenge_queue.append(p)
 
-    def _check_end(self) -> bool:
+    def check_end(self) -> bool:
         if not self.check_win():
             return False
-        self._end_game()
+        self.end_game()
         return True
 
-    def _flush_recap(self, kind: str, round_no: int) -> None:
+    def flush_recap(self, kind: str, round_no: int) -> None:
         """Gói những ai chết ở bước vừa rồi thành thẻ Bình minh (sau đêm) hoặc Hoàng hôn (sau ngày)."""
         self._recap_seq += 1
         self.recap = {"seq": self._recap_seq, "kind": kind, "round": round_no, "deaths": self._deaths}
         self._deaths = []
 
-    def _end_game(self) -> None:
+    def end_game(self) -> None:
         if self._deaths:
-            self._flush_recap("dawn" if self._last_step == "night" else "dusk", self.night)
+            self.flush_recap("dawn" if self._last_step == "night" else "dusk", self.night)
         self.game_over = True
         self.phase = Phase.OVER
         if self.winner is None:
@@ -424,7 +424,7 @@ class Game:
             if not enemies:
                 continue
             if p.is_bot:
-                know = self._knowledge_for(p)
+                know = self.knowledge_for(p)
                 known = [x for x in enemies
                          if know.get(x.id, {}).get("faction") not in (None, p.faction)]
                 t = random.choice(known or enemies)
@@ -436,21 +436,21 @@ class Game:
                 self.revenge_options = [x.id for x in enemies]
                 self.skipped = set()
                 return False
-        if self._check_end():
+        if self.check_end():
             return True
         if self._next == "day":
-            self._start_day()
+            self.start_day()
         elif self.night >= self.max_nights:
             counts = {f: len(self.alive(f)) for f in Faction}
             self.winner = max(counts, key=lambda f: counts[f])
-            self._end_game()
+            self.end_game()
         else:
-            self._start_night()
+            self.start_night()
         return True
 
     # ---------- ĐÊM ----------
-    def _options_for(self, p: Player) -> list[int]:
-        if p.ability in _PASSIVE:
+    def options_for(self, p: Player) -> list[int]:
+        if p.ability in PASSIVE:
             return []
         if p.ability == Ability.TRANSFORM and p.faction != Faction.GHOST:
             return []
@@ -459,7 +459,7 @@ class Game:
             ids = [i for i in ids if i != self.last_protect_target.get(p.id)]
         return ids
 
-    def _exclusive(self, pid: int, kind: str, ids: list[int]) -> list[int]:
+    def exclusive(self, pid: int, kind: str, ids: list[int]) -> list[int]:
         """Sói có Giết trực tiếp: người đã chọn ở hành động này bị loại khỏi hành động kia (đòn thứ hai là thừa)."""
         p = self.player(pid)
         if p.faction != Faction.WOLF or p.ability != Ability.KILL:
@@ -467,41 +467,41 @@ class Game:
         other = self.actions.get(pid) if kind == "wolf" else self.wolf_actions.get(pid)
         return [i for i in ids if i != other] if other else ids
 
-    def _wolf_options_for(self, p: Player) -> list[int]:
+    def wolf_options_for(self, p: Player) -> list[int]:
         """Mọi Sói còn sống đều có vote giết ban đêm mặc định; mục tiêu là người không phải Sói."""
         if p.faction != Faction.WOLF:
             return []
         return [x.id for x in self.alive() if x.faction != Faction.WOLF]
 
-    def _start_night(self) -> None:
+    def start_night(self) -> None:
         self.night += 1
         self.phase = Phase.NIGHT
         self._round = f"Đêm {self.night}"
         if self.night > 1:
-            self._flush_recap("dusk", self.night - 1)
+            self.flush_recap("dusk", self.night - 1)
         self.event = self.forced_event or (draw_event() if self.events_enabled else None)
         if self.event:
             self._announce(f"🎴 Sự kiện: {self.event.icon} {self.event.title} — {self.event.text}")
         self.actions, self.wolf_actions, self.skipped = {}, {}, set()
         self.night_options, self.wolf_options = {}, {}
         for p in self.alive():
-            opts = self._options_for(p)
+            opts = self.options_for(p)
             if opts:
                 self.night_options[p.id] = opts
                 if p.is_bot:
-                    self.actions[p.id] = self._auto_target(p, [self.player(i) for i in opts]).id
-            wolf_opts = self._wolf_options_for(p)
+                    self.actions[p.id] = self.auto_target(p, [self.player(i) for i in opts]).id
+            wolf_opts = self.wolf_options_for(p)
             if p.ability == Ability.KILL and len(wolf_opts) == 1 and wolf_opts[0] in opts:
                 # Chỉ còn một mục tiêu và Giết trực tiếp đã nhắm tới được: vote giết cùng người đó là thừa.
                 wolf_opts = []
             if wolf_opts:
                 self.wolf_options[p.id] = wolf_opts
                 if p.is_bot:
-                    choices = self._exclusive(p.id, "wolf", wolf_opts)
+                    choices = self.exclusive(p.id, "wolf", wolf_opts)
                     self.wolf_actions[p.id] = (
-                        self._auto_wolf_target(p, [self.player(i) for i in choices]).id if choices else 0)
+                        self.auto_wolf_target(p, [self.player(i) for i in choices]).id if choices else 0)
 
-    def _resolve_night(self) -> None:
+    def resolve_night(self) -> None:
         self._last_step = "night"
         ev = self.event.code if self.event else None
         alive_before = len(self.alive())
@@ -563,7 +563,7 @@ class Game:
                 self._share(p, t, "ability", t.ability, f"{t.name} có chức năng {t.ability.value}")
 
         for pid, p, t in of(Ability.TRANSFORM):
-            if self._transform(p, t, protected, reflected, ev):
+            if self.transform(p, t, protected, reflected, ev):
                 return
 
         kill_targets: list[Player] = []
@@ -578,7 +578,7 @@ class Game:
             else:
                 kill_targets.append(t)
 
-        kill_targets.extend(self._wolf_victims(ev, wolf_acts, blocked, protected, reflected))
+        kill_targets.extend(self.wolf_victims(ev, wolf_acts, blocked, protected, reflected))
 
         seen: set[int] = set()
         for t in kill_targets:
@@ -590,7 +590,7 @@ class Game:
         self.phase = Phase.SETTLE
         self._next = "day"
 
-    def _transform(self, p: Player, t: Player, protected: set[int], reflected: set[int], ev: str | None) -> bool:
+    def transform(self, p: Player, t: Player, protected: set[int], reflected: set[int], ev: str | None) -> bool:
         """A ghost turns `t` into a ghost unless `t` is protected or reflects it. True when the game ended."""
         if t.faction == Faction.GHOST:
             self._note([p], f"👻 Biến hình {t.name} thất bại (đã là Ma)",
@@ -606,10 +606,10 @@ class Game:
             self._note([p], f"👻 {t.name} đã bị biến thành Ma",
                        f"👻 {p.name} biến {t.name} thành Ma")
             self._note([t], "👻 Bạn đã bị biến thành Ma! Giờ bạn thuộc phe Ma.", "")
-            return self._check_end()
+            return self.check_end()
         return False
 
-    def _wolf_victims(self, ev: str | None, wolf_acts: dict, blocked: set[int], protected: set[int],
+    def wolf_victims(self, ev: str | None, wolf_acts: dict, blocked: set[int], protected: set[int],
                       reflected: set[int]) -> list[Player]:
         """The wolves' votes of the night: the one the most votes name dies (a tie: none, or a random one under a blood moon)."""
         wolves = [x for x in self.players if x.faction == Faction.WOLF]
@@ -643,8 +643,8 @@ class Game:
         self._note(wolves, f"🐺 Sói vote ({tally}) → hòa phiếu, vote Sói không giết ai")
         return []
 
-    def _auto_target(self, p: Player, others: list[Player]) -> Player:
-        know = self._knowledge_for(p)
+    def auto_target(self, p: Player, others: list[Player]) -> Player:
+        know = self.knowledge_for(p)
         known_enemies = [x for x in others
                          if know.get(x.id, {}).get("faction") not in (None, p.faction)]
         allies = [x for x in others if x.faction == p.faction]
@@ -664,18 +664,18 @@ class Game:
             return random.choice(unknown or others)
         return random.choice(others)
 
-    def _auto_wolf_target(self, p: Player, others: list[Player]) -> Player:
-        know = self._knowledge_for(p)
+    def auto_wolf_target(self, p: Player, others: list[Player]) -> Player:
+        know = self.knowledge_for(p)
         known_enemies = [x for x in others
                          if know.get(x.id, {}).get("faction") not in (None, p.faction)]
         enemies = [x for x in others if x.faction != p.faction]
         return random.choice(known_enemies or enemies or others)
 
     # ---------- NGÀY ----------
-    def _start_day(self) -> None:
+    def start_day(self) -> None:
         self.phase = Phase.DAY
         self._round = f"Ngày {self.night}"
-        self._flush_recap("dawn", self.night)
+        self.flush_recap("dawn", self.night)
         self.votes, self.skipped = {}, set()
         for line_bot, text, target in bots.chatter(self):  # bot lên tiếng trước khi vote
             self.chat.add(line_bot.id, "public", text, self._round, target, throttle=False)
@@ -686,7 +686,7 @@ class Game:
             pick = bots.day_vote(self, p, [x for x in self.alive() if x != p], cast)
             self.votes[p.id] = cast[p.id] = pick.id
 
-    def _resolve_day(self) -> None:
+    def resolve_day(self) -> None:
         self._last_step = "day"
         self.vote_history.append(dict(self.votes))
         for voter_id, target in self.votes.items():
@@ -730,7 +730,7 @@ class Game:
         Người còn sống chỉ thấy nhật ký của mình; người chết (và mọi người khi ván xong) thấy nhật ký đầy đủ.
         """
         me = self.player(pid)
-        known = self._knowledge_for(me)
+        known = self.knowledge_for(me)
         reveal = self.game_over and not perspective
         see_all = self.can_see_everything(pid) and not perspective
         players = []
@@ -741,8 +741,8 @@ class Game:
             ability = p.ability if full else info.get("ability")
             players.append({
                 "id": p.id, "name": p.name, "alive": p.alive, "isBot": p.is_bot,
-                "faction": _fac(faction) if faction else None,
-                "ability": _abi(ability) if ability else None,
+                "faction": fac(faction) if faction else None,
+                "ability": abi(ability) if ability else None,
             })
         log = []
         for e in self.events:
@@ -760,27 +760,27 @@ class Game:
             "phase": self.phase.value,
             "night": self.night,
             "gameOver": self.game_over,
-            "winner": _fac(self.winner) if self.winner else None,
+            "winner": fac(self.winner) if self.winner else None,
             "me": {"id": me.id, "name": me.name, "alive": me.alive,
-                   "faction": _fac(me.faction), "ability": _abi(me.ability)},
+                   "faction": fac(me.faction), "ability": abi(me.ability)},
             "players": players,
-            "actions": self._actions_for(me),
+            "actions": self.actions_for(me),
             "waitingFor": len(self._missing()),
             "log": log,
             "event": self.event.view() if self.event and (self.phase == Phase.NIGHT or self.event.affects_day) else None,
             "recap": self.recap,
-            "timer": self._timer_view(),
-            "chat": self._visible_chat(me, everything=reveal),
+            "timer": self.timer_view(),
+            "chat": self.visible_chat(me, everything=reveal),
             "chatChannel": self.chat_channel_for(me),
         }
 
-    def _timer_view(self) -> dict[str, Any] | None:
+    def timer_view(self) -> dict[str, Any] | None:
         left = self.seconds_left()
         if left is None:
             return None
-        return {"total": self._timer_budget(), "secondsLeft": round(left, 1)}
+        return {"total": self.timer_budget(), "secondsLeft": round(left, 1)}
 
-    def _actions_for(self, me: Player) -> list[dict[str, Any]]:
+    def actions_for(self, me: Player) -> list[dict[str, Any]]:
         """Các hành động người chơi đang phải/được làm: night (chức năng), wolf (vote Sói), day, revenge."""
         def entry(kind: str, ids: list[int], store: dict[int, int], can_abstain: bool) -> dict[str, Any]:
             return {"kind": kind, "options": ids, "submitted": me.id in store,
@@ -789,10 +789,10 @@ class Game:
         out: list[dict[str, Any]] = []
         if self.phase == Phase.NIGHT:
             if me.id in self.night_options:
-                out.append(entry("night", self._exclusive(me.id, "ability", self.night_options[me.id]),
+                out.append(entry("night", self.exclusive(me.id, "ability", self.night_options[me.id]),
                                  self.actions, False))
             if me.id in self.wolf_options:
-                out.append(entry("wolf", self._exclusive(me.id, "wolf", self.wolf_options[me.id]),
+                out.append(entry("wolf", self.exclusive(me.id, "wolf", self.wolf_options[me.id]),
                                  self.wolf_actions, True))
         elif self.phase == Phase.DAY and me.alive:
             ids = [x.id for x in self.alive() if x.id != me.id]

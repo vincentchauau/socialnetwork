@@ -32,13 +32,13 @@ def frame_features(marks: dict) -> tuple[float, float, float]:
 
 def liveness_actions(raw: bytes, clock=time.monotonic) -> list[str]:
     try:
-        return _analyse(raw, clock)
+        return analyse(raw, clock)
     except Exception as exc:  # noqa: BLE001 - liveness must never take a request down
         audit.warning("liveness analysis error: %s", type(exc).__name__)
         return []
 
 
-def _analyse(raw: bytes, clock) -> list[str]:
+def analyse(raw: bytes, clock) -> list[str]:
     if not raw:
         return []
     import cv2

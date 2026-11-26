@@ -23,7 +23,7 @@ from sn_shared.jwtkeys import require_verification_keys
 DEFAULT_DATABASE_URL = "sqlite:///./market.db"
 
 
-_stop_account_consumer = stop_consumer
+stop_account_consumer = stop_consumer
 
 
 def create_app(
@@ -50,7 +50,7 @@ def create_app(
             yield
         finally:
             if handle is not None:
-                await _stop_account_consumer(handle)
+                await stop_account_consumer(handle)
 
     app = FastAPI(title="socialnetwork market", lifespan=lifespan)
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)

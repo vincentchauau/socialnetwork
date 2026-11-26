@@ -40,7 +40,7 @@ WITH_NUMBER = {  # one number: which job, product or course
     "reviews": ("market.reviews", "product_id"), "review": ("market.review", "product_id"), "pay": ("market.pay", "order_id"),
 }
 ASKS = {"checkout": "market.checkout"}
-_SELL = re.compile(r"^(?P<name>.+?)\s+(?P<price>\d+(?:[.,]\d{1,2})?)$")
+SELL = re.compile(r"^(?P<name>.+?)\s+(?P<price>\d+(?:[.,]\d{1,2})?)$")
 NO_ASSISTANT = "Bring a companion into the room to use commands"
 USAGE = (
     "Usage: /market <words>, /jobs <words>, /product <number>, /cart, /orders, /applications, /addcart <product number> [how many], "
@@ -74,7 +74,7 @@ def parse(content: str) -> tuple[str, dict[str, Any]] | None:
             return "market.addcart", {"product_id": int(first), "quantity": int(count) if count else 1}
         return "", {}
     if command == "sell":
-        match = _SELL.match(rest)
+        match = SELL.match(rest)
         if match is None:
             return "", {}
         cents = round(float(match["price"].replace(",", ".")) * 100)

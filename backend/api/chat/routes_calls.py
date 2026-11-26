@@ -36,14 +36,14 @@ def _game_of(factory: sessionmaker, slug: str, user: TokenPayload) -> tuple[str,
         return code, title, seats, names, made
 
 
-def _fill_room(request: Request, slug: str, user: TokenPayload) -> None:
+def fill_room(request: Request, slug: str, user: TokenPayload) -> None:
     """A game wants `MIN_GAME_SEATS` people: when the room has fewer, virtual people come in until it has them (the machine's players are virtual people)."""
     with request.app.state.session_factory() as db:
         room = member_in_open_room(db, slug, user)
         fill_with_virtual(request, db, room, slug, user, MIN_GAME_SEATS - service.joined_members(db, room.id))
 
 
-def _said_game(factory: sessionmaker, slug: str, user: TokenPayload) -> dict | None:
+def said_game(factory: sessionmaker, slug: str, user: TokenPayload) -> dict | None:
     """The line of the conversation that says who opened the game (once in a while), saved, as a frame to send."""
     with factory() as db:
         room = service.room_by_slug(db, slug)
@@ -60,10 +60,10 @@ async def game(slug: Slug, request: Request, follow: bool = Query(False), user: 
     after somebody was sent away: the room is as its owner left it)."""
     factory = request.app.state.session_factory
     if not follow:
-        await run_in_threadpool(_fill_room, request, slug, user)
+        await run_in_threadpool(fill_room, request, slug, user)
     code, title, seats, names, made = await run_in_threadpool(_game_of, factory, slug, user)
     await run_in_threadpool(werewolf_remote.ensure_game, request.app, user.user_id, user.username, code, title, seats, names)
-    frame = await run_in_threadpool(_said_game, factory, slug, user) if made else None
+    frame = await run_in_threadpool(said_game, factory, slug, user) if made else None
     if frame:
         await request.app.state.hub.broadcast(slug, frame)
     return {"code": code, "seats": seats}

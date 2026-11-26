@@ -36,7 +36,7 @@ PATHS = {
 LEVELS = shared_skills.LEVELS
 
 
-def _job_skills(items: list[dict]) -> list[dict]:
+def job_skills(items: list[dict]) -> list[dict]:
     return [dict(item) for item in items]
 
 
@@ -80,7 +80,7 @@ def seed_jobs(env: Env, db: Session) -> str | None:
             owner_id=owner.id, title=spec["title"], company=spec["company"], department=spec["department"], location=spec["location"],
             remote=spec["remote"], employment_type=spec["employment_type"], seniority=spec["seniority"], openings=spec["openings"],
             experience_min_years=spec["experience_min_years"], education_min=spec["education_min"],
-            skills_required=_job_skills(spec["required"]), skills_preferred=_job_skills(spec["preferred"]), languages=list(spec["languages"]),
+            skills_required=job_skills(spec["required"]), skills_preferred=job_skills(spec["preferred"]), languages=list(spec["languages"]),
             responsibilities=list(spec["responsibilities"]), benefits=list(spec["benefits"]), salary_min=low, salary_max=high,
             currency=currency, salary_period=period, description=spec["description"], status="open",
             expires_at=env.now + timedelta(days=25 + 7 * index), created_at=env.ago(55 - 5 * index),

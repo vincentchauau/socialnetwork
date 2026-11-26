@@ -21,7 +21,7 @@ MULTIPART_OVERHEAD_BYTES = 64 * 1024
 UPLOAD_LIMITS = {"/upload": files.MAX_FILE_BYTES + MULTIPART_OVERHEAD_BYTES}
 
 
-_stop_account_consumer = stop_consumer
+stop_account_consumer = stop_consumer
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
@@ -36,7 +36,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             yield
         finally:
             if handle is not None:
-                await _stop_account_consumer(handle)
+                await stop_account_consumer(handle)
 
     app = FastAPI(title="socialnetwork file", lifespan=lifespan)
     app.state.session_factory = sessionmaker(engine, expire_on_commit=False)

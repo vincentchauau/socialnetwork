@@ -189,22 +189,22 @@ class Room:
     def open_seats(self) -> int:
         return sum(s.is_bot for s in self.seats) if self.game is None else 0
 
-    def _require_host(self, user_id: int) -> None:
+    def require_host(self, user_id: int) -> None:
         if user_id != self.host_id:
             raise Forbidden("Chỉ chủ phòng mới được thực hiện")
 
-    def _require_game(self) -> Game:
+    def require_game(self) -> Game:
         if self.game is None:
             raise RoomError("Game chưa bắt đầu")
         return self.game
 
-    def _require_pid(self, user_id: int) -> int:
+    def require_pid(self, user_id: int) -> int:
         pid = self.player_id(user_id)
         if pid is None:
             raise Forbidden("Bạn không ở trong phòng này")
         return pid
 
-    def _taken_names(self) -> set[str]:
+    def taken_names(self) -> set[str]:
         return {s.name for s in self.seats}
 
     # ---- lobby ----
@@ -227,18 +227,18 @@ class Room:
 
     def add_bots(self, user_id: int, count: int) -> None:
         """The host adds machine seats before the game starts (up to the limit of the room); the new seats have no role yet."""
-        self._require_host(user_id)
+        self.require_host(user_id)
         if self.game is not None:
             raise RoomError("Phòng đã bắt đầu chơi")
         if len(self.seats) + count > MAX_PLAYERS:
             raise RoomFull(f"Phòng đầy (tối đa {MAX_PLAYERS} người)")
         for _ in range(count):
-            self.seats.append(Seat(pick_names(1, self._taken_names())[0]))
+            self.seats.append(Seat(pick_names(1, self.taken_names())[0]))
         self.touch()
 
     def set_options(self, user_id: int, timer: int | None = None, events: bool | None = None, dead_talk: bool | None = None) -> None:
         """The host changes how the game is played before it starts: the seconds of a night turn (0 = no limit), the event cards, whether the dead chat with the living."""
-        self._require_host(user_id)
+        self.require_host(user_id)
         if self.game is not None:
             raise RoomError("Phòng đã bắt đầu chơi")
         if timer is not None:
@@ -254,7 +254,7 @@ class Room:
     def set_roles(self, user_id: int, roles: list[Role] | None, randomise: bool = False, banned: tuple[Ability, ...] = ()) -> None:
         """The host sets the role of every seat before the game starts: `randomise` deals a fresh balanced set to all the seats, `roles`
         is one (faction, ability) per seat (checked against the rules), and neither clears the setup (the roles are dealt when the game starts)."""
-        self._require_host(user_id)
+        self.require_host(user_id)
         if self.game is not None:
             raise RoomError("Phòng đã bắt đầu chơi")
         self.fill_to_minimum()
@@ -291,7 +291,7 @@ class Room:
             self.seats.remove(seat)
             extra -= 1
         while len(self.seats) < wanted:
-            self.seats.append(Seat(pick_names(1, self._taken_names())[0]))
+            self.seats.append(Seat(pick_names(1, self.taken_names())[0]))
         kinds = {name.casefold(): kind for name, kind in names}
         seated = {seat.name.casefold() for seat in self.seats}
         missing = [(name, kind) for name, kind in names if name.casefold() not in seated]
@@ -311,11 +311,11 @@ class Room:
     def fill_to_minimum(self) -> None:
         missing = MIN_PLAYERS - len(self.seats)
         if missing > 0:
-            for name in pick_names(missing, self._taken_names()):
+            for name in pick_names(missing, self.taken_names()):
                 self.seats.append(Seat(name))
 
     def start(self, user_id: int) -> None:
-        self._require_host(user_id)
+        self.require_host(user_id)
         if self.game is not None:
             raise RoomError("Game đã bắt đầu")
         self._begin()
@@ -355,11 +355,11 @@ class Room:
             players.append(PlayerRecord(
                 seat.started_by, seat.name, p.faction.name, p.ability.name, outcome, p.alive,
                 game.night if p.died_on is None else p.died_on))
-        record = GameRecord(self.code, winner, game.night, len(game.players), tuple(players), *self._public_lines(game))
+        record = GameRecord(self.code, winner, game.night, len(game.players), tuple(players), *self.public_lines(game))
         self.records.append(record)
         return record
 
-    def _public_lines(self, game) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    def public_lines(self, game) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """The roles of everybody (a finished game shows them) and the lines of the log that were for everybody. A line that was for a
         few (what a wolf or a seer learned alone) is not here: the log keeps its audience."""
         roles = tuple(f"{seat.name}: {p.faction.value} · {p.ability.value}" for seat, p in zip(self.seats, game.players))
@@ -367,7 +367,7 @@ class Room:
         return roles, seen
 
     def rematch(self, user_id: int) -> None:
-        self._require_host(user_id)
+        self.require_host(user_id)
         if self.game is None or not self.game.game_over:
             raise RoomError("Chỉ chơi lại được khi ván đã kết thúc")
         self.collect_result()
@@ -377,7 +377,7 @@ class Room:
         self._begin()
 
     def reset(self, user_id: int) -> None:
-        self._require_host(user_id)
+        self.require_host(user_id)
         self.collect_result()
         self.game = None
         self.seats = [s for s in self.seats if not s.is_bot]
@@ -387,8 +387,8 @@ class Room:
         self.touch()
 
     def force(self, user_id: int) -> None:
-        self._require_host(user_id)
-        self._require_game().force()
+        self.require_host(user_id)
+        self.require_game().force()
         self.touch()
 
     def tick(self) -> bool:
@@ -402,7 +402,7 @@ class Room:
             raise RoomError("Bạn không ở trong phòng này")
         seat = self.seats[index]
         if self.game is None:
-            seat.user_id, seat.name = None, pick_names(1, self._taken_names())[0]
+            seat.user_id, seat.name = None, pick_names(1, self.taken_names())[0]
         else:
             seat.user_id = None  # keeps its name; the engine now plays it as a bot
             if not self.game.game_over:
@@ -415,29 +415,29 @@ class Room:
 
     # ---- in game ----
     def submit(self, user_id: int, target: int, kind: str = "ability") -> None:
-        game = self._require_game()
-        game.submit(self._require_pid(user_id), target, kind)
+        game = self.require_game()
+        game.submit(self.require_pid(user_id), target, kind)
         self.touch()
 
     def chat(self, user_id: int, text: str, target: int = 0) -> ChatMessage:
-        game = self._require_game()
-        message = game.post_chat(self._require_pid(user_id), text, target)
+        game = self.require_game()
+        message = game.post_chat(self.require_pid(user_id), text, target)
         self.touch()
         return message
 
     def chat_recipients(self, message: ChatMessage) -> list[int]:
         """User ids that may read `message` (same visibility rule as the state snapshot)."""
-        game = self._require_game()
+        game = self.require_game()
         return [seat.user_id for i, seat in enumerate(self.seats)
                 if seat.user_id is not None and game.message_visible(game.players[i], message, game.game_over)]
 
     def chat_payload(self, message: ChatMessage) -> dict[str, Any]:
-        return self._require_game().chat_entry(message)
+        return self.require_game().chat_entry(message)
 
     def perspective(self, user_id: int, seat_no: int) -> dict[str, Any]:
         """What seat `seat_no` knows. Only for dead players, or for everyone once the game is over."""
-        game = self._require_game()
-        if not game.can_see_everything(self._require_pid(user_id)):
+        game = self.require_game()
+        if not game.can_see_everything(self.require_pid(user_id)):
             raise Forbidden("Chỉ người đã chết hoặc khi ván kết thúc mới xem được góc nhìn người khác")
         if not 1 <= seat_no <= len(game.players):
             raise RoomNotFound("Người chơi không tồn tại")

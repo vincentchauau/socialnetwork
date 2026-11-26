@@ -85,7 +85,7 @@ class EventRelay:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_warned: float | None = None
-        self._last_purge: float | None = None
+        self.last_purge: float | None = None
 
     @property
     def enabled(self) -> bool:
@@ -105,14 +105,14 @@ class EventRelay:
             try:
                 if self._client is None:
                     self._client = self._client_factory()
-                published = self._publish_batches(self._client)
-                self._purge_if_due()
+                published = self.publish_batches(self._client)
+                self.purge_if_due()
                 return published
             except Exception as exc:  # noqa: BLE001 - Redis or DB trouble must not kill the relay thread
                 self._warn(exc)
                 return 0
 
-    def _publish_batches(self, client: Any) -> int:
+    def publish_batches(self, client: Any) -> int:
         total = 0
         while True:
             with self._sessions() as db:
@@ -137,11 +137,11 @@ class EventRelay:
             if len(rows) < BATCH_SIZE:
                 return total
 
-    def _purge_if_due(self) -> None:
+    def purge_if_due(self) -> None:
         now = time.monotonic()
-        if self._last_purge is not None and now - self._last_purge < PURGE_INTERVAL_SECONDS:
+        if self.last_purge is not None and now - self.last_purge < PURGE_INTERVAL_SECONDS:
             return
-        self._last_purge = now
+        self.last_purge = now
         with self._sessions() as db:
             db.execute(
                 delete(AccountEvent)

@@ -3,7 +3,7 @@
 import re
 
 E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
-_STRIP = re.compile(r"[ \-]")
+STRIP = re.compile(r"[ \-]")
 
 
 # Premium-rate / satellite / revenue-share ranges abused for SMS toll fraud: never sent to.
@@ -16,7 +16,7 @@ DENIED_PREFIXES = frozenset({
 
 def normalize_phone(raw: str, allowed_prefixes: tuple[str, ...] = ()) -> str | None:
     """`+84 912-345-621` -> `+84912345621`; None when it is not E.164 or not in the allow-list."""
-    value = _STRIP.sub("", raw or "")
+    value = STRIP.sub("", raw or "")
     if not E164.fullmatch(value) or value.startswith(tuple(DENIED_PREFIXES)):
         return None
     if allowed_prefixes and not value.startswith(allowed_prefixes):

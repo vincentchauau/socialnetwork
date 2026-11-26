@@ -80,13 +80,13 @@ def involved_order(db: Session, order_id: int, user_id: int) -> Order:
     return order
 
 
-def _checkout_replay(db: Session, user_id: int, key: str | None) -> Order | None:
+def checkout_replay(db: Session, user_id: int, key: str | None) -> Order | None:
     if key is None:
         return None
     return db.scalar(select(Order).where(Order.buyer_id == user_id, Order.idempotency_key == key))
 
 
-def _claim_cart(db: Session, user_id: int) -> list[tuple[CartItem, Product]]:
+def claim_cart(db: Session, user_id: int) -> list[tuple[CartItem, Product]]:
     rows = db.execute(
         select(CartItem, Product)
         .join(Product, Product.id == CartItem.product_id)
@@ -107,7 +107,7 @@ def _claim_cart(db: Session, user_id: int) -> list[tuple[CartItem, Product]]:
     return [(item, product) for item, product in rows]
 
 
-def _reserve_stock(db: Session, item: CartItem, product: Product) -> None:
+def reserve_stock(db: Session, item: CartItem, product: Product) -> None:
     """Atomic conditional decrement: never oversells, never goes negative."""
     result = db.execute(
         update(Product)
@@ -126,7 +126,7 @@ def _reserve_stock(db: Session, item: CartItem, product: Product) -> None:
 
 def checkout(db: Session, user: TokenPayload, key: str | None) -> tuple[Order, bool]:
     """Create an order from the cart. Returns (order, created); created is False on replay."""
-    replay = _checkout_replay(db, user.user_id, key)
+    replay = checkout_replay(db, user.user_id, key)
     if replay is not None:
         return replay, False
     open_orders = db.scalar(
@@ -136,7 +136,7 @@ def checkout(db: Session, user: TokenPayload, key: str | None) -> tuple[Order, b
     )
     if (open_orders or 0) >= MAX_OPEN_PENDING_ORDERS:
         raise conflict("Too many unpaid orders, pay or cancel one first")
-    lines = _claim_cart(db, user.user_id)
+    lines = claim_cart(db, user.user_id)
     items = [
         {
             "product_id": product.id,
@@ -162,11 +162,11 @@ def checkout(db: Session, user: TokenPayload, key: str | None) -> tuple[Order, b
         db.add(order)
         db.flush()
         for item, product in lines:
-            _reserve_stock(db, item, product)
+            reserve_stock(db, item, product)
         db.commit()
     except IntegrityError:  # same key raced in from another request
         db.rollback()
-        replay = _checkout_replay(db, user.user_id, key)
+        replay = checkout_replay(db, user.user_id, key)
         if replay is None:
             raise
         return replay, False
@@ -206,7 +206,7 @@ def pay(
     return order
 
 
-def _role_targets(order: Order, user_id: int) -> frozenset[str]:
+def role_targets(order: Order, user_id: int) -> frozenset[str]:
     if order.buyer_id == user_id:
         return BUYER_TARGETS
     if order.status == STATUS_RETURN_REQUESTED:
@@ -224,7 +224,7 @@ def _restock(db: Session, order: Order) -> None:
         )
 
 
-def _refund_or_rollback(db: Session, order: Order, provider: PaymentProvider) -> None:
+def refund_or_rollback(db: Session, order: Order, provider: PaymentProvider) -> None:
     """Refund a paid order; on failure undo the whole cancellation (status and stock)."""
     try:
         if order.payment_reference is None:
@@ -267,7 +267,7 @@ def change_status(
     A multi-seller order has a single shared status, not one per seller.
     """
     order = involved_order(db, order_id, user.user_id)
-    if target not in _role_targets(order, user.user_id):
+    if target not in role_targets(order, user.user_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You may not set that status")
     ORDER_FLOW.check(order.status, target, "an order")
     current = order.status
@@ -288,10 +288,10 @@ def change_status(
     if target == STATUS_CANCELLED:
         _restock(db, order)
         if current == STATUS_PAID:
-            _refund_or_rollback(db, order, provider)
+            refund_or_rollback(db, order, provider)
     if target == STATUS_RETURNED:  # the seller accepted the return: the money goes back and the goods return to the stock
         _restock(db, order)
-        _refund_or_rollback(db, order, provider)
+        refund_or_rollback(db, order, provider)
     db.commit()
     db.refresh(order)
     return order

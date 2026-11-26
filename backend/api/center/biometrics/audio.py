@@ -11,11 +11,11 @@ from api.center.biometrics import BiometricError, BiometricUnavailable
 
 SAMPLE_RATE = 16000
 MAX_SECONDS = 10
-_encoder_lock = threading.Lock()
+encoder_lock = threading.Lock()
 
 
 @lru_cache(maxsize=1)
-def _build_encoder():
+def build_encoder():
     try:
         from resemblyzer import VoiceEncoder
     except ImportError as exc:
@@ -24,8 +24,8 @@ def _build_encoder():
 
 
 def _encoder():
-    with _encoder_lock:  # lru_cache does not lock: load the model exactly once
-        return _build_encoder()
+    with encoder_lock:  # lru_cache does not lock: load the model exactly once
+        return build_encoder()
 
 
 def to_wav_bytes(raw: bytes, timeout: int) -> bytes:

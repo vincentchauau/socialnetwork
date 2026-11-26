@@ -22,7 +22,7 @@ def _flag(name: str) -> bool:
     return os.environ.get(name, "0").strip().lower() in ("1", "true", "yes")
 
 
-def _positive_int(name: str, default: int) -> int:
+def positive_int(name: str, default: int) -> int:
     raw = os.environ.get(name, "").strip()
     if not raw:
         return default
@@ -35,7 +35,7 @@ def _positive_int(name: str, default: int) -> int:
     return value
 
 
-def _flag_default_on(name: str) -> bool:
+def flag_default_on(name: str) -> bool:
     return os.environ.get(name, "1").strip().lower() in ("1", "true", "yes")
 
 
@@ -133,8 +133,8 @@ class Settings:
             jwt_secret=secret,
             env=env,
             cookie_secure=os.environ.get("COOKIE_SECURE") == "1",
-            access_minutes=_positive_int("ACCESS_TOKEN_MINUTES", 60),
-            refresh_days=_positive_int("REFRESH_DAYS", 14),
+            access_minutes=positive_int("ACCESS_TOKEN_MINUTES", 60),
+            refresh_days=positive_int("REFRESH_DAYS", 14),
             allowed_origins=origins or DEFAULT_ORIGINS,
             google_client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
             biometrics_enabled=_flag("BIOMETRICS_ENABLED"),
@@ -149,17 +149,17 @@ class Settings:
             webauthn_rp_id=rp_id,
             webauthn_rp_name=os.environ.get("WEBAUTHN_RP_NAME", "").strip() or "Mạng xã hội",
             smtp_host=os.environ.get("SMTP_HOST", "").strip(),
-            smtp_port=_positive_int("SMTP_PORT", SMTP_SSL_PORT if smtp_ssl else 587),
+            smtp_port=positive_int("SMTP_PORT", SMTP_SSL_PORT if smtp_ssl else 587),
             smtp_user=os.environ.get("SMTP_USER", "").strip(),
             smtp_password=os.environ.get("SMTP_PASSWORD", ""),
             smtp_from=os.environ.get("SMTP_FROM", "").strip() or "Mạng xã hội <no-reply@localhost>",
-            smtp_starttls=_flag_default_on("SMTP_STARTTLS"),
+            smtp_starttls=flag_default_on("SMTP_STARTTLS"),
             smtp_ssl=smtp_ssl,
             smtp_allow_plaintext_auth=_flag("SMTP_ALLOW_PLAINTEXT_AUTH"),
             public_url=public_url,
             redis_url=redis_url,
             sms_provider=os.environ.get("SMS_PROVIDER", "").strip().lower(),
-            sms_daily_cap=_positive_int("SMS_DAILY_CAP", 500),
+            sms_daily_cap=positive_int("SMS_DAILY_CAP", 500),
             sms_allowed_prefixes=tuple(p.strip() for p in os.environ.get("SMS_ALLOWED_PREFIXES", "").split(",") if p.strip()),
             twilio_account_sid=os.environ.get("TWILIO_ACCOUNT_SID", "").strip(),
             twilio_auth_token=os.environ.get("TWILIO_AUTH_TOKEN", "").strip(),

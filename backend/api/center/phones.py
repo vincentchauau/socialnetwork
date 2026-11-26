@@ -75,12 +75,12 @@ def install_phone(app: FastAPI, settings: Settings, kv) -> None:
     state.sms_daily_warn_at = max(1, int(settings.sms_daily_cap * WARN_SHARE))
 
 
-def _code_key() -> bytes:
+def code_key() -> bytes:
     return hmac.new(get_jwt_secret().encode(), b"phone-code-subkey", hashlib.sha256).digest()
 
 
 def code_mac(row_id: int, code: str) -> str:
-    return hmac.new(_code_key(), f"{row_id}:{code}".encode(), hashlib.sha256).hexdigest()
+    return hmac.new(code_key(), f"{row_id}:{code}".encode(), hashlib.sha256).hexdigest()
 
 
 def new_code() -> str:

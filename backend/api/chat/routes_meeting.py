@@ -64,7 +64,7 @@ def close_at_livekit(names: list[str]) -> None:
         threading.Thread(target=livekit_tickets.close_room, args=(name,), daemon=True).start()
 
 
-def _member_room(db: Session, slug: str, user: TokenPayload, must_be_open: bool):
+def member_room(db: Session, slug: str, user: TokenPayload, must_be_open: bool):
     room, me = visible(db, slug, user)
     if me is None or me.status != service.JOINED:
         raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_A_MEMBER)
@@ -77,7 +77,7 @@ def _member_room(db: Session, slug: str, user: TokenPayload, must_be_open: bool)
 def start_meeting(request: Request, slug: Slug, user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
     """The meeting of the room, made if there is none open (one at a time), and the ticket to join it. That it started is said in the conversation,
     once in a while."""
-    room, _me = _member_room(db, slug, user, must_be_open=True)
+    room, _me = member_room(db, slug, user, must_be_open=True)
     db.execute(select(Room.id).where(Room.id == room.id).with_for_update())  # two starts at once make one meeting, not two
     meeting = open_meeting(db, room.id)
     created = meeting is None
@@ -97,7 +97,7 @@ def start_meeting(request: Request, slug: Slug, user: TokenPayload = Depends(get
 @router.post("/rooms/{slug}/meeting/end", status_code=status.HTTP_204_NO_CONTENT)
 def end_meeting(slug: Slug, user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)) -> Response:
     """Ends the room's meeting: whoever started it, or the owner of the room."""
-    room, me = _member_room(db, slug, user, must_be_open=False)
+    room, me = member_room(db, slug, user, must_be_open=False)
     meeting = open_meeting(db, room.id)
     if meeting is None:
         db.commit()  # (a stale one was closed)
@@ -112,7 +112,7 @@ def end_meeting(slug: Slug, user: TokenPayload = Depends(get_current_user), db: 
 
 @router.get("/rooms/{slug}/meeting")
 def current_meeting(slug: Slug, user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
-    room, _me = _member_room(db, slug, user, must_be_open=False)
+    room, _me = member_room(db, slug, user, must_be_open=False)
     meeting = open_meeting(db, room.id)
     db.commit()
     if meeting is None:
@@ -137,7 +137,7 @@ def send_a_voice_message(
 ) -> dict[str, Any]:
     """The voice button of the room: the sound is made into words here, which are written in the room as the person's own message. The virtual
     people of the room answer it as they would a typed one, and read the answer aloud. The sound is not kept."""
-    _member_room(db, slug, user, must_be_open=False)
+    member_room(db, slug, user, must_be_open=False)
     try:
         pcm = base64.b64decode(body.pcm, validate=True)
     except ValueError:

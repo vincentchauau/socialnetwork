@@ -45,7 +45,7 @@ from api.center.routes_biometrics import (
     UNAVAILABLE,
     Text,
     Upload,
-    _count_attempts,
+    count_attempts,
     _reset,
     factors_match,
     read_face,
@@ -76,20 +76,20 @@ combined_router = APIRouter(prefix="/auth", tags=["sign-in methods"], dependenci
 # --- registration ---------------------------------------------------------------------------------
 
 
-def _username_free(db: Session, username: str) -> None:
+def username_free(db: Session, username: str) -> None:
     if usernames.unavailable(db, username):
         raise HTTPException(status.HTTP_409_CONFLICT, TAKEN)
 
 
-def _handle_taken(db: Session, handle: str) -> bool:
+def handle_taken(db: Session, handle: str) -> bool:
     return usernames.unavailable(db, handle)
 
 
-def _random_handle(db: Session) -> str:
+def random_handle(db: Session) -> str:
     """`user-` + 6 hex chars (no email involved); retried on collision."""
     while True:
         handle = GENERATED_PREFIX + secrets.token_hex(GENERATED_HEX_CHARS // 2)
-        if not _handle_taken(db, handle):
+        if not handle_taken(db, handle):
             return handle
 
 
@@ -122,7 +122,7 @@ def _templates(
     return columns
 
 
-def _signup_address(email: str | None) -> str | None:
+def signup_address(email: str | None) -> str | None:
     """The optional sign-up email, normalised; email alone is never a method, so no extra rule here."""
     if email is None or not email.strip():
         return None
@@ -132,7 +132,7 @@ def _signup_address(email: str | None) -> str | None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"email: {exc}") from None
 
 
-def _send_signup_verification(
+def send_signup_verification(
     request: Request, background: BackgroundTasks, db: Session, user: User, address: str
 ) -> None:
     """Best effort: the account exists already, so nothing here may fail the registration.
@@ -155,7 +155,7 @@ def _send_signup_verification(
         audit.warning("signup verification mail not queued error=%s", type(exc).__name__)
 
 
-def _register_method(password, google_token, passkey, voice_file, video_file) -> str:
+def register_method(password, google_token, passkey, voice_file, video_file) -> str:
     """The primary factor of a sign-up, for the session list (first of: password, Google, passkey, voice, webcam)."""
     if password:
         return "password"
@@ -179,7 +179,7 @@ def _register(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NO_METHOD)
     # Google, voice, webcam and passkey sign in without a name, so only a password needs one. A generated
     # handle can be renamed later (POST /auth/me/username).
-    address = _signup_address(email)  # validated before anything is stored
+    address = signup_address(email)  # validated before anything is stored
     generate = username is None or not username.strip()
     if generate and password:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, CHOOSE_USERNAME)
@@ -189,7 +189,7 @@ def _register(
             name = checked_username(username)
         except ValueError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"username: {exc}") from None
-        _username_free(db, name)
+        username_free(db, name)
     columns: dict = {"password_hash": NO_PASSWORD}
     if password:
         problem = password_problem(password)
@@ -206,10 +206,10 @@ def _register(
             email_from_google=not email_taken,
         )  # fmt: skip
         if generate:
-            name = unique_handle(identity.email, lambda h: _handle_taken(db, h))
+            name = unique_handle(identity.email, lambda h: handle_taken(db, h))
     columns.update(_templates(request, db, voice_file, video_file))
     if generate and not name:
-        name = _random_handle(db)
+        name = random_handle(db)
     user = User(username=name, **columns)
     if passkey:  # verified last (it burns its challenge), still before anything is stored
         user.passkeys.append(verified_signup_passkey(request, db, *passkey))
@@ -220,10 +220,10 @@ def _register(
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, TAKEN) from None
     if address and background is not None:
-        _send_signup_verification(request, background, db, user, address)
+        send_signup_verification(request, background, db, user, address)
     audit.info("register user=%r ip=%s methods=%s", name, ip,
                sorted([k for k in columns if k != "password_hash"] + (["passkey"] if passkey else [])))
-    return begin_session(response, request, db, user, settings_of(request), _register_method(
+    return begin_session(response, request, db, user, settings_of(request), register_method(
         password, google_token, passkey, voice_file, video_file
     ))
 
@@ -288,7 +288,7 @@ def _biometric_login(
     ip, state, name = client_ip(request), request.app.state, key_of(username)
     throttles = [state.alone_throttle, state.alone_account_throttle]
     keys = [pair_key(ip, name), name]
-    _count_attempts(throttles, keys, name, ip)
+    count_attempts(throttles, keys, name, ip)
     live_ok = live() if method == "webcam" else True  # after the lockout check: a locked key costs no analysis
     user = db.scalar(select(User).where(func.lower(User.username) == name))
     if user is None:
@@ -307,7 +307,7 @@ def _biometric_login(
     )
 
 
-def _identify_login(
+def identify_login(
     request: Request, response: Response, db: Session, upload: Upload, *, method: str,
     live: Callable[[], bool] = lambda: True,
 ) -> SessionOut | MfaRequired:  # fmt: skip
@@ -319,10 +319,10 @@ def _identify_login(
     ip, state = client_ip(request), request.app.state
     if method == "voice":
         ip_throttle, global_throttle = state.voice_identify_ip_throttle, state.voice_identify_global_throttle
-        kind, find, read = VOICE, identify_voice, _voice_or_none
+        kind, find, read = VOICE, identify_voice, voice_or_none
     else:
         ip_throttle, global_throttle = state.identify_ip_throttle, state.identify_global_throttle
-        kind, find, read = FACE, identify, _face_or_none
+        kind, find, read = FACE, identify, face_or_none
     if ip_throttle.is_blocked(ip) or global_throttle.is_blocked(IDENTIFY_GLOBAL_KEY):
         audit.warning("%s identify locked ip=%s", method, ip)
         raise too_many()
@@ -343,7 +343,7 @@ def _identify_login(
     )
 
 
-def _face_or_none(request: Request, video: Upload) -> bytes | None:
+def face_or_none(request: Request, video: Upload) -> bytes | None:
     """The clip face, or None (an unusable clip depends on no account)."""
     try:
         return read_face(request, video)
@@ -351,7 +351,7 @@ def _face_or_none(request: Request, video: Upload) -> bytes | None:
         return None
 
 
-def _voice_or_none(request: Request, audio: Upload) -> bytes | None:
+def voice_or_none(request: Request, audio: Upload) -> bytes | None:
     """The voice embedding, or None (an unusable recording depends on no account)."""
     try:
         return read_probes(request, audio, None)[0]
@@ -366,7 +366,7 @@ def login_voice(
 ) -> SessionOut | MfaRequired:  # fmt: skip
     """With a username: 1-1 comparison. Without: 1-N identification by voice alone."""
     if username is None or not username.strip():
-        return _identify_login(request, response, db, audio, method="voice")
+        return identify_login(request, response, db, audio, method="voice")
     return _biometric_login(request, response, db, username, audio, None, method="voice")
 
 
@@ -378,7 +378,7 @@ def login_webcam(
     """Face only: an `audio` field, if sent, is ignored. `liveness_token`: see app.liveness."""
     live = lambda: liveness_ok(request, liveness_token, video)  # noqa: E731 - run after the throttles
     if username is None or not username.strip():
-        return _identify_login(request, response, db, video, method="webcam", live=live)
+        return identify_login(request, response, db, video, method="webcam", live=live)
     return _biometric_login(request, response, db, username, None, video, method="webcam", live=live)
 
 

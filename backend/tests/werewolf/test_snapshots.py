@@ -46,7 +46,7 @@ def test_the_turn_timer_starts_again_and_a_restored_room_is_not_reaped_at_once(t
         start(before, code)
     with make_client(url) as after:
         room = after.app.state.ww_store.require(code)
-        assert room.game.seconds_left() == pytest.approx(room.game._timer_budget(), abs=2)  # the whole turn again
+        assert room.game.seconds_left() == pytest.approx(room.game.timer_budget(), abs=2)  # the whole turn again
         assert after.app.state.ww_store.reap() == []
 
 

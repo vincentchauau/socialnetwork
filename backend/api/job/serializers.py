@@ -20,7 +20,7 @@ from api.job.schemas import (
 from sn_shared.security import TokenPayload
 
 
-def _step_at(row: JobApplicant, index: int) -> datetime:
+def step_at(row: JobApplicant, index: int) -> datetime:
     """When the application was made (the first step) or last moved (the last): the days are kept in its history."""
     history = row.history or []
     return as_utc(datetime.fromisoformat(history[index]["at"])) if history else now_utc()
@@ -30,7 +30,7 @@ def is_expired(job: JobDescription) -> bool:
     return job.expires_at is not None and as_utc(job.expires_at) <= now_utc()
 
 
-def _summary_fields(
+def summary_fields(
     job: JobDescription, user: TokenPayload, row: JobApplicant | None, count: int | None, tags: list[str], owner_name: str
 ) -> dict:
     is_owner = job.owner_id == user.user_id
@@ -67,16 +67,16 @@ def summaries(db: Session, user: TokenPayload, jobs: list[JobDescription]) -> li
     rows = my_rows(db, user.user_id, ids)
     counts = application_counts(db, [j.id for j in jobs if j.owner_id == user.user_id])
     owners = directory.names(db, [job.owner_id for job in jobs])
-    return [JobDescriptionSummary(**_summary_fields(j, user, rows.get(j.id), counts.get(j.id, 0), sorted(j.tags or []), owners[j.owner_id])) for j in jobs]
+    return [JobDescriptionSummary(**summary_fields(j, user, rows.get(j.id), counts.get(j.id, 0), sorted(j.tags or []), owners[j.owner_id])) for j in jobs]
 
 
-def _match_out(result: shared_skills.Match) -> MatchOut | None:
+def match_out(result: shared_skills.Match) -> MatchOut | None:
     return None if result.score is None else MatchOut(**result.__dict__)
 
 
 def match_for(job: JobDescription, have: list[dict]) -> MatchOut | None:
     """What the job asks of skills against the skills a person has."""
-    return _match_out(shared_skills.match(job.skills_required or [], job.skills_preferred or [], have))
+    return match_out(shared_skills.match(job.skills_required or [], job.skills_preferred or [], have))
 
 
 def detail(db: Session, user: TokenPayload, job: JobDescription) -> JobDescriptionDetail:
@@ -119,8 +119,8 @@ def application_out(row: JobApplicant, job: JobDescription) -> ApplicationOut:
         resume=row.resume,
         contact_email=row.contact_email,
         history=row.history or [],
-        created_at=_step_at(row, 0),
-        updated_at=_step_at(row, -1),
+        created_at=step_at(row, 0),
+        updated_at=step_at(row, -1),
     )
 
 
@@ -136,6 +136,6 @@ def applicant_out(row: JobApplicant, job: JobDescription, username: str) -> Appl
         note=row.employer_note,
         match=match_for(job, (row.resume or {}).get("skills", [])),
         history=row.history or [],
-        created_at=_step_at(row, 0),
-        updated_at=_step_at(row, -1),
+        created_at=step_at(row, 0),
+        updated_at=step_at(row, -1),
     )

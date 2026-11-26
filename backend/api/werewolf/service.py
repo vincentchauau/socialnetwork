@@ -16,7 +16,7 @@ REAPER_INTERVAL_SECONDS = 60.0
 TICK_SECONDS = 1.0
 
 
-async def _store_record(app: FastAPI, record: GameRecord) -> None:
+async def store_record(app: FastAPI, record: GameRecord) -> None:
     """Write one result in a worker thread; only a successful write marks it saved (else it is retried)."""
     if record.saved or record.inflight:
         return
@@ -41,7 +41,7 @@ async def persist(app: FastAPI, room: Room) -> None:
     for record in list(room.records):
         await _announce(app, record)
         if record.attempts < MAX_PERSIST_ATTEMPTS:
-            await _store_record(app, record)
+            await store_record(app, record)
     room.records[:] = [r for r in room.records if not r.saved]
 
 
@@ -56,7 +56,7 @@ async def save_pending(app: FastAPI) -> None:
     """Store (or retry) every result that is still unsaved, including those of rooms already deleted."""
     for record in app.state.ww_store.unsaved_results():
         await _announce(app, record)
-        await _store_record(app, record)
+        await store_record(app, record)
 
 
 async def sweep(app: FastAPI) -> None:

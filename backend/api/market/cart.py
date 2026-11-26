@@ -45,7 +45,7 @@ def build_cart(db: Session, user_id: int) -> CartOut:
     )
 
 
-def _set_quantity(db: Session, user_id: int, product_id: int, quantity: int) -> None:
+def set_quantity(db: Session, user_id: int, product_id: int, quantity: int) -> None:
     item = db.scalar(
         select(CartItem).where(CartItem.user_id == user_id, CartItem.product_id == product_id)
     )
@@ -87,10 +87,10 @@ def put_cart_item(
     if body.quantity > product.stock:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Only {product.stock} in stock")
     try:
-        _set_quantity(db, user.user_id, product_id, body.quantity)
+        set_quantity(db, user.user_id, product_id, body.quantity)
     except IntegrityError:  # a concurrent request inserted the same line first
         db.rollback()
-        _set_quantity(db, user.user_id, product_id, body.quantity)
+        set_quantity(db, user.user_id, product_id, body.quantity)
     return build_cart(db, user.user_id)
 
 

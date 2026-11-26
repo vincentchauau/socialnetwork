@@ -268,11 +268,11 @@ def test_poll_and_approve_purge_old_rows(client, monkeypatch):
     old = start(new_device(client))
     edit(client, old["request_id"], expires_at=utcnow() - timedelta(hours=2))
     live = start(new_device(client))
-    monkeypatch.setattr(qr, "_last_purge", 0.0)
+    monkeypatch.setattr(qr, "last_purge", 0.0)
     assert poll(new_device(client), live).status_code == 200
     assert row(client, old["request_id"]) is None
     old2 = start(new_device(client))
     edit(client, old2["request_id"], expires_at=utcnow() - timedelta(hours=2))
-    monkeypatch.setattr(qr, "_last_purge", 0.0)
+    monkeypatch.setattr(qr, "last_purge", 0.0)
     approve(client, session, live)
     assert row(client, old2["request_id"]) is None

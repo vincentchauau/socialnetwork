@@ -21,7 +21,7 @@ Cursor = Annotated[int | None, Query(ge=1)]
 Limit = Annotated[int, Query(ge=1, le=PAGE_MAX_LIMIT)]
 
 
-def _order_page(db: Session, query: Select[Any], user_id: int, cursor: int | None, limit: int) -> OrderPage:
+def order_page(db: Session, query: Select[Any], user_id: int, cursor: int | None, limit: int) -> OrderPage:
     if cursor is not None:
         query = query.where(Order.id < cursor)
     orders = list(db.scalars(query.order_by(Order.id.desc()).limit(limit + 1)).all())
@@ -57,7 +57,7 @@ def list_orders(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrderPage:
-    return _order_page(db, select(Order).where(Order.buyer_id == user.user_id), user.user_id, cursor, limit)
+    return order_page(db, select(Order).where(Order.buyer_id == user.user_id), user.user_id, cursor, limit)
 
 
 @router.get("/sales", response_model=OrderPage, dependencies=[Depends(expire_stale)])
@@ -68,7 +68,7 @@ def list_sales(
     db: Session = Depends(get_db),
 ) -> OrderPage:
     mine = Order.seller_ids.like(f"%|{user.user_id}|%")
-    return _order_page(db, select(Order).where(mine), user.user_id, cursor, limit)
+    return order_page(db, select(Order).where(mine), user.user_id, cursor, limit)
 
 
 @router.get("/orders/{order_id}", response_model=OrderOut, dependencies=[Depends(expire_stale)])

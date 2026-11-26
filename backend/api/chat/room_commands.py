@@ -26,7 +26,7 @@ def parse(content: str) -> tuple[str, str] | None:
     return (command, "") if command in PERSON_COMMANDS | ROOM_COMMANDS else None
 
 
-_TAIL = r"[\s,.!?]*(?:đi|nhé|nha|nhỉ|giúp tôi|giúp mình|please)?[\s,.!?]*$"
+TAIL = r"[\s,.!?]*(?:đi|nhé|nha|nhỉ|giúp tôi|giúp mình|please)?[\s,.!?]*$"
 _SAYINGS: tuple[tuple[str, str], ...] = (  # (command, what the line looks like; group 1 is the name), the longer ones first
     ("owner", r"^(?:chuyển|đổi|giao|trao)\s+(?:quyền\s+)?(?:owner|chủ phòng|chủ)\s+(?:cho|sang)\s+(.+?)"),
     ("owner", r"^(?:đặt|cho)\s+(.+?)\s+(?:làm|là)\s+(?:owner|chủ phòng|chủ)"),
@@ -48,7 +48,7 @@ def parse_saying(content: str) -> tuple[str, str] | None:
     if content.startswith("/") or len(content) > 120:
         return None
     for command, pattern in _SAYINGS:
-        found = re.match(pattern + _TAIL, content.strip(), re.IGNORECASE)
+        found = re.match(pattern + TAIL, content.strip(), re.IGNORECASE)
         if found:
             return command, found.group(1).strip().lstrip("@")
     return None

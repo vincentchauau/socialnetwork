@@ -49,17 +49,17 @@ class Modality:
 
 # Placeholders must be well-formed templates for the REAL engine (a malformed one used to crash it and
 # turn this into a 500): 128 float32 zeros for a face; 256 float32 ones for a voice (non-zero norm).
-_DUMMY_FACE = bytes(128 * 4)
-_DUMMY_VOICE = bytes([0x00, 0x00, 0x80, 0x3F]) * 256  # float32 1.0 x 256
+DUMMY_FACE = bytes(128 * 4)
+DUMMY_VOICE = bytes([0x00, 0x00, 0x80, 0x3F]) * 256  # float32 1.0 x 256
 
 FACE = Modality(
-    name="face", flag="webcam_login", column="face_embedding", dummy=_DUMMY_FACE, taken=FACE_TAKEN,
+    name="face", flag="webcam_login", column="face_embedding", dummy=DUMMY_FACE, taken=FACE_TAKEN,
     cost=lambda engine, stored, probe: engine.face_distance(stored, probe),
     limit=lambda s: s.face_threshold_alone,
     margin=lambda s: s.face_identify_margin,
 )  # fmt: skip
 VOICE = Modality(
-    name="voice", flag="voice_login", column="audio_embedding", dummy=_DUMMY_VOICE, taken=VOICE_TAKEN,
+    name="voice", flag="voice_login", column="audio_embedding", dummy=DUMMY_VOICE, taken=VOICE_TAKEN,
     cost=lambda engine, stored, probe: -engine.audio_similarity(stored, probe),
     limit=lambda s: -s.audio_threshold_alone,
     margin=lambda s: s.voice_identify_margin,
@@ -110,7 +110,7 @@ def identify_voice(request: Request, db: Session, voice: bytes) -> User | None:
     return _identify(request, db, VOICE, voice)
 
 
-def _ensure_unique(
+def ensure_unique(
     request: Request, db: Session, kind: Modality, probe: bytes, exclude_user_id: int | None
 ) -> None:
     """409 when ANOTHER account with this method enabled already has (nearly) this template.
@@ -132,8 +132,8 @@ def _ensure_unique(
 
 
 def ensure_face_unique(request: Request, db: Session, face: bytes, exclude_user_id: int | None = None) -> None:
-    _ensure_unique(request, db, FACE, face, exclude_user_id)
+    ensure_unique(request, db, FACE, face, exclude_user_id)
 
 
 def ensure_voice_unique(request: Request, db: Session, voice: bytes, exclude_user_id: int | None = None) -> None:
-    _ensure_unique(request, db, VOICE, voice, exclude_user_id)
+    ensure_unique(request, db, VOICE, voice, exclude_user_id)

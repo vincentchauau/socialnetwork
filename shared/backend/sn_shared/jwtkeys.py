@@ -28,7 +28,7 @@ log = logging.getLogger("sn.jwtkeys")
 ACCESS_ALGORITHM = "EdDSA"
 KID_LENGTH = 16
 KID_PATTERN = r"[A-Za-z0-9._-]{1,64}"
-_PUBLIC_BLOCK = re.compile(
+PUBLIC_BLOCK = re.compile(
     rf"(?:^[ \t]*kid[ \t]*[:=][ \t]*(?P<kid>{KID_PATTERN})[ \t]*\n)?"
     r"(?P<pem>-----BEGIN PUBLIC KEY-----.+?-----END PUBLIC KEY-----)",
     re.DOTALL | re.MULTILINE,
@@ -49,7 +49,7 @@ class Signer:
         return self.private_key.public_key()
 
 
-def _is_production() -> bool:
+def is_production() -> bool:
     return os.environ.get("APP_ENV", "development").strip().lower() == "production"
 
 
@@ -97,7 +97,7 @@ def generate_keypair() -> tuple[str, str, str]:
     return private_pem(key), public_pem(key.public_key()), thumbprint(key.public_key())
 
 
-def _load_private(pem: str) -> Ed25519PrivateKey:
+def load_private(pem: str) -> Ed25519PrivateKey:
     try:
         key = serialization.load_pem_private_key(pem.encode(), password=None)
     except Exception as exc:  # noqa: BLE001 - any parse failure is a configuration error
@@ -107,7 +107,7 @@ def _load_private(pem: str) -> Ed25519PrivateKey:
     return key
 
 
-def _memo(kind: str, source: str, build):
+def memo(kind: str, source: str, build):
     with _lock:
         hit = _cache.get(kind)
         if hit is not None and hit[0] == source:
@@ -127,11 +127,11 @@ def get_signer() -> Signer:
             raise RuntimeError("JWT_KEY_ID must be 1-64 characters of A-Z a-z 0-9 . _ -")
 
         def build() -> Signer:
-            key = _load_private(pem)
+            key = load_private(pem)
             return Signer(kid_override or thumbprint(key.public_key()), key)
 
-        return _memo("signer", pem + "\0" + kid_override, build)
-    if _is_production():
+        return memo("signer", pem + "\0" + kid_override, build)
+    if is_production():
         raise RuntimeError("JWT_PRIVATE_KEY (or JWT_PRIVATE_KEY_FILE) is required in production")
     with _lock:
         if _ephemeral is None:
@@ -145,7 +145,7 @@ def get_signer() -> Signer:
 
 def parse_public_keys(text: str) -> dict[str, Ed25519PublicKey]:
     keys: dict[str, Ed25519PublicKey] = {}
-    for match in _PUBLIC_BLOCK.finditer(text):
+    for match in PUBLIC_BLOCK.finditer(text):
         try:
             key = serialization.load_pem_public_key(match.group("pem").encode())
         except Exception:  # noqa: BLE001
@@ -164,7 +164,7 @@ def get_verification_keys() -> dict[str, Ed25519PublicKey]:
     text = _read("JWT_PUBLIC_KEYS")
     keys: dict[str, Ed25519PublicKey] = {}
     if text:
-        keys = dict(_memo("public", text, lambda: parse_public_keys(text)))
+        keys = dict(memo("public", text, lambda: parse_public_keys(text)))
         if not keys:
             raise RuntimeError("JWT_PUBLIC_KEYS holds no PEM public key")
     if _read("JWT_PRIVATE_KEY") or _ephemeral is not None:
@@ -179,7 +179,7 @@ def require_verification_keys() -> None:
     """Startup check for an app: production without JWT_PUBLIC_KEYS is an error, development only warns."""
     if get_verification_keys():
         return
-    if _is_production():
+    if is_production():
         raise RuntimeError("JWT_PUBLIC_KEYS (or JWT_PUBLIC_KEYS_FILE) is required in production")
     log.warning("no JWT_PUBLIC_KEYS: every access token will be refused (development)")
 

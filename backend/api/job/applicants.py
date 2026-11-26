@@ -34,7 +34,7 @@ def step(status_name: str, by: str) -> dict:
     return {"status": status_name, "at": utcnow().isoformat(), "by": by}
 
 
-def _get_application(db: Session, application_id: int) -> JobApplicant:
+def get_application(db: Session, application_id: int) -> JobApplicant:
     row = db.get(JobApplicant, application_id)
     if row is None or row.status is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
@@ -97,7 +97,7 @@ def edit_my_application(
     db: Session = Depends(get_db),
 ) -> ApplicationOut:
     """The applicant changes their own application while the employer has not reviewed it yet (status "submitted")."""
-    row = _get_application(db, application_id)
+    row = get_application(db, application_id)
     if row.user_id != user.user_id:  # someone else's application looks like none
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
     if row.status != "submitted":
@@ -117,7 +117,7 @@ def withdraw_application(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Response:
-    row = _get_application(db, application_id)
+    row = get_application(db, application_id)
     if row.user_id != user.user_id:  # 404, not 403: do not reveal other users' ids
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
     if row.status == "hired":
@@ -151,7 +151,7 @@ def update_application(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ApplicantOut:
-    row = _get_application(db, application_id)
+    row = get_application(db, application_id)
     job = ensure_owner(get_job_description(db, row.job_description_id), user)
     if body.status != row.status:
         APPLICATION_FLOW.check(row.status, body.status, "an application")

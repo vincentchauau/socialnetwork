@@ -100,14 +100,14 @@ def room_by_game_code(db: Session, code: str) -> Room | None:
     return None
 
 
-def _said_recently(room: Room, key: str) -> bool:
+def said_recently(room: Room, key: str) -> bool:
     last = _ANNOUNCED.get((room.id, key))
     return last is not None and now() - last < ANNOUNCE_AGAIN_AFTER
 
 
 def announce_once(db: Session, room: Room, key: str, what: str, user_id: int) -> Message | None:
     """Say in the conversation that someone started a game, unless it was said a moment ago."""
-    if _said_recently(room, key):
+    if said_recently(room, key):
         return None
     _ANNOUNCED[(room.id, key)] = now()
     return say(db, room, what, user_id)
@@ -115,7 +115,7 @@ def announce_once(db: Session, room: Room, key: str, what: str, user_id: int) ->
 
 def announce_text_once(db: Session, room: Room, key: str, content: str) -> Message | None:
     """Like `announce_once`, as a line of `system` that names nobody (`meeting:both`)."""
-    if _said_recently(room, key):
+    if said_recently(room, key):
         return None
     _ANNOUNCED[(room.id, key)] = now()
     return say_text(db, room, content)
@@ -252,17 +252,17 @@ def dm_avatars(db: Session, rooms: list[Room], viewer_id: int) -> dict[int, str]
     return {room_id: people[user_id].view().avatar for room_id, user_id in rows if user_id in people}
 
 
-_PERSON_OF_LINE = re.compile(r"<(\d+)>$")  # a system line ends with the id of who it is about (`<` and `>` are not in a username)
+PERSON_OF_LINE = re.compile(r"<(\d+)>$")  # a system line ends with the id of who it is about (`<` and `>` are not in a username)
 
 
 def show(db: Session, rows):
     """Puts `username` on messages (or members) so a response schema can read it: one lookup for all of them. `system` is not in `users`."""
     rows = directory.attach_names(db, rows)
     spoken = [row for row in rows if row.user_id == SYSTEM_USER_ID]
-    named = directory.names(db, [int(found) for row in spoken for found in _PERSON_OF_LINE.findall(row.content or "")])
+    named = directory.names(db, [int(found) for row in spoken for found in PERSON_OF_LINE.findall(row.content or "")])
     for row in spoken:
         row.username = SYSTEM_USERNAME
-        row.shown_content = _PERSON_OF_LINE.sub(lambda match: named[int(match.group(1))], row.content or "")  # (not a column: never stored)
+        row.shown_content = PERSON_OF_LINE.sub(lambda match: named[int(match.group(1))], row.content or "")  # (not a column: never stored)
     return rows
 
 
@@ -307,7 +307,7 @@ def new_member(db: Session, room: Room, user_id: int, status: str, actor_id: int
     return member
 
 
-_EVENT_OF = {  # (status before, status after) -> what happened; else the new status
+EVENT_OF = {  # (status before, status after) -> what happened; else the new status
     (PENDING_STATUS, JOINED): "approved",
     (PENDING_STATUS, LEFT): "declined",
     (BANNED_STATUS, JOINED): "unbanned",
