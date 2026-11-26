@@ -385,6 +385,7 @@ x-hardening: &hardening
 x-backend-env: &backend-env
   APP_ENV: ${{APP_ENV:-development}}
   COOKIE_SECURE: ${{COOKIE_SECURE:-1}}
+  ORDER_DISCOUNT_PERCENT: ${{ORDER_DISCOUNT_PERCENT:-0}}
 
 services:
   postgres:
