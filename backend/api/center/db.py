@@ -1,9 +1,8 @@
 from typing import Iterator
 
 from fastapi import Request
-from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session
-from sqlalchemy.pool import StaticPool
+from sn_shared.db import make_engine  # noqa: F401  (center's cli and main import it from here)
 
 
 DEFAULT_DATABASE_URL = "sqlite:///./center.db"
@@ -11,17 +10,6 @@ DEFAULT_DATABASE_URL = "sqlite:///./center.db"
 
 class Base(DeclarativeBase):
     pass
-
-
-def make_engine(url: str) -> Engine:
-    if not url.startswith("sqlite"):
-        return create_engine(url, pool_pre_ping=True)
-    if url in ("sqlite://", "sqlite:///:memory:"):
-        # One shared connection so every thread sees the same in-memory database.
-        return create_engine(
-            url, connect_args={"check_same_thread": False}, poolclass=StaticPool
-        )
-    return create_engine(url, connect_args={"check_same_thread": False})
 
 
 def get_db(request: Request) -> Iterator[Session]:
