@@ -179,8 +179,8 @@ def _delete_room(request, db, room, admin_user):
     db.execute(delete(Room).where(Room.id == room_id))
 
 
-def create_app(database_url: str | None = None, clock: Callable[[], float] = time.monotonic) -> FastAPI:
-    require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
+def _open_database(database_url: str | None) -> sessionmaker:
+    """Make the engine, the tables, the old-data upgrade and the session factory of the chat."""
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     textsearch.register_sqlite(engine)
     Base.metadata.create_all(engine)
@@ -191,6 +191,45 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
     session_factory = sessionmaker(engine, expire_on_commit=False)
     upgrade(engine, session_factory)  # an old database gets its rooms (made from the names its messages use)
     textsearch.ensure_postgres(engine)  # search without minding accents
+    return session_factory
+
+
+def _include_routers(app: FastAPI) -> None:
+    app.include_router(rooms_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+    app.include_router(members_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+    app.include_router(messages_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+    app.include_router(calls_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+    app.include_router(meeting_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+    app.include_router(inbox_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+    app.include_router(people_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+    app.include_router(internal_router, dependencies=access_dependencies(public=True))
+
+
+def _mount_admin(app: FastAPI) -> None:
+    # Admin CRUD over every table of the chat (admin role only). Deleting a room row does not remove its members and messages: hide a room
+    # with `state: deleted` instead (see the room service) and use a hard delete only on an empty room.
+    # /data (any signed-in person, reads only; writes stay in the app routes): the rooms the person has joined, their members and
+    # live messages, and the person's own social edges, notices and reports.
+    specs = [
+        TableSpec(
+            Room, on_delete=_delete_room, scope=joined_rooms_scope),
+        TableSpec(
+            RoomMember, scope=fellow_members_scope,
+            user_hidden_columns=("status_reason", "last_read_message_id", "hidden_at", "notify"),
+            refs={"room_id": ("rooms", "title")}),
+        TableSpec(
+            Message, readonly_columns=("created_at",), scope=joined_messages_scope, refs={"room_id": ("rooms", "title")}),
+        TableSpec(Meeting, owner="started_by", refs={"room_id": ("rooms", "title")}),
+        TableSpec(social_models.Edge, owner="src_id"),
+        TableSpec(social_models.Report, owner="reporter_id"),
+        TableSpec(social_models.Notification, owner="user_id"),
+    ]
+    mount_crud(app, specs, database="chat")
+
+
+def create_app(database_url: str | None = None, clock: Callable[[], float] = time.monotonic) -> FastAPI:
+    require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
+    session_factory = _open_database(database_url)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -309,33 +348,8 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
                 pass
 
     app.state.disconnect = disconnect
-    app.include_router(rooms_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(members_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(messages_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(calls_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(meeting_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(inbox_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(people_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(internal_router, dependencies=access_dependencies(public=True))
-    # Admin CRUD over every table of the chat (admin role only). Deleting a room row does not remove its members and messages: hide a room
-    # with `state: deleted` instead (see the room service) and use a hard delete only on an empty room.
-    # /data (any signed-in person, reads only; writes stay in the app routes): the rooms the person has joined, their members and
-    # live messages, and the person's own social edges, notices and reports.
-    specs = [
-        TableSpec(
-            Room, on_delete=_delete_room, scope=joined_rooms_scope),
-        TableSpec(
-            RoomMember, scope=fellow_members_scope,
-            user_hidden_columns=("status_reason", "last_read_message_id", "hidden_at", "notify"),
-            refs={"room_id": ("rooms", "title")}),
-        TableSpec(
-            Message, readonly_columns=("created_at",), scope=joined_messages_scope, refs={"room_id": ("rooms", "title")}),
-        TableSpec(Meeting, owner="started_by", refs={"room_id": ("rooms", "title")}),
-        TableSpec(social_models.Edge, owner="src_id"),
-        TableSpec(social_models.Report, owner="reporter_id"),
-        TableSpec(social_models.Notification, owner="user_id"),
-    ]
-    mount_crud(app, specs, database="chat")
+    _include_routers(app)
+    _mount_admin(app)
 
     async def announce_leave(room: str, user: TokenPayload) -> None:
         await hub.broadcast(room, system_frame("leave", room, user.user_id, user.username))
