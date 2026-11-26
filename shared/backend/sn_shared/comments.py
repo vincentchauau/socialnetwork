@@ -123,6 +123,24 @@ def _checked_content(kind: CommentKind, value: str | None) -> str:
 # ---- the routes ---------------------------------------------------------------------------------------------------
 
 
+def _check_rating(kind: CommentKind, rating: int | None) -> None:
+    """A kind of comment with no rating refuses one; a kind that needs a rating refuses none."""
+    if kind.rating == "none" and rating is not None:
+        raise _invalid("This kind of comment has no rating")
+    if kind.rating == "required" and rating is None:
+        raise _invalid("Give a rating")
+
+
+def _may_moderate(kind: CommentKind, db: Session, comment: Comment, user: TokenPayload) -> bool:
+    """The owner of the thing may delete what others said about it, when the kind allows it."""
+    if kind.moderator is None:
+        return False
+    try:
+        return bool(kind.moderator(kind.visible(db, comment.object_id, user), user))
+    except HTTPException:
+        return False
+
+
 def comments_router(kind: CommentKind) -> APIRouter:
     router = APIRouter(tags=[kind.tag])
 
@@ -161,10 +179,7 @@ def comments_router(kind: CommentKind) -> APIRouter:
         if kind.may_write is not None:
             kind.may_write(db, thing, user)
         content = _checked_content(kind, body.content)
-        if kind.rating == "none" and body.rating is not None:
-            raise _invalid("This kind of comment has no rating")
-        if kind.rating == "required" and body.rating is None:
-            raise _invalid("Give a rating")
+        _check_rating(kind, body.rating)
         if not content and body.rating is None:
             raise _invalid("Write something or give a rating")
         if kind.once and db.scalar(
@@ -197,10 +212,7 @@ def comments_router(kind: CommentKind) -> APIRouter:
         if "content" in sent:
             comment.content = _checked_content(kind, body.content)
         if "rating" in sent:
-            if kind.rating == "none" and body.rating is not None:
-                raise _invalid("This kind of comment has no rating")
-            if kind.rating == "required" and body.rating is None:
-                raise _invalid("Give a rating")
+            _check_rating(kind, body.rating)
             comment.rating = body.rating
         comment.edited_at = _utcnow()
         db.commit()
@@ -210,17 +222,10 @@ def comments_router(kind: CommentKind) -> APIRouter:
     @router.delete(kind.item, status_code=status.HTTP_204_NO_CONTENT)
     def remove_comment(comment_id: CommentId, user: User, db: Db) -> Response:
         comment = own_kind(db, comment_id)
-        if comment.user_id != user.user_id:
-            allowed = False
-            if kind.moderator is not None:  # the owner of the thing may delete what others said about it
-                try:
-                    allowed = kind.moderator(kind.visible(db, comment.object_id, user), user)
-                except HTTPException:
-                    allowed = False
-            if not allowed:
-                if kind.others_are_hidden:
-                    raise HTTPException(status.HTTP_404_NOT_FOUND, "Comment not found")
-                raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot delete this comment")
+        if comment.user_id != user.user_id and not _may_moderate(kind, db, comment, user):
+            if kind.others_are_hidden:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Comment not found")
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot delete this comment")
         db.delete(comment)
         db.commit()
         return Response(status_code=status.HTTP_204_NO_CONTENT)
