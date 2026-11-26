@@ -65,7 +65,6 @@ export function JobTile({ job, children }: { job: JobDescriptionSummary; childre
         {job.status === "closed" ? tr("closed") : job.status !== "open" ? ` · ${label(job.status)}` : null}
         {job.expired && tr("expired")}
         {job.applied && tr("applied")}
-        {job.saved && tr("saved_2")}
       </p>
       {children}
     </Card>

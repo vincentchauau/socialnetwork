@@ -159,7 +159,7 @@ def jobs_search(args: Query, token: str, http: Http) -> dict[str, Any]:
     items = [
         {
             "title": f"#{p['id']} {clip(p['title'])}", "subtitle": f"{clip(p['company'], 40)} · {clip(p['location'], 40)}", "href": "/job",
-            "actions": [action("Open", "jobs.job", {"job_id": p["id"]}), action("Save", "jobs.save", {"job_id": p["id"]}, "do")],
+            "actions": [action("Open", "jobs.job", {"job_id": p["id"]})],
         }
         for p in page["items"][:MAX_ITEMS]
     ]

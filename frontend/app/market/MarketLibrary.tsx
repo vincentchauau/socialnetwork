@@ -1,7 +1,5 @@
 "use client";
 
-import SavedProducts from "./SavedProducts";
-
 import { useEffect, useState } from "react";
 
 import { apiFetch } from "@sn/api";
@@ -81,7 +79,6 @@ export default function MarketLibrary() {
         onChange={setTab}
         data={[
           { key: "mine", label: tr("tab_crud_products") },
-          { key: "saved", label: tr("tab_saved_products") },
           { key: "shop", label: tr("tab_create_order") },
           { key: "cart", label: cart > 0 ? `${tr("tab_update_order")} (${cart})` : tr("tab_update_order") },
           { key: "pay", label: tr("tab_pay_order") },
@@ -92,7 +89,6 @@ export default function MarketLibrary() {
           cart: <CartView onOrdered={() => setTab("pay")} />,
           pay: <PayList key={tab === "pay" ? "open" : "closed"} />,
           orders: <OrderList />,
-          saved: <SavedProducts />,
           mine: <GalleryView api={`${API}/records`} table="market_products" config={MINE} />,
         }}
       />

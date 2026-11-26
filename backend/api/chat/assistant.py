@@ -31,7 +31,7 @@ SEARCHES: dict[str, str] = {}  # market and jobs are paused
 SHOWS = {  # no words needed: a list, or a form to fill in
     "cart": "market.cart", "orders": "market.orders", "applications": "jobs.applications", "postjob": "jobs.post", "myjobs": "jobs.myjobs",
     "myproducts": "market.mine", "face": "face.measure", "measurements": "face.history", "clearmeasurements": "face.clear",
-    "saved": "jobs.saved", "profile": "jobs.profile", "sales": "market.sales",
+    "profile": "jobs.profile", "sales": "market.sales",
 }
 WITH_NUMBER = {  # one number: which job, product or course
     "applicants": ("jobs.applicants", "job_id"), "product": ("market.product", "product_id"),

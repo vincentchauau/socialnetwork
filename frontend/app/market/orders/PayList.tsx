@@ -53,7 +53,7 @@ export default function PayList() {
             <Link href={`/market/orders/${order.id}`}><strong>{tr("order")}{order.id}</strong></Link>
             <span className="muted" style={{ overflowWrap: "anywhere" }}>{order.items.map((item) => `${item.name} × ${item.quantity}`).join(", ")}</span>
             <span className="muted">{formatDate(order.created_at)}</span>
-            {order.discount_code && order.discount_cents ? <span>{tr("discount_p0_p1", { p0: order.discount_code, p1: formatMoney(order.discount_cents, order.currency) })}</span> : null}
+            {order.discount_cents ? <span>{tr("discount_amount", { p1: formatMoney(order.discount_cents, order.currency) })}</span> : null}
             <div className="row">
               <Button disabled={busy !== null} onClick={() => pay(order)}>
                 {busy === order.id ? tr("working") : tr("pay_p0", { p0: formatMoney(order.total_cents, order.currency) })}

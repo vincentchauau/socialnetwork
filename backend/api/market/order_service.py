@@ -19,9 +19,10 @@ from api.market.constants import (
     STATUS_RETURN_REQUESTED,
     STATUS_RETURNED,
     RETURN_TARGETS,
+    ORDER_DISCOUNT_PERCENT,
     RETURN_WINDOW_DAYS,
 )
-from api.market.models import CartItem, DiscountCode, Order, Product, seller_ids_text, utcnow
+from api.market.models import CartItem, Order, Product, seller_ids_text, utcnow
 from api.market.payments import PaymentError, PaymentProvider
 from api.market.schemas import OrderItemOut, OrderOut
 from sn_shared import directory
@@ -54,16 +55,17 @@ def order_view(order: Order, viewer_id: int, buyer_username: str) -> OrderOut:
         )
         for item in lines
     ]
+    # The order discount is the buyer's; a seller sees their own lines at full price.
+    discount = order.discount_cents if order.buyer_id == viewer_id else 0
     return OrderOut(
         id=order.id,
         status=order.status,  # type: ignore[arg-type]
         currency=order.currency,
-        total_cents=sum(item.line_total_cents for item in items),
+        total_cents=sum(item.line_total_cents for item in items) - discount,
         buyer_username=buyer_username,
         created_at=order.created_at,
         items=items,
-        discount_code=order.discount_code if items and any(item.discount_cents for item in items) else None,
-        discount_cents=sum(item.discount_cents for item in items),
+        discount_cents=discount,
         delivered_at=order.delivered_at,
     )
 
@@ -122,39 +124,7 @@ def _reserve_stock(db: Session, item: CartItem, product: Product) -> None:
         raise conflict(f"'{product.name}' is out of stock or its price changed")
 
 
-def _apply_code(db: Session, code: str, items: list[dict]) -> str:
-    """Take one use of the code and write the discount into the lines of its seller. Returns the code as stored."""
-    found = db.scalar(select(DiscountCode).where(func.upper(DiscountCode.code) == code.upper()))
-    if found is None or not found.is_active or (found.expires_at is not None and aware(found.expires_at) <= utcnow()):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This discount code is not valid")
-    lines = [item for item in items if item["seller_id"] == found.seller_id]
-    if not lines:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This discount code is for products that are not in your cart")
-    taken = db.execute(  # atomic: two orders cannot take the last use
-        update(DiscountCode)
-        .where(DiscountCode.id == found.id, (DiscountCode.max_uses == 0) | (DiscountCode.used < DiscountCode.max_uses))
-        .values(used=DiscountCode.used + 1)
-        .execution_options(synchronize_session=False)
-    )
-    if taken.rowcount != 1:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This discount code has no uses left")
-    for item in lines:
-        item["discount_cents"] = item["unit_price_cents"] * item["quantity"] * found.percent // 100
-    return found.code
-
-
-def _release_code(db: Session, order: Order) -> None:
-    """A cancelled or returned order gives back the use of its code."""
-    if order.discount_code:
-        db.execute(
-            update(DiscountCode)
-            .where(func.upper(DiscountCode.code) == order.discount_code.upper(), DiscountCode.used > 0)
-            .values(used=DiscountCode.used - 1)
-            .execution_options(synchronize_session=False)
-        )
-
-
-def checkout(db: Session, user: TokenPayload, key: str | None, code: str | None = None) -> tuple[Order, bool]:
+def checkout(db: Session, user: TokenPayload, key: str | None) -> tuple[Order, bool]:
     """Create an order from the cart. Returns (order, created); created is False on replay."""
     replay = _checkout_replay(db, user.user_id, key)
     if replay is not None:
@@ -177,12 +147,11 @@ def checkout(db: Session, user: TokenPayload, key: str | None, code: str | None 
         }
         for item, product in lines
     ]
-    applied = _apply_code(db, code, items) if code else None
-    discount = sum(item.get("discount_cents", 0) for item in items)
+    gross = sum(item["unit_price_cents"] * item["quantity"] for item in items)
+    discount = gross * ORDER_DISCOUNT_PERCENT // 100
     order = Order(
         buyer_id=user.user_id,
         status=STATUS_PENDING,
-        discount_code=applied,
         discount_cents=discount,
         total_cents=sum(product.price_cents * item.quantity for item, product in lines) - discount,
         items=items,
@@ -246,7 +215,6 @@ def _role_targets(order: Order, user_id: int) -> frozenset[str]:
 
 
 def _restock(db: Session, order: Order) -> None:
-    _release_code(db, order)
     for item in order.items:  # restock exactly what checkout took
         db.execute(
             update(Product)

@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from sn_shared import comments
 
-from api.market.models import CartItem, Order, Product, SavedProduct, seller_ids_text
+from api.market.models import CartItem, Order, Product, seller_ids_text
 
 DELETED_USER_ID = 0
 
@@ -37,7 +37,6 @@ def on_user_deleted(db: Session, user_id: int) -> None:
     if user_id == DELETED_USER_ID:
         return
     db.execute(delete(CartItem).where(CartItem.user_id == user_id))
-    db.execute(delete(SavedProduct).where(SavedProduct.user_id == user_id))
     db.execute(
         update(Order)
         .where(Order.buyer_id == user_id)

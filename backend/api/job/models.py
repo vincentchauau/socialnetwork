@@ -70,10 +70,7 @@ class JobDescription(Base):
 
 
 class JobApplicant(Base):
-    """What one person is to one job: saved it, applied to it (with the steps of the application), or both.
-
-    `status` is None while the person has only saved the job. A row with neither a save nor an application is not kept.
-    """
+    """What one person is to one job: the application to it, with its steps. A row is kept only while there is an application."""
 
     __tablename__ = "job_applications"
     __table_args__ = (
@@ -84,7 +81,6 @@ class JobApplicant(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     job_description_id: Mapped[int] = mapped_column(ForeignKey("job_descriptions.id"))
     user_id: Mapped[int] = mapped_column(Integer)
-    saved: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     cover_letter: Mapped[str] = mapped_column(Text, default="")
     resume: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # the resume of the person as it was when they applied

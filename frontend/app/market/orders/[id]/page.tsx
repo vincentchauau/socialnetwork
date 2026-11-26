@@ -51,8 +51,8 @@ function OrderDetail({ id, user }: { id: number; user: User }) {
             </li>
           ))}
         </ul>
-        {data.discount_code && data.discount_cents ? (
-          <span>{tr("discount_p0_p1", { p0: data.discount_code, p1: formatMoney(data.discount_cents, data.currency) })}</span>
+        {data.discount_cents ? (
+          <span>{tr("discount_amount", { p1: formatMoney(data.discount_cents, data.currency) })}</span>
         ) : null}
         <strong>{tr("total")} {formatMoney(data.total_cents, data.currency)}</strong>
       </Card>

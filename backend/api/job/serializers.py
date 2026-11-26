@@ -57,7 +57,6 @@ def _summary_fields(
         "owner_username": owner_name,
         "is_owner": is_owner,
         "applied": row is not None and row.status is not None,
-        "saved": row is not None and row.saved,
         "application_count": count if is_owner else None,
     }
 

@@ -132,7 +132,7 @@ def test_a_card_without_buttons_has_nobody_it_is_for_and_cannot_be_pressed(raw_c
 
 def test_commands_are_understood():
     assert assistant.parse("/face") == ("face.measure", {}) and assistant.parse("/measurements") == ("face.history", {})
-    assert assistant.parse("/saved") == ("jobs.saved", {}) and assistant.parse("/profile") == ("jobs.profile", {}) and assistant.parse("/sales") == ("market.sales", {})
+    assert assistant.parse("/profile") == ("jobs.profile", {}) and assistant.parse("/sales") == ("market.sales", {})
     assert assistant.parse("/job 3") == ("jobs.job", {"job_id": 3}) and assistant.parse("/editjob 3") == ("jobs.editpost", {"job_id": 3})
     assert assistant.parse("/pay 4") == ("market.pay", {"order_id": 4}) and assistant.parse("/review 2") == ("market.review", {"product_id": 2})
     assert assistant.parse("/clearmeasurements") == ("face.clear", {})

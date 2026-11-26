@@ -20,17 +20,9 @@ def test_a_job_has_a_detail_with_apply_and_save_and_search_rows_have_buttons(cli
     job = {"id": 7, "title": "Python dev", "company": "Acme", "location": "Hà Nội", "remote": True, "employment_type": "full_time", "salary_min": 1000, "salary_max": None, "currency": "USD", "tags": ["python"], "description": "Build things"}
     client.app.state.http = fake_http({"/jobs/7": (200, job), "/jobs": (200, {"items": [job]})})
     detail = card(client, "jobs.job", {"job_id": 7})
-    assert detail["type"] == "detail" and "remote" in detail["lines"][0] and labels(detail) == [("Apply", "ask"), ("Save", "do")]
+    assert detail["type"] == "detail" and "remote" in detail["lines"][0] and labels(detail) == [("Apply", "ask")]
     row = card(client, "jobs.search", {"q": "py"})["items"][0]
-    assert labels(row) == [("Open", "open"), ("Save", "do")]
-
-
-def test_saving_and_unsaving_a_job_and_the_list_of_saved_ones(client):
-    client.app.state.http = fake_http({"/save": (204, None)})
-    assert card(client, "jobs.save", {"job_id": 7}, True)["type"] == "done" and CALLS[-1][0] == "PUT"
-    assert card(client, "jobs.unsave", {"job_id": 7}, True)["type"] == "done" and CALLS[-1][0] == "DELETE"
-    client.app.state.http = fake_http({"/me/saved": (200, [{"id": 7, "title": "Python dev", "company": "Acme", "location": "x"}])})
-    assert labels(card(client, "jobs.saved")["items"][0]) == [("Open", "open"), ("Unsave", "do")]
+    assert labels(row) == [("Open", "open")]
 
 
 def test_withdrawing_an_application_asks_first_and_a_hired_one_cannot_be_withdrawn(client):

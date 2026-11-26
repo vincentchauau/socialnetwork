@@ -63,17 +63,12 @@ def test_deleting_a_job_runs_the_cleanup(client):
 def test_applicants_scope_and_hidden_note(client):
     job = _seed_job(client, 1)  # alice's job
     _seed_applicant(client, job, 2)  # bob applied
-    _seed_applicant(client, job, 3, status=None)  # carol only saved it
-    mine_elsewhere = _seed_job(client, 3)
-    _seed_applicant(client, mine_elsewhere, 1, status=None)  # alice saved carol's job
     alice_rows = client.get("/records/job_applications", headers=ALICE).json()["rows"]
-    assert {(r["user_id"], r["job_description_id"]) for r in alice_rows} == {(2, job), (1, mine_elsewhere)}
+    assert {(r["user_id"], r["job_description_id"]) for r in alice_rows} == {(2, job)}
     assert all("employer_note" not in r for r in alice_rows)
     bob_rows = client.get("/records/job_applications", headers=BOB).json()["rows"]
     assert [r["user_id"] for r in bob_rows] == [2]
-    carol_rows = client.get("/records/job_applications", headers=CAROL).json()["rows"]
-    # carol's own save is hers; alice's mere save of carol's job is not shown to carol
-    assert [(r["user_id"], r["job_description_id"]) for r in carol_rows] == [(3, job)]
+    assert client.get("/records/job_applications", headers=CAROL).json()["rows"] == []
 
 
 def test_applicant_create_withdraw_and_forbidden(client):

@@ -17,7 +17,7 @@ from api.market.constants import (
     SEARCH_MAX,
 )
 from api.market.deps import expire_stale, get_db
-from api.market.models import CartItem, Product, SavedProduct
+from api.market.models import CartItem, Product
 from api.market.schemas import ProductIn, ProductOut, ProductPage, RATING_DECIMALS
 from sn_shared.deps import get_current_user
 from sn_shared.facets import Facet, facets
@@ -196,6 +196,5 @@ def delete_product(
     product = _owned_product(db, product_id, user)
     product.is_active = False
     db.execute(delete(CartItem).where(CartItem.product_id == product_id))
-    db.execute(delete(SavedProduct).where(SavedProduct.product_id == product_id))
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

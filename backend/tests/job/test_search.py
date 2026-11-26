@@ -105,16 +105,15 @@ def test_cursor_pagination_with_ranking(client):
     assert third["next_cursor"] is None
 
 
-def test_applied_and_saved_flags_are_per_caller(client):
+def test_applied_flag_is_per_caller(client):
     job = post_job(client)
     client.post(f"/jobs/{job['id']}/apply", json={}, headers=BOB)
-    client.put(f"/jobs/{job['id']}/save", headers=BOB)
 
     bob_item = client.get("/jobs", headers=BOB).json()["items"][0]
     alice_item = client.get("/jobs", headers=ALICE).json()["items"][0]
 
-    assert (bob_item["applied"], bob_item["saved"]) == (True, True)
-    assert (alice_item["applied"], alice_item["saved"]) == (False, False)
+    assert bob_item["applied"] is True
+    assert alice_item["applied"] is False
     assert bob_item["application_count"] is None
     assert alice_item["application_count"] == 1
     assert "description" not in bob_item

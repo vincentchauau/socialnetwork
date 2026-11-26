@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 
-from api.job import applicants, job_descriptions, questions, saved
+from api.job import applicants, job_descriptions, questions
 from api.job.db import Base, make_engine
 from sn_shared import comments, directory, skills, tags
 from sn_shared.db import ensure_columns, ensure_foreign_key, rename_table
@@ -72,7 +72,6 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     app.include_router(job_descriptions.router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
     app.include_router(applicants.router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(saved.router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
     app.include_router(questions.router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
     app.include_router(skills.skills_router(), dependencies=access_dependencies(admin=True, moderator=True, user=True))
     admin_routes.mount(app)

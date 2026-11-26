@@ -113,7 +113,7 @@ def application_counts(db: Session, job_ids: list[int]) -> dict[int, int]:
 
 
 def my_rows(db: Session, user_id: int, job_ids: list[int]) -> dict[int, JobApplicant]:
-    """What the person is to each of these jobs (saved, applied), by job."""
+    """The application of the person to each of these jobs, by job."""
     if not job_ids:
         return {}
     rows = db.scalars(

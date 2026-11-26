@@ -1,4 +1,5 @@
-from api.market.models import DiscountCode, Order
+from api.market import order_service
+from api.market.models import Order
 
 from .conftest import BUYER, SELLER, SELLER2, auth, add_to_cart, deliver, place_order, set_status
 
@@ -9,48 +10,23 @@ def _product(client, who=SELLER, price=1000, stock=10):
     return response.json()["id"]
 
 
-def _code(client, seller_id=SELLER[0], **fields):
-    with client.app.state.session_factory() as db:
-        db.add(DiscountCode(seller_id=seller_id, code=fields.pop("code", "SAVE10"), percent=fields.pop("percent", 10), **fields))
-        db.commit()
-
-
-def _buy(client, product_id, code=None, quantity=2):
-    assert add_to_cart(client, product_id, quantity, BUYER).status_code == 200
-    return client.post("/orders", json={"code": code} if code else None, headers=auth(BUYER))
-
-
-def test_code_takes_a_percent_off_the_lines_of_its_seller(client):
+def test_the_operator_percent_takes_off_the_whole_order(client, monkeypatch):
+    monkeypatch.setattr(order_service, "ORDER_DISCOUNT_PERCENT", 10)
     mine, other = _product(client), _product(client, SELLER2, price=500)
-    _code(client)
     add_to_cart(client, other, 1, BUYER)
-    response = _buy(client, mine, "save10")  # not case sensitive
+    add_to_cart(client, mine, 2, BUYER)
+    response = client.post("/orders", headers=auth(BUYER))
     assert response.status_code == 201, response.text
     order = response.json()
-    assert order["discount_cents"] == 200 and order["discount_code"] == "SAVE10"
-    assert order["total_cents"] == 2000 + 500 - 200
-    seen_by_other = client.get(f"/orders/{order['id']}", headers=auth(SELLER2)).json()
-    assert seen_by_other["discount_cents"] == 0 and seen_by_other["total_cents"] == 500
+    assert order["discount_cents"] == 250 and order["total_cents"] == 2250
+    assert "discount_code" not in order
 
 
-def test_code_that_is_not_valid_is_refused_and_the_cart_stays(client):
+def test_no_percent_means_no_discount(client):
     product = _product(client)
-    assert _buy(client, product, "NOPE").status_code == 400
-    _code(client, code="OLD", expires_at=__import__("datetime").datetime(2000, 1, 1, tzinfo=__import__("datetime").timezone.utc))
-    assert _buy(client, product, "OLD").status_code == 400
-    _code(client, seller_id=SELLER2[0], code="OTHER")
-    assert _buy(client, product, "OTHER").status_code == 400  # it is for products that are not in the cart
-    assert client.get("/cart", headers=auth(BUYER)).json()["item_count"] == 2
-
-
-def test_last_use_is_taken_once_and_given_back_when_the_order_is_cancelled(client):
-    product = _product(client)
-    _code(client, max_uses=1)
-    order = _buy(client, product, "SAVE10").json()
-    add_to_cart(client, product, 1, BUYER)
-    assert client.post("/orders", json={"code": "SAVE10"}, headers=auth(BUYER)).status_code == 400
-    assert set_status(client, order["id"], "cancelled", BUYER).status_code == 200
-    assert client.post("/orders", json={"code": "SAVE10"}, headers=auth(BUYER)).status_code == 201
+    add_to_cart(client, product, 2, BUYER)
+    order = client.post("/orders", headers=auth(BUYER)).json()
+    assert order["discount_cents"] == 0 and order["total_cents"] == 2000
 
 
 def test_return_is_asked_by_the_buyer_and_accepted_by_the_seller(client):

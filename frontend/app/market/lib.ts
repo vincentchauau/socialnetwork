@@ -60,7 +60,6 @@ export interface Order {
   buyer_username: string;
   created_at: string;
   items: OrderItem[];
-  discount_code?: string | null;
   discount_cents?: number;
   delivered_at?: string | null;
 }

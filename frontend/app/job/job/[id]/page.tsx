@@ -144,8 +144,6 @@ function JobView({ id, user }: { id: string; user: User }) {
   const [job, setJob] = useState<JobDescriptionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,20 +164,6 @@ function JobView({ id, user }: { id: string; user: User }) {
     };
   }, [id]);
 
-  async function toggleSave(current: JobDescriptionDetail) {
-    setSaving(true);
-    setActionError(null);
-    try {
-      await apiFetch(`${API}/jobs/${current.id}/save`, {
-        method: current.saved ? "DELETE" : "PUT",
-      });
-      setJob({ ...current, saved: !current.saved });
-    } catch (e) {
-      setActionError(errorText(e, tr("could_not_update_saved_jobs")));
-    } finally {
-      setSaving(false);
-    }
-  }
 
   if (loading || error || !job) {
     return (
@@ -229,18 +213,8 @@ function JobView({ id, user }: { id: string; user: User }) {
         <div className="row wrap">
           {job.is_owner ? (
             <Link href={`/job/employer/${job.id}`}>Manage posting ({job.application_count ?? 0} {tr("applicants_2")}</Link>
-          ) : (
-            <Button variant="secondary"
-              className="secondary"
-              onClick={() => toggleSave(job)}
-              disabled={saving}
-              aria-pressed={job.saved}
-            >
-              {job.saved ? tr("saved_4") : tr("save_job")}
-            </Button>
-          )}
+          ) : null}
         </div>
-        {actionError && <p role="alert" className="error">{actionError}</p>}
       </article>
 
       {job.applied && (

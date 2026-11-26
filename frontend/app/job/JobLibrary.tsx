@@ -9,7 +9,6 @@ import ApproveList from "./ApproveList";
 import JobSearch from "./JobSearch";
 import MyPostings from "./MyPostings";
 import PendingApplications from "./PendingApplications";
-import SavedList from "./SavedList";
 import { tr } from "./i18n";
 import "./jobs.css";
 
@@ -25,13 +24,12 @@ export default function JobLibrary() {
       onChange={setTab}
       data={[
         { key: "postings", label: tr("tab_crud_descriptions") },
-        { key: "saved", label: tr("tab_saved_descriptions") },
         { key: "search", label: tr("tab_create_application") },
         { key: "update", label: tr("tab_update_application") },
         { key: "approve", label: tr("tab_approve_application") },
         { key: "applications", label: tr("tab_my_applications") },
       ]}
-      panels={{ postings: <MyPostings />, search: <JobSearch />, update: <PendingApplications />, approve: <ApproveList />, applications: <ApplicationsList />, saved: <SavedList /> }}
+      panels={{ postings: <MyPostings />, search: <JobSearch />, update: <PendingApplications />, approve: <ApproveList />, applications: <ApplicationsList /> }}
     />
   );
 }

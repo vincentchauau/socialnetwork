@@ -28,10 +28,10 @@ def db():
         session.flush()
         session.add_all(
             [
-                JobApplicant(job_description_id=alice_job.id, user_id=2, status="submitted", saved=True),
+                JobApplicant(job_description_id=alice_job.id, user_id=2, status="submitted"),
                 JobApplicant(job_description_id=alice_job.id, user_id=3, status="submitted"),
                 JobApplicant(
-                    job_description_id=bob_job.id, user_id=1, status="submitted", contact_email="a@x.io", saved=True
+                    job_description_id=bob_job.id, user_id=1, status="submitted", contact_email="a@x.io"
                 ),
             ]
         )

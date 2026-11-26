@@ -20,7 +20,6 @@ export default function CartView({ onOrdered }: { onOrdered?: () => void } = {})
   const cart = useLoad(load, (e) => errorText(e, tr("could_not_load_your_cart")));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [code, setCode] = useState("");
   // One key per checkout attempt: a double click or retry cannot create two orders.
   const checkoutKey = useRef<string | null>(null);
 
@@ -65,7 +64,6 @@ export default function CartView({ onOrdered }: { onOrdered?: () => void } = {})
       const order = await apiFetch<Order>(`${API}/orders`, {
         method: "POST",
         headers: { "Idempotency-Key": checkoutKey.current },
-        ...(code.trim() ? { body: JSON.stringify({ code: code.trim() }) } : {}),
       });
       if (onOrdered) {
         notifyCartChanged();
@@ -137,10 +135,6 @@ export default function CartView({ onOrdered }: { onOrdered?: () => void } = {})
       <p style={{ margin: 0 }}>
         Total ({data.item_count} items): <strong>{formatMoney(data.total_cents, data.currency)}</strong>
       </p>
-      <label className="row" style={{ alignItems: "center", gap: 8 }}>
-        {tr("discount_code")}
-        <TextBox value={code} maxLength={32} disabled={busy} onChange={(event) => { setCode(event.target.value); checkoutKey.current = null; }} />
-      </label>
       <ErrorLine message={message} />
       <div className="row">
         <Button disabled={busy} onClick={() => void placeOrder()}>

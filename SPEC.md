@@ -137,15 +137,11 @@ Notation:
 
 ## Market
 
-The tabs, in order: CRUD products (the seller's products), Saved products (the products kept to look at again), Create order (buy), Update order (what is about to be bought), Pay order (the orders waiting for payment), My orders (the buyer's orders).
+The tabs, in order: CRUD products (the seller's products), Create order (buy), Update order (what is about to be bought), Pay order (the orders waiting for payment), My orders (the buyer's orders).
 
 ### CRUD products
 
 1. Sellers see their products and sales.
-
-### Saved products
-
-1. A person saves a product from its page and unsaves it there or in the Saved tab. A saved product that is deleted leaves the list.
 
 ### Create order
 
@@ -160,7 +156,7 @@ The tabs, in order: CRUD products (the seller's products), Saved products (the p
 ### Pay order
 
 1. An order is placed from the cart. A repeated submit does not create a second order. A buyer has at most 5 pending orders. A pending order expires after 15 minutes and its stock returns. Payment is a stub with a fake reference.
-2. A seller's discount code takes a percent (1 to 90) off that seller's lines in the order, and may have a use limit (0 = unlimited). The total is the subtotal minus the discount, fixed when the order is placed.
+2. The order discount: one percent, `ORDER_DISCOUNT_PERCENT` (0 to 90, 0 = none), read from the environment at start-up, comes off the whole order. The total is the subtotal minus the discount, fixed when the order is placed. Only the buyer sees the discount; a seller sees their own lines at full price.
 
 ### My orders
 
@@ -171,16 +167,12 @@ The tabs, in order: CRUD products (the seller's products), Saved products (the p
 
 ## Jobs
 
-The tabs, in order: CRUD descriptions (the employer's job descriptions), Saved descriptions (the jobs kept to look at again), Create application (find jobs and apply), Update application (change an application before it is reviewed), Approve application (the employer moves applicants along the steps), My applications (read and withdraw). The page opens on Create application.
+The tabs, in order: CRUD descriptions (the employer's job descriptions), Create application (find jobs and apply), Update application (change an application before it is reviewed), Approve application (the employer moves applicants along the steps), My applications (read and withdraw). The page opens on Create application.
 
 ### CRUD descriptions
 
 1. A posting has a title, company, type, place, salary range, required and preferred skills (from the shared skill list), languages and description. A person can have at most 50 open postings.
 2. The owner can edit, close, reopen and delete a posting. Deleting a posting deletes its applications.
-
-### Saved descriptions
-
-1. A person can save a job.
 
 ### Create application
 
@@ -318,7 +310,7 @@ The tabs, in order: CRUD descriptions (the employer's job descriptions), Saved d
 
 Every table, with its columns. Taken from the models in `backend/api/*/models.py`; update it when a model changes. `id*` marks the primary key; `->` marks a foreign key.
 
-Tables of the modules (30 tables, generated from the models):
+Tables of the modules (26 tables, generated from the models):
 
 - `users`: `id*`, `username`, `password_hash`, `created_at`, `email`, `google_sub`, `group`, `kind`, `token_version`, `audio_embedding`, `face_embedding`, `voice_login`, `webcam_login`, `biometric_2fa`, `email_verified`, `email_from_google`, `phone`, `phone_verified`, `totp_enabled`, `totp_secret`, `totp_pending_secret`, `totp_last_step`, `username_changed_at`, `name`, `address`, `headline`, `summary`, `birth_date`, `city`, `region`, `country`, `avatar_url`, `links`, `experience`, `education`, `skills`, `languages`, `certifications`, `projects`, `interests`, `persona_role`, `speaking_style`, `visibility`
 - `passkeys`: `id*`, `user_id`, `credential_id`, `public_key`, `sign_count`, `user_handle`, `transports`, `name`, `backed_up`, `created_at`, `last_used_at`
@@ -337,12 +329,10 @@ Tables of the modules (30 tables, generated from the models):
 - `notifications`: `id*`, `user_id`, `actor_id`, `kind`, `payload`, `read_at`, `created_at`
 - `measurements`: `id*`, `user_id`, `created_at`, `symmetry`, `eye`, `nose`, `mouth`, `ear`, `angle`, `note`
 - `job_descriptions`: `id*`, `owner_id`, `title`, `company`, `department`, `location`, `remote`, `company_about`, `domain`, `work_mode`, `timezone`, `working_hours`, `employment_type`, `contract_until`, `seniority`, `openings`, `people_managed`, `nationality_required`, `experience_min_years`, `education_min`, `skills_required`, `skills_preferred`, `skill_keys`, `tags`, `languages`, `responsibilities`, `requirements`, `nice_to_have`, `hiring_process`, `application_requirements`, `benefits`, `salary_min`, `salary_max`, `currency`, `salary_period`, `description`, `status`, `expires_at`, `created_at`
-- `job_applications`: `id*`, `job_description_id`, `user_id`, `saved`, `status`, `cover_letter`, `resume`, `contact_email`, `employer_note`, `history`
+- `job_applications`: `id*`, `job_description_id`, `user_id`, `status`, `cover_letter`, `resume`, `contact_email`, `employer_note`, `history`
 - `market_products`: `id*`, `seller_id`, `name`, `description`, `price_cents`, `stock`, `image_url`, `category`, `is_active`, `created_at`
-- `market_saved_products`: `id*`, `user_id`, `product_id`, `created_at`
 - `cart_items`: `id*`, `user_id`, `product_id`, `quantity`
-- `discount_codes`: `id*`, `seller_id`, `code`, `percent`, `max_uses`, `used`, `expires_at`, `is_active`
-- `market_orders`: `id*`, `buyer_id`, `status`, `total_cents`, `payment_reference`, `created_at`, `items`, `seller_ids`, `idempotency_key`, `pay_key`, `discount_code`, `discount_cents`, `delivered_at`
+- `market_orders`: `id*`, `buyer_id`, `status`, `total_cents`, `payment_reference`, `created_at`, `items`, `seller_ids`, `idempotency_key`, `pay_key`, `discount_cents`, `delivered_at`
 - `brands`: `id*`, `name`, `logo`
 - `showcases`: `id*`, `seller_id`, `title`, `brand_id`, `cover`, `audio`, `video`
 - `roulette_wallets`: `user_id*`, `chips`
@@ -574,19 +564,17 @@ The routes of each module, as the running app serves them (the full path, includ
 - `POST /spin`
 - `POST /wallet/refill`
 
-## market (26)
+## market (23)
 
 - `DELETE /cart`
 - `DELETE /cart/items/{product_id}`
 - `DELETE /orders/{order_id}`
 - `DELETE /products/{product_id}`
-- `DELETE /products/{product_id}/save`
 - `DELETE /reviews/{comment_id}`
 - `GET /cart`
 - `GET /categories`
 - `GET /health`
 - `GET /me/products`
-- `GET /me/saved-products`
 - `GET /orders`
 - `GET /orders/{order_id}`
 - `GET /products`
@@ -601,14 +589,12 @@ The routes of each module, as the running app serves them (the full path, includ
 - `POST /products/{object_id}/reviews`
 - `PUT /cart/items/{product_id}`
 - `PUT /products/{product_id}`
-- `PUT /products/{product_id}/save`
 
-## job (22)
+## job (19)
 
 - `DELETE /applications/{application_id}`
 - `DELETE /comments/{comment_id}`
 - `DELETE /jobs/{job_id}`
-- `DELETE /jobs/{job_id}/save`
 - `GET /facets`
 - `GET /health`
 - `GET /jobs`
@@ -617,7 +603,6 @@ The routes of each module, as the running app serves them (the full path, includ
 - `GET /jobs/{object_id}/comments`
 - `GET /me/applications`
 - `GET /me/jobs`
-- `GET /me/saved`
 - `GET /skills`
 - `PATCH /applications/{application_id}`
 - `PATCH /applications/{application_id}/mine`
@@ -626,9 +611,8 @@ The routes of each module, as the running app serves them (the full path, includ
 - `POST /jobs`
 - `POST /jobs/{job_id}/apply`
 - `POST /jobs/{object_id}/comments`
-- `PUT /jobs/{job_id}/save`
 
-Total listed: 220 routes.
+Total listed: 214 routes.
 
 # 4. Backend test (unit test)
 
@@ -797,10 +781,10 @@ The layout of each app's page, and the components that fill each part of it. Com
   - Dialogs: `VersionsSection`, `TrashPanel`, `ShareSection`, `Dialog`.
 
 - **Job** (`JobLibrary`)
-  - A `TabPanel` with the tabs, in order: `MyPostings` (CRUD descriptions), `SavedList` (Saved descriptions), `JobSearch` (Create application), `PendingApplications` (Update application), `ApproveList` (Approve application), `ApplicationsList` (My applications).
+  - A `TabPanel` with the tabs, in order: `MyPostings` (CRUD descriptions), `JobSearch` (Create application), `PendingApplications` (Update application), `ApproveList` (Approve application), `ApplicationsList` (My applications).
 
 - **Market** (`MarketLibrary`)
-  - A `TabPanel` with the tabs, in order: CRUD products (`GalleryView`), `SavedProducts`, `Shop` (Create order), `CartView` (Update order), `PayList` (Pay order), `OrderList` (My orders).
+  - A `TabPanel` with the tabs, in order: CRUD products (`GalleryView`), `Shop` (Create order), `CartView` (Update order), `PayList` (Pay order), `OrderList` (My orders).
 
 - **Database** (`DatabaseDock`)
   - Table choice (`TableChooser`, `MenuTables`), the grid (`GridEditor`) or the table (`TableEditor`), the record dialogs (`RecordDialog`, `FieldDialog`), and the reference picker (`RefPickHost`).
@@ -838,6 +822,7 @@ Outside Docker: `python -m venv .venv`, `pip install -r backend/requirements-dev
 | `AI_PROVIDER` (`dummy`/`gemini`) `GEMINI_*` `AI_*_LIMIT` | AI for companions in chat |
 | `WEREWOLF_SECRET` `WEREWOLF_SNAPSHOT_KEY` `RABBITMQ_*` | signed module calls, saved-game key, queue |
 | `ORDER_TTL_MINUTES` | tunable limits |
+| `ORDER_DISCOUNT_PERCENT` | the percent off every market order, 0 to 90 (0 = none) |
 
 Only the eight secrets above are needed to start (compose refuses to start without them).
 

@@ -10,7 +10,7 @@ from api.market.deps import IdempotencyKey, expire_stale, get_db, get_payment_pr
 from api.market.constants import STATUS_CANCELLED
 from api.market.models import Order
 from api.market.payments import PaymentProvider
-from api.market.schemas import CheckoutIn, OrderOut, OrderPage, StatusIn
+from api.market.schemas import OrderOut, OrderPage, StatusIn
 from sn_shared.deps import get_current_user
 from sn_shared.security import TokenPayload
 
@@ -40,12 +40,11 @@ def _order_page(db: Session, query: Select[Any], user_id: int, cursor: int | Non
 )
 def create_order(
     response: Response,
-    body: CheckoutIn | None = None,
     idempotency_key: IdempotencyKey = None,
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrderOut:
-    order, created = order_service.checkout(db, user, idempotency_key, body.code if body else None)
+    order, created = order_service.checkout(db, user, idempotency_key)
     if not created:
         response.status_code = status.HTTP_200_OK
     return order_service.order_views(db, [order], user.user_id)[0]

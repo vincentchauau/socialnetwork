@@ -13,7 +13,7 @@ vi.mock("@sn/api", async (importOriginal) => ({ ...(await importOriginal<typeof 
 const api = vi.mocked(apiFetch);
 const order = (status: string) => ({
   id: 7, status, currency: "USD", total_cents: 900, buyer_username: "alice", created_at: "2025-01-01T00:00:00Z",
-  discount_code: "SAVE10", discount_cents: 100,
+  discount_cents: 100,
   items: [{ product_id: 1, name: "Lamp", unit_price_cents: 500, quantity: 2, line_total_cents: 900, discount_cents: 100 }],
 });
 const params = Promise.resolve({ id: "7" });
@@ -26,7 +26,6 @@ describe("order returns and discount", () => {
   it("lets the buyer ask for a return of a delivered order, and shows the discount", async () => {
     api.mockImplementation(async (_url: string, init?: RequestInit) => (init?.method === "PATCH" ? order("return_requested") : order("delivered")));
     await show();
-    expect(await screen.findByText(/SAVE10/)).toBeInTheDocument();
     await userEvent.click(await screen.findByRole("button", { name: "Yêu cầu trả hàng" }));
     await waitFor(() => expect(patched()).toEqual(["return_requested"]));
     expect(await screen.findByText(/chờ người bán/i)).toBeInTheDocument();

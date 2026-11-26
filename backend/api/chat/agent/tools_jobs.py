@@ -164,30 +164,8 @@ def job_detail(args: JobId, token: str, http: Http) -> dict[str, Any]:
         lines.append(clip(p["description"], 500))
     return {
         "type": "detail", "title": clip(p["title"]), "lines": lines,
-        "actions": [action("Apply", "jobs.apply", {"job_id": p["id"]}, "ask"), action("Save", "jobs.save", {"job_id": p["id"]}, "do")],
+        "actions": [action("Apply", "jobs.apply", {"job_id": p["id"]}, "ask")],
     }
-
-
-def save_job(args: JobId, token: str, http: Http) -> dict[str, Any]:
-    _write("job", f"/jobs/{args.job_id}/save", {}, token, http, method="PUT")
-    return {"type": "done", "summary": f"Saved job #{args.job_id}", "href": "/job/saved"}
-
-
-def unsave_job(args: JobId, token: str, http: Http) -> dict[str, Any]:
-    _write("job", f"/jobs/{args.job_id}/save", {}, token, http, method="DELETE")
-    return {"type": "done", "summary": f"Job #{args.job_id} is no longer saved"}
-
-
-def saved_jobs(_: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    rows = _get("job", "/me/saved", {}, token, http)
-    items = [
-        {
-            "title": f"#{p['id']} {clip(p['title'])}", "subtitle": f"{clip(p['company'], 40)} · {clip(p['location'], 40)}",
-            "actions": [action("Open", "jobs.job", {"job_id": p["id"]}), action("Unsave", "jobs.unsave", {"job_id": p["id"]}, "do")],
-        }
-        for p in rows[:MAX_ITEMS]
-    ]
-    return {"type": "list", "title": "Saved jobs", "items": items}
 
 
 def withdraw(args: Withdraw, token: str, http: Http) -> dict[str, Any]:
@@ -225,9 +203,6 @@ def remove_post(args: JobId, token: str, http: Http) -> dict[str, Any]:
 
 register(
     Tool("jobs.job", JobId, False, job_detail),
-    Tool("jobs.save", JobId, True, save_job, lambda a: f"Save job #{a.job_id}"),  # type: ignore[attr-defined]
-    Tool("jobs.unsave", JobId, True, unsave_job, lambda a: f"Stop saving job #{a.job_id}"),  # type: ignore[attr-defined]
-    Tool("jobs.saved", NoArgs, False, saved_jobs),
     Tool("jobs.withdraw", Withdraw, True, withdraw, lambda a: f"Withdraw application #{a.application_id}"),  # type: ignore[attr-defined]
     Tool("jobs.editpost", EditPost, True, edit_post, lambda a: f"Save the changes to job #{a.job_id}", form=edit_post_form, opening=JobId),  # type: ignore[attr-defined]
     Tool("jobs.removepost", JobId, True, remove_post, lambda a: f"Remove job #{a.job_id} for good"),  # type: ignore[attr-defined]

@@ -16,7 +16,6 @@ NEW_COLUMNS = {
     "seller_ids": "TEXT NOT NULL DEFAULT ''",
     "idempotency_key": "VARCHAR(128)",
     "pay_key": "VARCHAR(128)",
-    "discount_code": "VARCHAR(32)",
     "discount_cents": "BIGINT NOT NULL DEFAULT 0",
     "delivered_at": "TIMESTAMP WITH TIME ZONE",
 }

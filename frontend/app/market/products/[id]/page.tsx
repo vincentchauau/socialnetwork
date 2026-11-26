@@ -19,20 +19,6 @@ function ProductDetail({ id, user }: { id: number; user: User }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [saved, setSaved] = useState<boolean | null>(null);
-  useEffect(() => {
-    let alive = true;
-    apiFetch<Product[]>(`${API}/me/saved-products`)
-      .then((list) => { if (alive) setSaved(list.some((product) => String(product.id) === String(id))); })
-      .catch(() => { if (alive) setSaved(false); });
-    return () => { alive = false; };
-  }, [id]);
-  async function toggleSaved() {
-    const method = saved ? "DELETE" : "PUT";
-    await apiFetch(`${API}/products/${id}/save`, { method });
-    setSaved(!saved);
-  }
-
   async function addToCart(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -90,11 +76,6 @@ function ProductDetail({ id, user }: { id: number; user: User }) {
             />
             <Button disabled={busy || item.stock === 0}>{tr("add_to_cart")}</Button>
           </form>
-        )}
-        {own || saved === null ? null : (
-          <Button type="button" variant="secondary" aria-pressed={saved} onClick={() => void toggleSaved()}>
-            {saved ? tr("saved_product") : tr("save_product")}
-          </Button>
         )}
         {message && (
           <p role={failed ? "alert" : "status"} className={failed ? "error" : "muted"}>

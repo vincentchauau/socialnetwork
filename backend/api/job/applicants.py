@@ -60,7 +60,7 @@ def apply(
     ).first()
     if row is not None and row.status is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "You already applied to this job")
-    if row is None:  # not saved before: a new row
+    if row is None:  # no row yet: a new one
         row = JobApplicant(job_description_id=job.id, user_id=user.user_id)
         db.add(row)
     fields = body.model_dump()
@@ -122,11 +122,7 @@ def withdraw_application(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
     if row.status == "hired":
         raise HTTPException(status.HTTP_409_CONFLICT, "A hired application cannot be withdrawn")
-    if row.saved:  # the job stays saved; only the application goes
-        row.status, row.cover_letter, row.resume, row.contact_email = None, "", None, None
-        row.employer_note, row.history = "", []
-    else:
-        db.delete(row)
+    db.delete(row)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

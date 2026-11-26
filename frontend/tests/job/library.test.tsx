@@ -25,8 +25,8 @@ describe("/job", () => {
   it("is a job site: search, saved jobs, applications and what the person posts, as tabs", async () => {
     render(<JobLibrary />);
     const tabs = await screen.findAllByRole("link");
-    expect(tabs).toHaveLength(6);
-    // The tabs: CRUD descriptions, saved descriptions, create application, update, approve, my applications; the page opens on create application.
-    expect(tabs[2]).toHaveAttribute("aria-current", "page");
+    expect(tabs).toHaveLength(5);
+    // The tabs: CRUD descriptions, create application, update, approve, my applications; the page opens on create application.
+    expect(tabs[1]).toHaveAttribute("aria-current", "page");
   });
 });

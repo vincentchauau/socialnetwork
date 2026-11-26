@@ -16,7 +16,7 @@ const api = vi.mocked(apiFetch);
 const job = {
   id: 7, title: "Backend Engineer", company: "Acme", department: "Platform", location: "Hà Nội", remote: false, employment_type: "full_time",
   seniority: "senior", openings: 2, salary_min: 1000, salary_max: 2000, currency: "USD", salary_period: "month", snippet: "", tags: ["python"],
-  status: "open", expired: false, expires_at: null, created_at: "2025-01-01T00:00:00Z", owner_username: "alice", is_owner: false, applied: false, saved: false,
+  status: "open", expired: false, expires_at: null, created_at: "2025-01-01T00:00:00Z", owner_username: "alice", is_owner: false, applied: false,
   application_count: null, description: "Build services.", experience_min_years: 5, education_min: "bachelor",
   skills_required: [{ name: "Python", level: "advanced", years: 4 }], skills_preferred: [{ name: "Kubernetes", level: null, years: null }],
   languages: [{ language: "English", proficiency: "fluent" }], responsibilities: ["Design services"], benefits: ["Health insurance"],

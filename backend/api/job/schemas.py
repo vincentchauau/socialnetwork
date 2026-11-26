@@ -222,7 +222,6 @@ class JobDescriptionSummary(BaseModel):
     owner_username: str
     is_owner: bool
     applied: bool
-    saved: bool
     application_count: int | None = None
 
 

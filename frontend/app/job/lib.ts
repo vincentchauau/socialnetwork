@@ -112,7 +112,6 @@ export interface JobDescriptionSummary {
   owner_username: string;
   is_owner: boolean;
   applied: boolean;
-  saved: boolean;
   application_count: number | null;
 }
 

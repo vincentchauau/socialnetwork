@@ -1,5 +1,7 @@
 """Shared limits and enumerations. Money is always integer minor units (cents)."""
 
+import os
+
 from sn_shared.states import Transitions
 
 CURRENCY = "USD"  # ISO 4217; every price in this service is in this currency's minor unit
@@ -47,8 +49,11 @@ SELLER_TARGETS = frozenset({STATUS_SHIPPED})
 RETURN_TARGETS = frozenset({STATUS_RETURNED, STATUS_DELIVERED})  # what a seller may set on an order whose return was asked
 RETURN_WINDOW_DAYS = 14  # a return is asked within this many days of the delivery
 
-CODE_MAX = 32
-DISCOUNT_PERCENT_MAX = 90
+# One percent off every order (0 = none), read from the environment at start-up; checkout applies it to the whole order.
+ORDER_DISCOUNT_PERCENT_MAX = 90
+ORDER_DISCOUNT_PERCENT = int(os.environ.get("ORDER_DISCOUNT_PERCENT", "0"))
+if not 0 <= ORDER_DISCOUNT_PERCENT <= ORDER_DISCOUNT_PERCENT_MAX:
+    raise ValueError(f"ORDER_DISCOUNT_PERCENT must be between 0 and {ORDER_DISCOUNT_PERCENT_MAX}")
 
 # Unpaid orders hold stock, so they expire and each buyer may hold only a few.
 DEFAULT_ORDER_TTL_MINUTES = 15

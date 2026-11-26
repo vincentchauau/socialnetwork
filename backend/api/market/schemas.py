@@ -13,7 +13,6 @@ from api.market.constants import (
     MAX_PRICE_CENTS,
     MAX_STOCK,
     NAME_MAX,
-    CODE_MAX,
 )
 
 ALLOWED_URL_SCHEMES = frozenset({"https"})
@@ -128,7 +127,6 @@ class OrderOut(BaseModel):
     buyer_username: str
     created_at: datetime
     items: list[OrderItemOut]
-    discount_code: str | None = None
     discount_cents: int = 0
     delivered_at: datetime | None = None
 
@@ -136,12 +134,6 @@ class OrderOut(BaseModel):
 class OrderPage(BaseModel):
     items: list[OrderOut]
     next_cursor: int | None
-
-
-class CheckoutIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    code: Annotated[str | None, StringConstraints(strip_whitespace=True, max_length=CODE_MAX)] = None
 
 
 class StatusIn(BaseModel):

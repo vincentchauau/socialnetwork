@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from api.market.models import CartItem, DiscountCode, Order, Product
+from api.market.models import CartItem, Order, Product
 from sn_shared import comments
 from sn_shared.admincrud import TableSpec, mount_crud
 from sn_shared.security import TokenPayload
@@ -36,11 +36,10 @@ def order_scope(db: Session, user: TokenPayload):
 SPECS = [
     TableSpec(Product, owner="seller_id", on_delete=delete_product,
               media={"image_url": {"kind": "image", "preview": "@self"}}),
-    TableSpec(DiscountCode, owner="seller_id", readonly_columns=("used",)),
     TableSpec(CartItem, owner="user_id", refs={"product_id": ("market_products", "name")}),
     TableSpec(
         Order,  # an order is made by the checkout and shown to its buyer: nobody changes it through the records
-        readonly_columns=("buyer_id", "total_cents", "items", "seller_ids", "created_at", "idempotency_key", "pay_key", "discount_code", "discount_cents", "delivered_at"),
+        readonly_columns=("buyer_id", "total_cents", "items", "seller_ids", "created_at", "idempotency_key", "pay_key", "discount_cents", "delivered_at"),
         scope=order_scope,
         user_hidden_columns=("idempotency_key", "pay_key"),
     ),

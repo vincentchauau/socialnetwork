@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 
-from api.market import cart, orders, products, reviews, saved
+from api.market import cart, orders, products, reviews
 from api.market.constants import DEFAULT_ORDER_TTL_MINUTES
 from api.market.db import Base, make_engine
 from api.market.migrate import migrate_orders
@@ -41,7 +41,7 @@ def create_app(
     rename_table(engine, "products", "market_products")  # the names of the tables before the market prefix
     rename_table(engine, "orders", "market_orders")
     Base.metadata.create_all(engine)
-    for table in ("market_saved_products", "cart_items"):
+    for table in ("cart_items",):
         ensure_foreign_key(engine, table, "product_id", "market_products")
     migrate_orders(engine)  # an orders table made before items / idempotency keys moved into it
     directory.ensure_table_for_sqlite(engine)  # names are read from center's `users`
@@ -70,7 +70,7 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    for router in (products.router, saved.router, cart.router, orders.router, reviews.router):
+    for router in (products.router, cart.router, orders.router, reviews.router):
         app.include_router(router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
     admin_routes.mount(app)
     return app

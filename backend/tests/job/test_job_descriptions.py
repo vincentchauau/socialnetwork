@@ -176,13 +176,11 @@ def test_reopen_and_clear_expiry(client):
 def test_delete_by_owner_removes_applications_and_saves(client):
     job = post_job(client)
     client.post(f"/jobs/{job['id']}/apply", json={}, headers=BOB)
-    client.put(f"/jobs/{job['id']}/save", headers=BOB)
 
     assert client.delete(f"/jobs/{job['id']}", headers=ALICE).status_code == 204
 
     assert client.get(f"/jobs/{job['id']}", headers=ALICE).status_code == 404
     assert client.get("/me/applications", headers=BOB).json() == []
-    assert client.get("/me/saved", headers=BOB).json() == []
 
 
 def test_delete_by_non_owner_not_found(client):
