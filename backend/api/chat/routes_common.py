@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 
 from api.chat import service
 from api.chat.models import Message, Room, RoomMember
-from api.chat.origins import SAFE_METHODS, allowed_origins
+from sn_shared.origin import allowed_origins
+
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 from api.chat.schemas import (
     ROOM_PATTERN,
     LastMessage,

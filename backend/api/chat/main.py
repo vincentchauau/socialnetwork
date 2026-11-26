@@ -29,7 +29,7 @@ from api.chat import cluster as clustering
 from api.chat.lobby import LOBBY_KEY, Lobby
 from api.chat.migrate import upgrade
 from api.chat.models import Meeting, Message, Room, RoomMember
-from api.chat.origins import allowed_origins
+from sn_shared.origin import allowed_origins
 from api.chat.presence import (
     MAX_LOBBY_SOCKETS_PER_USER,
     MAX_SOCKETS_PER_USER,
