@@ -50,7 +50,8 @@
     "bets": "Cược",
     "won_back": "nhận về",
     "rebet_spin": "Đặt lại lần quay này",
-    "recent": "Gần đây"
+    "recent": "Gần đây",
+    "leaderboard": "Bảng xếp hạng"
   },
   "en": {
     "roulette": "Roulette",
@@ -103,6 +104,7 @@
     "bets": "Bets",
     "won_back": "back",
     "rebet_spin": "Bet this spin again",
-    "recent": "Recent"
+    "recent": "Recent",
+    "leaderboard": "Leaderboard"
   }
 }

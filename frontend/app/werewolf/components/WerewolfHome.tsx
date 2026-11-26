@@ -4,12 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { User } from "@sn/api";
 import Button from "@sn/elements/Button";
+import { TabPanel } from "@sn/compounds/SplitPanel";
 
 import ChatDock from "../../chat/dock/ChatDock";
 import { errorMessage } from "../../chat/errors";
 import type { Room } from "../../chat/protocol";
 import { MEMBERS_CHANGED } from "../../chat/components/AddVirtual";
 import { prepareGame } from "../../chat/werewolf";
+import HistoryView from "./HistoryView";
+import Leaderboard from "./Leaderboard";
 import RoomView from "./RoomView";
 import { tr } from "../i18n";
 
@@ -91,7 +94,19 @@ export default function WerewolfHome(_props: { user: User }) {
             <span className="ww-big" aria-hidden="true">🐺</span>
             <h1>{tr("ma_soi")}</h1>
           </header>
-          {room ? <GameOfRoom room={room} /> : <section className="card stack ww-center" aria-label={tr("ww_chon_hoac_tao_phong")}><h2>{tr("ww_chon_hoac_tao_phong")}</h2><ol className="ww-steps">{["ww_buoc_1", "ww_buoc_2", "ww_buoc_3", "ww_buoc_4"].map((key) => <li key={key}>{tr(key)}</li>)}</ol></section>}
+          <TabPanel
+            aria-label={tr("ma_soi")}
+            data={[
+              { key: "game", label: tr("tab_game") },
+              { key: "history", label: tr("tab_history") },
+              { key: "leaderboard", label: tr("tab_leaderboard") },
+            ]}
+            panels={{
+              game: room ? <GameOfRoom room={room} /> : <section className="card stack ww-center" aria-label={tr("ww_chon_hoac_tao_phong")}><h2>{tr("ww_chon_hoac_tao_phong")}</h2><ol className="ww-steps">{["ww_buoc_1", "ww_buoc_2", "ww_buoc_3", "ww_buoc_4"].map((key) => <li key={key}>{tr(key)}</li>)}</ol></section>,
+              history: <HistoryView embedded />,
+              leaderboard: <Leaderboard />,
+            }}
+          />
         </section>
       </main>
     } />

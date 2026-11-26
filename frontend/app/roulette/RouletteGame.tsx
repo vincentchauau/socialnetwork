@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@sn/api";
 import Button from "@sn/elements/Button";
 import Card from "@sn/elements/Card";
+import { TabPanel } from "@sn/compounds/SplitPanel";
 import BetTable from "./BetTable";
 import { tr } from "./i18n";
 import { betLabel } from "./betLabel";
@@ -127,10 +128,7 @@ export default function RouletteGame() {
   const net = result ? result.payout - result.stake : 0;
   const verdict = result ? (net > 0 ? tr("you_won") : net < 0 ? tr("you_lost") : tr("even_money")) : null;
 
-  return (
-    <div className="stack">
-      <h1 className="page-title">{tr("roulette")}</h1>
-      <p className="muted">{tr("play_money")}</p>
+  const tableView = (
       <Card stack>
         <div className="row">
           <div className={`ball ${spinning ? "spinning idle" : result ? result.colour : "idle"}`} aria-live="polite" data-testid="ball">
@@ -183,7 +181,8 @@ export default function RouletteGame() {
         ) : null}
         {error ? <p role="alert" className="error">{error}</p> : null}
       </Card>
-
+  );
+  const historyView = (
       <Card as="section" stack aria-labelledby="roulette-history">
         <div className="row">
           <h2 id="roulette-history" className="section-title">{tr("history")}</h2>
@@ -225,7 +224,8 @@ export default function RouletteGame() {
           </ul>
         )}
       </Card>
-
+  );
+  const boardView = (
       <Card as="section" stack aria-labelledby="roulette-board">
         <h2 id="roulette-board" className="section-title">{tr("board")}</h2>
         <ol className="board-list">
@@ -237,6 +237,21 @@ export default function RouletteGame() {
           ))}
         </ol>
       </Card>
+  );
+
+  return (
+    <div className="stack">
+      <h1 className="page-title">{tr("roulette")}</h1>
+      <p className="muted">{tr("play_money")}</p>
+      <TabPanel
+        aria-label={tr("roulette")}
+        data={[
+          { key: "table", label: tr("table") },
+          { key: "history", label: tr("history") },
+          { key: "leaderboard", label: tr("leaderboard") },
+        ]}
+        panels={{ table: tableView, history: historyView, leaderboard: boardView }}
+      />
     </div>
   );
 }

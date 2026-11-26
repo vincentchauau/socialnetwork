@@ -19,6 +19,7 @@ export const apiFactory = () => ({
     rematch: vi.fn(),
     reset: vi.fn(),
     perspective: vi.fn(),
-    history: vi.fn(),
+    history: vi.fn(async () => []),
+    leaderboard: vi.fn(async () => []),
   },
 });

@@ -44,7 +44,8 @@ describe("the Werewolf page: the game of the room that is open in the chat below
     expect(screen.getByTestId("dock")).toBeInTheDocument();
     expect(dock.props).toMatchObject({ app: "werewolf", start: { rooms: true, members: true, messages: true } });
     expect(screen.getByText(/Chọn hoặc tạo một phòng/)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Lịch sử/ })).toBeNull(); // the rules are in the lobby box, not in buttons under the title
+    expect(screen.getByRole("link", { name: /Lịch sử/ })).toBeInTheDocument(); // history is one of the three tabs: Game, History, Leaderboard
+    expect(screen.getByRole("link", { name: /Bảng xếp hạng/ })).toBeInTheDocument();
     expect(screen.queryByText(/Xin chào/)).toBeNull();
   });
 

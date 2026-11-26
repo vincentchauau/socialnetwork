@@ -163,7 +163,15 @@
     "ww_thang_p0_tren_p1": "thắng {p0} / {p1} ván",
     "ww_mua_nay": "Tháng này",
     "ww_tat_ca": "Tất cả",
-    "ww_chua_co_ai": "Chưa có ai thắng trong mùa này."
+    "ww_chua_co_ai": "Chưa có ai thắng trong mùa này.",
+    "tab_game": "Trò chơi",
+    "tab_history": "Lịch sử",
+    "tab_leaderboard": "Bảng xếp hạng",
+    "ww_this_month": "Tháng này",
+    "ww_all_time": "Toàn thời gian",
+    "ww_no_ranking": "Chưa có ván nào.",
+    "ww_ranking_error": "Không tải được bảng xếp hạng.",
+    "ww_loading": "Đang tải..."
   },
   "en": {
     "ma_soi": "Werewolf",
@@ -329,7 +337,15 @@
     "ww_thang_p0_tren_p1": "{p0} wins in {p1} games",
     "ww_mua_nay": "This month",
     "ww_tat_ca": "All time",
-    "ww_chua_co_ai": "Nobody has won yet this season."
+    "ww_chua_co_ai": "Nobody has won yet this season.",
+    "tab_game": "Game",
+    "tab_history": "History",
+    "tab_leaderboard": "Leaderboard",
+    "ww_this_month": "This month",
+    "ww_all_time": "All time",
+    "ww_no_ranking": "No games yet.",
+    "ww_ranking_error": "Could not load the leaderboard.",
+    "ww_loading": "Loading..."
   },
   "server": {
     "exact": {
