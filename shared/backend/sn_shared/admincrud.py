@@ -9,6 +9,7 @@ PATCH /{table}/{pk}, DELETE /{table}/{pk}. Composite primary keys are joined by 
 
 import logging
 import os
+from types import SimpleNamespace
 import string
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -662,6 +663,16 @@ def records_router(
         admin = find(table, user, as_admin)
         return _row_payload(admin, db, _fetch_one(db, admin, [*admin.pk_clause(pk), *visible(admin, db, user, as_admin)]))
 
+    c = SimpleNamespace(full=full, own=own, models=models, database=database, admin_view=admin_view, find=find, require_write=require_write, visible=visible, require_managers=require_managers, excel_check=excel_check, media_column=media_column, fetch_row=fetch_row, get_user_dep=get_user_dep, get_db_dep=get_db_dep)
+    _read_routes(router, c)
+    _write_routes(router, c)
+    _file_routes(router, c)
+    return router
+
+
+def _read_routes(router: APIRouter, c: SimpleNamespace) -> None:
+    """The read endpoints: the tables, their rows, suggestions and groups, and one row."""
+    full, own, admin_view, find, visible, fetch_row, get_user_dep, get_db_dep = c.full, c.own, c.admin_view, c.find, c.visible, c.fetch_row, c.get_user_dep, c.get_db_dep
     @router.get("/tables")
     def list_tables(scope: str | None = None, user: TokenPayload = Depends(get_user_dep)) -> list[dict]:
         tables = full if admin_view(user, scope) else own
@@ -714,6 +725,10 @@ def records_router(
     def get_row(table: str, pk: str, scope: str | None = None, user: TokenPayload = Depends(get_user_dep), db: Session = Depends(get_db_dep)) -> dict:
         return fetch_row(table, pk, scope, user, db)
 
+
+def _write_routes(router: APIRouter, c: SimpleNamespace) -> None:
+    """The write endpoints: create, the Excel import, batch and single changes, delete."""
+    own, admin_view, find, require_write, require_managers, excel_check, get_user_dep, get_db_dep = c.own, c.admin_view, c.find, c.require_write, c.require_managers, c.excel_check, c.get_user_dep, c.get_db_dep
     @router.post("/{table}", status_code=status.HTTP_201_CREATED)
     def create_row(
         table: str,
@@ -816,6 +831,10 @@ def records_router(
         _audit(user, "delete", admin, pk, as_admin=as_admin)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+
+def _file_routes(router: APIRouter, c: SimpleNamespace) -> None:
+    """The file cells of a row: add, list, read and delete the files."""
+    database, find, require_managers, media_column, fetch_row, get_user_dep, get_db_dep = c.database, c.find, c.require_managers, c.media_column, c.fetch_row, c.get_user_dep, c.get_db_dep
     @router.post("/{table}/{pk}/files/{column}")
     async def upload_file(
         table: str,
@@ -902,8 +921,6 @@ def records_router(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No such file here")
         recordfiles.remove(held[name])
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-    return router
 
 
 def mount_crud(app: Any, models: list[TableSpec], *, database: str = "app") -> None:
