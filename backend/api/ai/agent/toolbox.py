@@ -290,8 +290,8 @@ def mcp_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
     return {"text": result.text, "is_error": result.is_error, "truncated": result.truncated}
 
 
-def tools_for(schema: dict[str, str]) -> tuple[Tool, ...]:
-    """Every tool, described for a scope whose db_tool can read the tables in `schema`."""
+def _text_tools() -> tuple[Tool, ...]:
+    """The tools that read the user's documents, ask the model and search the web."""
     return (
         Tool(
             "rag_tool",
@@ -345,6 +345,12 @@ def tools_for(schema: dict[str, str]) -> tuple[Tool, ...]:
             ),
             file_tool,
         ),
+    )
+
+
+def _system_tools(schema: dict[str, str]) -> tuple[Tool, ...]:
+    """The tools that read the user's data (a copy), the network and the programs the operator allows."""
+    return (
         Tool(
             "db_tool",
             "Run one read-only SQL SELECT on a copy of the user's own data. Tables: " + sandbox_sql.describe(schema) + ". Use it to count "
@@ -399,3 +405,10 @@ def tools_for(schema: dict[str, str]) -> tuple[Tool, ...]:
             mcp_tool,
         ),
     )
+
+
+def tools_for(schema: dict[str, str]) -> tuple[Tool, ...]:
+    """Every tool, described for a scope whose db_tool can read the tables in `schema`."""
+    return _text_tools() + _system_tools(schema)
+
+
