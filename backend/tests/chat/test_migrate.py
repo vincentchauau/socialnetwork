@@ -1,9 +1,16 @@
+import sqlite3
+from datetime import datetime
+
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
 
 from api.chat.main import create_app
 from api.chat.models import Message, Room, RoomMember
 from tests.chat.conftest import ALLOWED_ORIGIN, auth_cookie
+
+# Python 3.12 deprecates sqlite3's default datetime adapter: register the same text format explicitly.
+sqlite3.register_adapter(datetime, lambda value: value.isoformat(" "))
+
 
 OLD_MESSAGES = """
 CREATE TABLE messages (

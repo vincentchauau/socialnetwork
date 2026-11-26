@@ -301,7 +301,7 @@ def test_email_proof_end_to_end(mail_client):
     assert "http" not in message.text and "#token" not in message.text and "http" not in message.html  # code only
     row = token_rows(client)[-1]
     assert (row.purpose, row.target) == ("reauth", GINA_MAIL)
-    assert 9 * 60 < (row.expires_at.replace(tzinfo=None) - __import__("datetime").datetime.utcnow()).total_seconds() <= 600
+    assert 9 * 60 < (row.expires_at.replace(tzinfo=None) - __import__("datetime").datetime.now(__import__("datetime").timezone.utc).replace(tzinfo=None)).total_seconds() <= 600
 
     response = client.post("/auth/reauth/email/verify", json={"code": code_of(message)}, headers=csrf(session))
     assert response.status_code == 200 and "fresh_until" in response.json()

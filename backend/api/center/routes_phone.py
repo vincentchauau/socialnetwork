@@ -70,7 +70,7 @@ def valid_phone(request: Request, raw: str) -> str:
     try:
         phone = normalize_phone(raw, settings_of(request).sms_allowed_prefixes)
         if phone is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, BAD_PHONE)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, BAD_PHONE)
         return phone
     except Exception as error:
         if getattr(error, "status_code", None) is None:

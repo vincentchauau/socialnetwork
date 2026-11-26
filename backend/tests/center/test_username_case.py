@@ -4,6 +4,7 @@ import json
 
 import pytest
 import sqlalchemy as sa
+from tests.center.helpers import sqlite_indexes
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -119,7 +120,7 @@ def test_migration_adds_the_case_insensitive_unique_index(tmp_path):
     engine = sa.create_engine(make_old_db(tmp_path / "old.db"))
     ensure_columns(engine)
     with engine.begin() as conn:
-        assert "uq_users_username_lower" in {i["name"] for i in sa.inspect(conn).get_indexes("users")}
+        assert "uq_users_username_lower" in sqlite_indexes(engine, "users")
     assert ensure_columns(engine) == []  # idempotent
     with pytest.raises(IntegrityError), engine.begin() as conn:
         conn.execute(sa.text("INSERT INTO users (username, password_hash, created_at) VALUES ('OldUser', '!', '2024')"))

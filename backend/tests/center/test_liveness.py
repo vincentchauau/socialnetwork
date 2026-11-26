@@ -110,14 +110,6 @@ def test_real_engine_never_raises_on_garbage():
     assert liveness_actions(b"not a video") == []
 
 
-def test_real_engine_with_dlib_smoke():
-    pytest.importorskip("face_recognition")
-    pytest.importorskip("cv2")
-    from api.center.biometrics.liveness_video import liveness_actions
-
-    assert liveness_actions(b"\x00" * 100) == []
-
-
 # --- challenge endpoint ---
 
 

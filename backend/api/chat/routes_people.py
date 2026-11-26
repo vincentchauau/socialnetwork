@@ -177,7 +177,7 @@ def unfriend(user_id: int, user: Me, db: Db) -> None:
 def block(user_id: int, user: Me, db: Db) -> None:
     try:
         if user_id == user.user_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose someone else")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose someone else")
         known(db, user_id)
         service.block(db, user.user_id, user_id)
         db.commit()

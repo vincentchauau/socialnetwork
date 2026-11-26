@@ -133,7 +133,7 @@ def add_member(slug: Slug, body: AddMemberBody, request: Request, user: TokenPay
     A person who is banned is let in with `PATCH` (lifting the ban), not here. Anybody with an account can be found by name."""
     try:
         if (body.username is None) == (body.user_id is None):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Give a username or a user id")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Give a username or a user id")
         room, me = visible(db, slug, user)
         if room.kind == "dm":
             raise HTTPException(status.HTTP_409_CONFLICT, "A direct chat has two people")

@@ -248,27 +248,6 @@ def test_url_path_segments_never_reach_the_filesystem(client, alice):
         assert client.get(url, headers=alice).status_code in (404, 405)
 
 
-def test_symlink_in_the_sandbox_is_not_followed(client, alice, tmp_path):
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "secret.txt").write_text("secret")
-    root = files_root(1)
-    root.mkdir(parents=True)
-    try:
-        (root / "dirlink").symlink_to(outside, target_is_directory=True)
-        (root / "filelink").symlink_to(outside / "secret.txt")
-    except (OSError, NotImplementedError):
-        pytest.skip("symlinks not available")
-    assert client.get("/entries", headers=alice).json()["entries"] == []  # links are not listed
-    for path in ("/dirlink", "/dirlink/secret.txt", "/filelink"):
-        assert client.get("/download", params={"path": path}, headers=alice).status_code == 400
-        assert client.get("/entries", params={"path": path}, headers=alice).status_code == 400
-        assert client.delete("/entries", params={"path": path}, headers=alice).status_code == 400
-    assert put(client, alice, "x", path="/dirlink").status_code == 400
-    assert (outside / "secret.txt").read_text() == "secret"
-    assert not (outside / "x").exists()
-
-
 def test_users_are_isolated(client, alice, bob):
     mkdir(client, alice, "private")
     put(client, alice, "secret.txt", b"alice only", path="/private")

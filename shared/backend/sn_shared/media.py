@@ -94,7 +94,7 @@ def add_replace_route(
                 raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "This file type is not accepted")
             raw = file.file.read(max_bytes + 1)
             if len(raw) > max_bytes:
-                raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"The file is larger than {max_bytes // (1024 * 1024) or 1} MB")
+                raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, f"The file is larger than {max_bytes // (1024 * 1024) or 1} MB")
             try:
                 inspected = inspect(raw, file)
             except MediaRejected as error:

@@ -184,10 +184,10 @@ def send_a_voice_message(
     try:
         pcm = base64.b64decode(body.pcm, validate=True)
     except ValueError:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The sound is not valid") from None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The sound is not valid") from None
     if len(pcm) / 2 / body.rate > MAX_VOICE_SECONDS:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "The message is too long")
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "The message is too long")
     text = speech.transcribe(pcm, body.rate)
     if len(text) < 2:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Nothing could be understood")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Nothing could be understood")
     return voice_stream.said_aloud(request, slug, user.user_id, user.username, text[:500], answer="always")

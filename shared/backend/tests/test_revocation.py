@@ -142,9 +142,9 @@ def test_publishing_gives_up_when_the_value_keeps_changing_underneath(store):
 def test_redis_url_builds_a_client_with_a_short_timeout(monkeypatch):
     monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:1/0")
     revocation.reset()
-    client = revocation._client()
+    client = revocation.client_revocation()
     assert client.connection_pool.connection_kwargs["socket_timeout"] == revocation.SOCKET_TIMEOUT_SECONDS
-    assert revocation._client() is client  # cached per URL
+    assert revocation.client_revocation() is client  # cached per URL
     assert revocation.is_revoked(1, "s" * 32, 0) is False  # unreachable: fails open
 
 

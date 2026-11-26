@@ -139,7 +139,7 @@ def list_products(
 ) -> ProductPage:
     try:
         if min_price is not None and max_price is not None and min_price > max_price:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "min_price exceeds max_price")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "min_price exceeds max_price")
         query = active_product_query()
         if q and q.strip():
             pattern = f"%{escape_like(q.strip())}%"

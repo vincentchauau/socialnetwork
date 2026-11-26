@@ -92,7 +92,7 @@ def register(
         raise too_many()
     problem = password_problem(body.password)
     if problem:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
     if usernames.unavailable(db, body.username):  # reserved for someone who just gave it up
         raise HTTPException(status.HTTP_409_CONFLICT, "Username already taken")
     user = User(username=body.username, password_hash=hash_password(body.password))

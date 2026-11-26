@@ -54,7 +54,7 @@ async def ensure(request: Request) -> dict[str, bool]:
     try:
         body = EnsureBody.model_validate(json.loads(raw))
     except (ValueError, ValidationError):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid request") from None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid request") from None
     user = SimpleNamespace(user_id=body.user_id, username=body.username)
     await ensure_game(request.app, user, body.code, body.title, body.seats, [tuple(pair) for pair in body.bot_names])  # type: ignore[arg-type]
     return {"ok": True}

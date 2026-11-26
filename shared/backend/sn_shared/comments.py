@@ -122,7 +122,7 @@ class CommentOut(BaseModel):
 
 def invalid(message: str) -> HTTPException:
     try:
-        return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, message)
+        return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, message)
     except Exception as error:
         if getattr(error, "status_code", None) is None:
             logger.exception("invalid failed")

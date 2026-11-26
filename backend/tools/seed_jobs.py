@@ -22,8 +22,6 @@ APPLICATIONS = [
     (2, "shortlisted"), (2, "submitted"), (3, "interview"), (4, "reviewing"), (4, "submitted"), (4, "rejected"),
     (5, "shortlisted"), (7, "interview"), (8, "reviewing"), (9, "rejected"),
 ]
-ALSO_SAVED = (3, 9)  # applications (by position) whose job was saved too
-SAVED_ONLY = (3, 6, 6, 9)  # jobs saved without applying
 ADMIN_APPLIES = 6  # position in APPLICATIONS taken by the administrator
 PATHS = {
     "submitted": ["submitted"],
@@ -111,12 +109,8 @@ def seed_jobs(env: Env, db: Session) -> str | None:
         skills = ", ".join(i["name"] for i in job.skills_required[:2])
         letter = COVER_LETTERS[position % len(COVER_LETTERS)].format(company=job.company, title=job.title, skills=skills)
         db.add(JobApplicant(
-            job_description_id=job.id, user_id=person.id, saved=position in ALSO_SAVED, status=state, cover_letter=letter,
+            job_description_id=job.id, user_id=person.id, status=state, cover_letter=letter,
             resume=resume_seed_jobs(person, job), contact_email=f"{person.username.lower()}@example.com",
             employer_note=EMPLOYER_NOTES[position % len(EMPLOYER_NOTES)] if state not in ("submitted",) else "", history=history,
         ))
-    for job_index in SAVED_ONLY:
-        job = jobs[job_index]
-        person = person_for(0, job, False)
-        db.add(JobApplicant(job_description_id=job.id, user_id=person.id, saved=True, status=None, cover_letter="", resume=None, history=[]))
     return None

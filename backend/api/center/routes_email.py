@@ -404,7 +404,7 @@ def reset_password(
             raise fail(status.HTTP_400_BAD_REQUEST, BAD_LINK)
         problem = password_problem(body.new_password)
         if problem:  # the token stays valid so the user can try again
-            raise fail(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
+            raise fail(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
         if not et.consume(db, row.id):
             db.rollback()
             raise fail(status.HTTP_400_BAD_REQUEST, BAD_LINK)

@@ -98,7 +98,7 @@ async def game_over(request: Request) -> Response:
     try:
         body = GameOver.model_validate(json.loads(raw))
     except (ValueError, ValidationError):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid request") from None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid request") from None
     said = await run_in_threadpool(say, request, body)
     if said is not None:
         slug, frames = said
@@ -125,7 +125,7 @@ async def call_heard(request: Request) -> Response:
         slug, identity, pcm, rate, humans = str(body["slug"])[:64], int(body["identity"]), str(body["pcm"]), int(body["rate"]), max(1, int(body.get("humans", 1)))
         sound = base64.b64decode(pcm, validate=True)
     except (ValueError, KeyError, TypeError):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid request") from None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid request") from None
     if not 8000 <= rate <= 48000 or voice_stream.is_quiet(slug):
         return Response(status_code=status.HTTP_204_NO_CONTENT)  # (a virtual person is talking: this is its voice in the air)
     await run_in_threadpool(heard_in_call, request, slug, identity, sound, rate, humans)

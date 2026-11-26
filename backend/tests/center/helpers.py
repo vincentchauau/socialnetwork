@@ -1,5 +1,7 @@
 """Shared test helpers (plain functions, importable from any test module)."""
 
+import sqlalchemy as sa
+
 from api.center.tokens import create_fresh_token
 from sn_shared.security import INTERNAL_ALGORITHM, ISSUER, decode_token, get_jwt_secret
 
@@ -49,3 +51,10 @@ def grant_fresh(client, ttl: int = 300) -> None:
     """
     payload = decode_token(client.cookies.get("sn_token"))
     client.cookies.set("sn_fresh", create_fresh_token(payload.user_id, payload.ver or 0, ttl, payload.sid), path="/")
+
+
+def sqlite_indexes(engine, table: str) -> dict[str, bool]:
+    """Index name -> is it unique, read from sqlite_master: SQLAlchemy reflection cannot show expression indexes on SQLite."""
+    with engine.connect() as conn:
+        rows = conn.execute(sa.text("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = :table"), {"table": table}).all()
+    return {name: "UNIQUE" in sql.upper() for name, sql in rows if sql}

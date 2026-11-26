@@ -6,7 +6,7 @@ from sn_shared import jwtkeys
 
 
 @pytest.fixture(autouse=True)
-def _clean(monkeypatch):
+def clean(monkeypatch):
     for n in ("JWT_PRIVATE_KEY", "JWT_PRIVATE_KEY_FILE", "JWT_PUBLIC_KEYS", "JWT_PUBLIC_KEYS_FILE", "JWT_KEY_ID"):
         monkeypatch.delenv(n, raising=False)
     jwtkeys.reset()

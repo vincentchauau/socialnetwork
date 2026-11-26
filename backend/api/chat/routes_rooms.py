@@ -168,13 +168,13 @@ def update_room(slug: Slug, body: RoomUpdate, request: Request, user: TokenPaylo
         room, me = owner_of(db, slug, user)
         changes = body.model_dump(exclude_unset=True)
         if room.kind == "dm" and set(changes) - {"state"}:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A direct chat cannot be changed")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "A direct chat cannot be changed")
         if changes.get("capacity") is not None and changes["capacity"] < service.joined_members(db, room.id):
             raise HTTPException(status.HTTP_409_CONFLICT, "The room already has more members than that")
         visibility = changes.get("visibility", room.visibility)
         policy = changes.get("join_policy", room.join_policy)
         if visibility == "private" and policy == "open":
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A private room is joined with an invitation or approval, not openly")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "A private room is joined with an invitation or approval, not openly")
         previous_policy = room.join_policy
         state, lines = changes.pop("state", None), []
         for field, value in changes.items():
@@ -330,7 +330,7 @@ def transfer(slug: Slug, body: TransferBody, request: Request, user: TokenPayloa
         room, me = owner_of(db, slug, user)
         target = service.member_of(db, room.id, body.user_id)
         if target is None or target.status != service.JOINED or target.user_id == user.user_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose another active member")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose another active member")
         room.user_id = target.user_id
         line = service.say(db, room, "transferred", target.user_id)
         db.commit()
@@ -364,7 +364,7 @@ def open_dm(body: DmCreate, request: Request, user: TokenPayload = Depends(get_c
     people (a stranger) it is a request: they are `pending` until they say yes, and may read what I wrote (three messages at most)."""
     try:
         if body.user_id == user.user_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose someone else")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose someone else")
         someone = db.scalar(select(RoomMember).where(RoomMember.user_id == body.user_id, RoomMember.status == service.JOINED).limit(1))
         other_id, other_name = (someone.user_id, directory.name_of(db, someone.user_id)) if someone is not None else (None, None)
         if other_id is None:

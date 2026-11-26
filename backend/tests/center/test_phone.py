@@ -5,6 +5,7 @@ import re
 
 import httpx
 import pytest
+from tests.center.helpers import sqlite_indexes
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select, text
 
@@ -567,5 +568,5 @@ def test_migration_adds_phone_columns(tmp_path):
     added = ensure_columns(engine)
     assert "phone" in added and "phone_verified" in added
     assert ensure_columns(engine) == []
-    names = {i["name"] for i in inspect(engine).get_indexes("users")}
+    names = set(sqlite_indexes(engine, "users"))
     assert "uq_users_phone" in names

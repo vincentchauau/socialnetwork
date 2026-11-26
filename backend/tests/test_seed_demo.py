@@ -96,21 +96,18 @@ def test_jobs_and_applications_are_coherent(seeded):
             assert {skill_key(i["name"]) for i in job.skills_required + job.skills_preferred} <= catalog
         assert sum(len(job.skills_required) for job in jobs.values()) >= 20 and sum(len(job.skills_preferred) for job in jobs.values()) >= 20
         assert all(job.skill_keys == sorted({skill_key(i["name"]) for i in job.skills_required + job.skills_preferred}) for job in jobs.values())
-        applied = saved_only = 0
+        applied = 0
         for row in db.scalars(select(job_models.JobApplicant)):
             job = jobs[row.job_description_id]
             assert row.user_id != job.owner_id
-            if row.status is None:
-                saved_only += 1
-                assert row.saved and not row.history
-                continue
+            assert row.status is not None  # a row exists only for an application
             applied += 1
             steps = [h["status"] for h in row.history]
             assert steps[0] == "submitted" and steps[-1] == row.status and row.resume["skills"]
             assert all(APPLICATION_FLOW.allows(a, b) for a, b in zip(steps, steps[1:]))
             assert application_out(row, job).history and applicant_out(row, job, "x").match is not None
-        assert (applied, saved_only) == (16, 4)
-        assert {r.status for r in db.scalars(select(job_models.JobApplicant))} >= {"submitted", "interview", "offer", "rejected", None}
+        assert applied == 16
+        assert {r.status for r in db.scalars(select(job_models.JobApplicant))} >= {"submitted", "interview", "offer", "rejected"}
         viewer = TokenPayload(user_id=1, username="User@123", expires_at=0)
         assert len(summaries(db, viewer, list(jobs.values()))) == 10
         shown = detail(db, viewer, next(j for j in jobs.values() if j.owner_id != 1))

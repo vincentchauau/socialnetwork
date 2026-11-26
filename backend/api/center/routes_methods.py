@@ -127,9 +127,9 @@ def templates_routes_methods(
         voice = read_probes(request, voice_file, None)[0] if voice_file is not None else None
         face = read_face(request, video_file) if video_file is not None else None
         if voice_file is not None and voice is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_AUDIO)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, NEEDS_AUDIO)
         if video_file is not None and face is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, NEEDS_FACE)
         cipher = request.app.state.cipher
         columns: dict = {}
         if voice is not None:
@@ -152,7 +152,7 @@ def signup_address(email: str | None) -> str | None:
     try:
         return normalized_email(email)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"email: {exc}") from None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"email: {exc}") from None
 
 
 def send_signup_verification(
@@ -204,25 +204,25 @@ def register_routes_methods(
     if not throttle.check_and_record(ip):
         raise too_many()
     if not (password or google_token or voice_file is not None or video_file is not None or passkey):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NO_METHOD)
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, NO_METHOD)
     # Google, voice, webcam and passkey sign in without a name, so only a password needs one. A generated
     # handle can be renamed later (POST /auth/me/username).
     address = signup_address(email)  # validated before anything is stored
     generate = username is None or not username.strip()
     if generate and password:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, CHOOSE_USERNAME)
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, CHOOSE_USERNAME)
     name = ""
     if not generate:
         try:
             name = checked_username(username)
         except ValueError as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"username: {exc}") from None
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"username: {exc}") from None
         username_free(db, name)
     columns: dict = {"password_hash": NO_PASSWORD}
     if password:
         problem = password_problem(password)
         if problem:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
         columns["password_hash"] = hash_password(password)
     if google_token:
         identity = verify_google_or_throttle(request, google_token)
@@ -263,7 +263,7 @@ def register_voice(
 ) -> SessionOut:  # fmt: skip
     try:
         if audio is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_AUDIO)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, NEEDS_AUDIO)
         return register_routes_methods(request, response, db, username, voice_file=audio)
     except Exception as error:
         if getattr(error, "status_code", None) is None:
@@ -278,7 +278,7 @@ def register_webcam(
 ) -> SessionOut:  # fmt: skip
     try:
         if video is None or not liveness_ok(request, liveness_token, video):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)  # an `audio` field is ignored
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, NEEDS_FACE)  # an `audio` field is ignored
         return register_routes_methods(request, response, db, username, video_file=video)
     except Exception as error:
         if getattr(error, "status_code", None) is None:
@@ -295,9 +295,9 @@ def register_combined(
 ) -> SessionOut:  # fmt: skip
     try:
         if webcam_video is not None and not liveness_ok(request, liveness_token, webcam_video):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, NEEDS_FACE)
         if bool(passkey_credential) != bool(passkey_challenge_token):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, PASSKEY_BOTH)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, PASSKEY_BOTH)
         passkey = (passkey_credential, passkey_challenge_token) if passkey_credential and passkey_challenge_token else None
         return register_routes_methods(
             request, response, db, username, password=password, google_token=google_id_token,
@@ -378,7 +378,7 @@ def identify_login(
         ip_throttle.record(ip)  # counted up front (O(N) work); the address key is cleared on success
         global_throttle.record(IDENTIFY_GLOBAL_KEY)
         if too_many_candidates(db, kind):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, ENTER_USERNAME)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, ENTER_USERNAME)
         live_ok = live() if method == "webcam" else True  # after the throttle check and count
         probe = read(request, upload)
         user = find(request, db, probe) if probe is not None and live_ok else None
@@ -471,7 +471,7 @@ def link_voice(
         enroll(request, session, password)
         voice, _ = read_probes(request, audio, None)
         if voice is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_AUDIO)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, NEEDS_AUDIO)
         user = session.user
         ensure_voice_unique(request, db, voice, exclude_user_id=user.id)  # own old voice is excluded
         user.audio_embedding = request.app.state.cipher.encrypt(voice)
@@ -495,10 +495,10 @@ def link_webcam(
     try:
         enroll(request, session, password)
         if not liveness_ok(request, liveness_token, video):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, NEEDS_FACE)
         face = read_face(request, video)
         if face is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, NEEDS_FACE)
         user = session.user
         ensure_face_unique(request, db, face, exclude_user_id=user.id)  # own old face is excluded
         user.face_embedding = request.app.state.cipher.encrypt(face)

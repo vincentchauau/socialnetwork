@@ -277,7 +277,7 @@ def rename_passkey(
         passkey = own(session.user, passkey_id)
         name = body.name.strip()
         if not name:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "name: Enter a name")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "name: Enter a name")
         passkey.name = name
         db.commit()
         return listing(session.user)

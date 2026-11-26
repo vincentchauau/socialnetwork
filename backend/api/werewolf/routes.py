@@ -166,7 +166,7 @@ def ability_routes(name: str) -> Ability:
     try:
         return Ability[name]
     except KeyError:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Chức năng không hợp lệ: {name}") from None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Chức năng không hợp lệ: {name}") from None
 
 
 # ---- rooms ----

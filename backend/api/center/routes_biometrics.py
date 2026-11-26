@@ -58,7 +58,7 @@ def read_upload(upload: UploadFile | None, max_bytes: int) -> bytes | None:
             return None
         data = upload.file.read(max_bytes + 1)
         if len(data) > max_bytes:
-            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large")
+            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "File too large")
         return data or None
     except Exception as error:
         if getattr(error, "status_code", None) is None:
@@ -217,7 +217,7 @@ def set_biometric_2fa(
         user = session.user
         ensure_reauth(request, user, password)
         if enabled and not user.has_biometrics:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Enroll a voice or face sample first")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Enroll a voice or face sample first")
         user.biometric_2fa = enabled
         db.commit()
         audit.info("biometric 2fa %s user=%r ip=%s", "enabled" if enabled else "disabled",

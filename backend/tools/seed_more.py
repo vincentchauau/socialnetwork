@@ -116,16 +116,12 @@ def seed_more_jobs(env: Env, db: Session) -> str | None:
         state = states[number % len(states)]
         skills = ", ".join(i["name"] for i in job.skills_required[:2])
         db.add(JobApplicant(
-            job_description_id=job.id, user_id=person.id, saved=number % 4 == 0, status=state,
+            job_description_id=job.id, user_id=person.id, status=state,
             cover_letter=COVER_LETTERS[number % len(COVER_LETTERS)].format(company=job.company, title=job.title, skills=skills),
             resume=resume_seed_jobs(person, job), contact_email=f"{person.username.lower()}@example.com",
             employer_note=EMPLOYER_NOTES[number % len(EMPLOYER_NOTES)] if state != "submitted" else "",
             history=history_seed_jobs(env, state, env.rng.uniform(3, 30)),
         ))
-    for human in humans[:1]:  # jobs the real person saved without applying
-        for job in jobs[1:6:2]:
-            if (job.id, human.id) not in seen and job.owner_id != human.id:
-                db.add(JobApplicant(job_description_id=job.id, user_id=human.id, saved=True, status=None, cover_letter="", resume=None, history=[]))
     return None
 
 

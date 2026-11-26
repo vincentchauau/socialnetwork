@@ -90,7 +90,7 @@ def send_message(slug: Slug, body: IncomingMessage, request: Request, user: Toke
                 reply_to = None  # the message answered is gone: this one stands on its own
         content = body.content.strip()
         if not content or content.startswith(CARD_PREFIX):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The message is empty")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The message is empty")
         message = Message(room_id=room.id, user_id=user.user_id, content=content, reply_to_id=reply_to)
         db.add(message)
         db.commit()
@@ -122,7 +122,7 @@ def edit_message(slug: Slug, message_id: int, body: EditBody, request: Request, 
             raise HTTPException(status.HTTP_403_FORBIDDEN, problem)
         content = body.content.strip()
         if not content:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The message is empty")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The message is empty")
         message.content, message.edited_at = content, service.now()
         db.commit()
         emit(request, slug, {"type": "edited", "id": message_id, "content": message.content, "edited_at": message.edited_at.isoformat()})
@@ -266,7 +266,7 @@ def submit_card(slug: Slug, message_id: int, body: SubmitBody, request: Request,
         if card.get("status") != "pending":
             raise HTTPException(status.HTTP_409_CONFLICT, "This form was already sent")
         if len(body.values) > MAX_FORM_VALUES or len(json.dumps(body.values, default=str)) > MAX_FORM_BYTES:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Too much in the form")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Too much in the form")
         before = message.content
         if not set_card(db, message, before, {**card, "status": "running"}):  # taken: a second click finds it running
             raise HTTPException(status.HTTP_409_CONFLICT, "This form was already sent")

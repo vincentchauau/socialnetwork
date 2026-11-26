@@ -37,15 +37,15 @@ def _verify_only(monkeypatch, *publics):
     jwtkeys.reset()
 
 
-def _b64(data: bytes) -> str:
+def b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode().rstrip("=")
 
 
 def _hs256(claims: dict, secret: str, header_extra: dict | None = None) -> str:
     header = {"alg": "HS256", "typ": "JWT", **(header_extra or {})}
-    body = f"{_b64(json.dumps(header).encode())}.{_b64(json.dumps(claims).encode())}"
+    body = f"{b64(json.dumps(header).encode())}.{b64(json.dumps(claims).encode())}"
     sig = hmac.new(secret.encode(), body.encode(), hashlib.sha256).digest()
-    return f"{body}.{_b64(sig)}"
+    return f"{body}.{b64(sig)}"
 
 
 def _claims(**extra):
@@ -124,8 +124,8 @@ def test_center_internal_hs256_tokens_are_not_access_tokens():
 
 
 def test_alg_none_is_refused():
-    header = _b64(json.dumps({"alg": "none", "typ": "JWT", "kid": keypair()[2]}).encode())
-    body = _b64(json.dumps(_claims()).encode())
+    header = b64(json.dumps({"alg": "none", "typ": "JWT", "kid": keypair()[2]}).encode())
+    body = b64(json.dumps(_claims()).encode())
     for token in (f"{header}.{body}.", f"{header}.{body}"):
         with pytest.raises(AuthError):
             decode_token(token)
@@ -133,7 +133,7 @@ def test_alg_none_is_refused():
 
 def test_tampered_payload_is_rejected():
     head, _, sig = create_token(1, "bob").split(".")
-    evil = _b64(json.dumps(_claims(sub="99", group="admin")).encode())
+    evil = b64(json.dumps(_claims(sub="99", group="admin")).encode())
     with pytest.raises(AuthError):
         decode_token(f"{head}.{evil}.{sig}")
 

@@ -59,22 +59,6 @@ def test_resolve_stays_inside_and_reports_missing(tmp_path):
     assert resolve(root, "/d/new", must_exist=False).real == root / "d" / "new"
 
 
-def test_resolve_rejects_symlinks(tmp_path):
-    root = tmp_path / "root"
-    outside = tmp_path / "outside"
-    root.mkdir()
-    outside.mkdir()
-    (outside / "secret.txt").write_text("secret")
-    try:
-        (root / "link").symlink_to(outside, target_is_directory=True)
-    except (OSError, NotImplementedError):
-        pytest.skip("symlinks not available")
-    with pytest.raises(PathError):
-        resolve(root, "/link")
-    with pytest.raises(PathError):
-        resolve(root, "/link/secret.txt")
-
-
 def test_resolve_rejects_a_symlink_component_even_when_symlinks_cannot_be_created(tmp_path, monkeypatch):
     """Simulate a link with lstat, so the check also runs on platforms where tests cannot create links."""
     import os

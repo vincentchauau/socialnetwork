@@ -1,4 +1,5 @@
 import sqlalchemy as sa
+from tests.center.helpers import sqlite_indexes
 from fastapi.testclient import TestClient
 
 from api.center import models  # noqa: F401  (registers the tables on Base)
@@ -50,7 +51,7 @@ def test_ensure_columns_adds_every_missing_column(tmp_path):
     with engine.connect() as conn:
         row = conn.execute(sa.text('SELECT "group", token_version, voice_login, email FROM users')).one()
     assert tuple(row) == ("user", 0, 0, None)
-    unique = {i["name"] for i in inspector.get_indexes("users") if i["unique"]}
+    unique = {name for name, is_unique in sqlite_indexes(engine, "users").items() if is_unique}
     assert {"uq_users_email", "uq_users_google_sub"} <= unique
 
 
@@ -74,7 +75,7 @@ def test_fresh_database_matches_migrated_one(tmp_path):
         inspector = sa.inspect(engine)
         return (
             {c["name"] for c in inspector.get_columns("users")},
-            {i["name"] for i in inspector.get_indexes("users") if i["unique"]} - {"ix_users_username"},
+            {name for name, is_unique in sqlite_indexes(engine, "users").items() if is_unique} - {"ix_users_username"},
         )
 
     assert shape(fresh) == shape(migrated)

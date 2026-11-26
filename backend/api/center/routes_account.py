@@ -45,7 +45,7 @@ def change_password(
         ensure_reauth(request, user, body.current_password)
         problem = password_problem(body.new_password)
         if problem:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
         user.password_hash = hash_password(body.new_password)
         settings = settings_of(request)
         bump_token_version(db, user, keep_sid=session.sid)  # revokes all other sessions and refresh tokens
@@ -186,7 +186,7 @@ def change_username(
     ensure_reauth(request, user, body.password)
     old, new = user.username, body.username
     if new == old:  # exactly the same text; a capitalisation-only change is a (counted) rename
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, SAME_USERNAME)
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, SAME_USERNAME)
     # Row lock (PostgreSQL) and a fresh read, so two concurrent renames serialise; the conditional UPDATE
     # below is the backstop everywhere (SQLite has no row locks).
     db.execute(select(User.id).where(User.id == user.id).with_for_update().execution_options(populate_existing=True))

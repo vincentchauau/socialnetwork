@@ -129,10 +129,10 @@ def test_the_unknown_path_survives_an_empty_database_and_an_unstorable_placehold
     assert ask(mail_client, "ghost@example.com").status_code == 202  # no users at all: nothing to rehearse with
     known_account(mail_client)
 
-    def refuse(*_):
+    def refuse(*_, **__):
         raise IntegrityError("insert", {}, Exception("fk"))
 
-    monkeypatch.setattr(et, "_insert", refuse)
+    monkeypatch.setattr(et.codes, "insert", refuse)
     assert ask(mail_client, "ghost@example.com").json() == {"ok": True}
     assert token_rows(mail_client) == []
 

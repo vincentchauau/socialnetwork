@@ -102,7 +102,7 @@ def test_mail_notice_escapes_html_in_every_special_name():
 
 def test_otpauth_uri_percent_encodes_the_name():
     name = "a&b#c%d+e=f"
-    uri = totp.provisioning_uri("JBSWY3DPEHPK3PXP", name)
+    uri = totp.provisioning_uri("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", name)  # 160 bits: pyotp needs at least 112
     parsed = urlparse(uri)
     assert parsed.fragment == "" and unquote(parsed.path).endswith(name)
     assert set(parse_qs(parsed.query)) == {"secret", "issuer"}

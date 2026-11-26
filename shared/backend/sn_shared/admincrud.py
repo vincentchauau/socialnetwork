@@ -173,7 +173,7 @@ def kind_admincrud(column: Any) -> str:
 
 
 def bad(detail: str) -> HTTPException:
-    return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail)
+    return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail)
 
 
 def coerce(name: str, kind: str, value: Any) -> Any:
@@ -650,7 +650,7 @@ def records_router(
         if not any(spec.model.__tablename__ == table for spec in models):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown table")
         if os.path.splitext(file.filename or "")[1].lower() not in recordfiles.EXCEL_EXTENSIONS:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Only .xlsx files can be imported")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Only .xlsx files can be imported")
 
     def media_column(table: str, column: str) -> tuple[Any, str]:
         spec = next((spec for spec in models if spec.model.__tablename__ == table), None)
@@ -857,14 +857,14 @@ def file_routes(router: APIRouter, c: SimpleNamespace) -> None:
         try:
             recordfiles.check(kind, file.filename or "", file.size or 0)
         except recordfiles.FileRefused as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from None
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
         data = await file.read()
         try:
             name = recordfiles.check(kind, file.filename or "", len(data))
             folder = recordfiles.folder_of(database, table, column, pk)
             recordfiles.save(f"{folder}/{name}", data)
         except recordfiles.FileRefused as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from None
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
         admin = find(table, user, True)
         if row_payload(admin, db, fetch_one(db, admin, admin.pk_clause(pk))).get(column) != folder:
             update_row(admin, db, user, pk, {"values": {column: folder}}, as_admin=True)
