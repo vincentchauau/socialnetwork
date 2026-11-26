@@ -10,8 +10,8 @@ from api.werewolf.engine.roles import Ability, Faction
 if TYPE_CHECKING:
     from api.werewolf.engine.game import Game, Player
 
-BANDWAGON_CHANCE = 0.35  # bot không có manh mối thì có xác suất này theo phe đang dẫn đầu
-CHATTER_CHANCE = 0.55  # xác suất một bot lên tiếng mỗi buổi sáng
+BANDWAGON_CHANCE = 0.35  # bots without clues follow the leading faction with this chance
+CHATTER_CHANCE = 0.55  # chance that a bot speaks each morning
 THREATENING = (Ability.SEE_FACTION, Ability.SEE_ABILITY, Ability.KILL, Ability.BLOCK_ABILITY, Ability.REVERSE_ABILITY)
 QUIET_LINES = (
     "😶 Tôi chưa có manh mối nào.",
@@ -30,16 +30,16 @@ def suspicion(game: Game, bot: Player) -> dict[int, float]:
             if voter_id == bot.id or not target_id:
                 continue
             if target_id == bot.id:
-                scores[voter_id] += 2.0  # từng vote mình
+                scores[voter_id] += 2.0  # voted for me before
                 continue
             target_faction = know.get(target_id, {}).get("faction")
             if target_faction == bot.faction:
-                scores[voter_id] += 1.5  # vote đồng minh đã biết
+                scores[voter_id] += 1.5  # voted for a known ally
             elif target_faction is not None:
-                scores[voter_id] -= 2.0  # vote kẻ thù đã biết: đáng tin hơn
+                scores[voter_id] -= 2.0  # voted for a known enemy: more trustworthy
     for msg in game.chat.messages:
         if msg.channel == "public" and msg.target == bot.id and msg.author != bot.id:
-            scores[msg.author] += 1.0  # đã buộc tội mình trong chat
+            scores[msg.author] += 1.0  # accused me in the chat
     return scores
 
 
@@ -56,9 +56,9 @@ def wolf_day_target(game: Game) -> Player | None:
         for x in candidates:
             weight = 1.0
             if game.public_info.get(x.id, {}).get("ability") in THREATENING:
-                weight += 3.0  # chức năng nguy hiểm đã bị lộ
+                weight += 3.0  # a dangerous ability is exposed
             if last_votes.get(x.id) in wolves:
-                weight += 2.0  # hôm qua đã vote một Sói
+                weight += 2.0  # voted for a wolf yesterday
             weights.append(weight)
         target = random.choices(candidates, weights=weights)[0]
     game._wolf_target_for = game.night

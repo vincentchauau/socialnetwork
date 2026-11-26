@@ -6,8 +6,8 @@ import unicodedata
 from dataclasses import dataclass, field
 
 MAX_LEN = 140
-MIN_INTERVAL = 0.8  # giây giữa hai tin của cùng một người (chống spam)
-KEEP = 400  # số tin giữ lại tối đa trong một ván
+MIN_INTERVAL = 0.8  # seconds between two messages of the same person (anti-spam)
+KEEP = 400  # maximum number of messages kept in one game
 CHANNELS = ("public", "wolf", "dead")
 
 
@@ -22,11 +22,11 @@ class ChatMessage:
     author: int
     channel: str
     text: str
-    dead: bool = False  # tác giả đã chết lúc gửi (hiện 💀 khi người chết chat chung)
-    target: int = 0  # 0 = không nhắm ai; khác 0 = tin nhắn nói về người chơi này ("nghi X")
+    dead: bool = False  # the author was dead when sending (shows 💀 when the dead chat in the shared channel)
+    target: int = 0  # 0 = targets nobody; otherwise the message is about this player ("suspect X")
 
 
-# Ký tự điều khiển và ký tự đổi chiều chữ / vô hình (dùng để giả mạo hiển thị); giữ ZWJ và variation selector cho emoji.
+# Control characters and invisible bidi characters (used to fake the display); keep ZWJ and variation selectors for emoji.
 STRIPPED = {0x200B, 0x200E, 0x200F, 0x2028, 0x2029, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
              0x2060, 0x2066, 0x2067, 0x2068, 0x2069, 0xFEFF, 0x061C}
 
@@ -49,7 +49,7 @@ def clean(text: str) -> str:
 class Chat:
     messages: list[ChatMessage] = field(default_factory=list)
     _last: dict[int, float] = field(default_factory=dict)
-    _seq: int = 0  # tăng dần, không dùng độ dài danh sách vì tin cũ có thể bị cắt bớt
+    _seq: int = 0  # increases monotonically; not the list length, because old messages may be trimmed
 
     def add(self, author: int, channel: str, text: str, round_label: str, target: int = 0,
             now: float | None = None, throttle: bool = True, dead: bool = False) -> ChatMessage:

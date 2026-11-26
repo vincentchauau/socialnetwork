@@ -8,7 +8,7 @@ from enum import Enum
 
 MIN_PLAYERS = 5
 MAX_PLAYERS = 40
-THREE_FACTION_FROM = 12  # dưới ngưỡng này chỉ có 2 phe (Người, Sói), không có Ma
+THREE_FACTION_FROM = 12  # below this threshold there are only 2 factions (Humans, Wolves), no Ghosts
 
 
 class Faction(Enum):
@@ -18,7 +18,7 @@ class Faction(Enum):
 
 
 class Ability(Enum):
-    NONE = "Không có chức năng"  # người thường: chỉ có vote ban ngày
+    NONE = "Không có chức năng"  # ordinary player: only the daytime vote
     BLOCK_EFFECTS = "Chống mọi hiệu ứng"
     REVERSE_EFFECTS = "Đảo ngược hiệu ứng"
     BLOCK_ABILITY = "Chống chức năng"
@@ -40,17 +40,17 @@ DISRUPTIVE = [Ability.BLOCK_ABILITY, Ability.REVERSE_ABILITY]
 INTEL = [Ability.SEE_FACTION, Ability.SEE_ABILITY, Ability.REVEAL_ON_DEATH]
 PASSIVE = (Ability.NONE, Ability.KILL_ON_DEATH, Ability.REVEAL_ON_DEATH)
 
-# Mỗi phe chỉ được chọn chức năng trong nhóm của phe đó. Vote giết ban đêm không phải chức năng:
-# mọi Sói luôn có sẵn (xem wolf_options).
+# Each faction may only choose abilities from its own group. The night kill vote is not an ability:
+# every wolf always has it (see wolf_options).
 OFFENSIVE = [Ability.KILL, Ability.KILL_ON_DEATH]
 ALLOWED_ABILITIES: dict[Faction, list[Ability]] = {
     Faction.VILLAGER: [Ability.NONE] + OFFENSIVE + DEFENSIVE + DISRUPTIVE + INTEL,
-    Faction.WOLF: list(OFFENSIVE),  # Sói chỉ có chức năng tấn công (+ vote giết đêm mặc định)
-    Faction.GHOST: [Ability.TRANSFORM],  # Ma chỉ có Biến hình
+    Faction.WOLF: list(OFFENSIVE),  # wolves have only offensive abilities (+ the default night kill vote)
+    Faction.GHOST: [Ability.TRANSFORM],  # ghosts have only Transform
 }
 
-# Chức năng mặc định (không chọn được, hiển thị dạng nút bị khóa): người chơi nào cũng có vote ban ngày.
-# `label` ngắn để hiện trên giao diện, `hint` là mô tả đầy đủ.
+# Default ability (cannot be chosen, shown as a locked button): every player has the daytime vote.
+# `label` is the short text on the screen, `hint` the full description.
 DAY_VOTE = {"icon": "🗳", "label": "Vote ngày",
              "hint": "Vote chết ban ngày (có thể bỏ phiếu trắng)"}
 NIGHT_VOTE = {"icon": "🌙", "label": "Vote đêm",
@@ -67,10 +67,10 @@ DEFAULT_ABILITIES: dict[Faction, list[dict[str, str]]] = {
 @dataclass(frozen=True)
 class RoleCounts:
     """Số lượng từng loại vai lúc bắt đầu cho một phòng `m` người."""
-    wolves: int  # Sói: luôn có chức năng tấn công
-    holders: int  # Người có chức năng (tấn công / phòng thủ / gây rối / tình báo)
-    ghosts: int  # Ma: chỉ có Biến hình
-    plain: int  # Người thường: không có chức năng
+    wolves: int  # wolves: always have an offensive ability
+    holders: int  # players with an ability (offense / defense / disruption / intel)
+    ghosts: int  # ghosts: only Transform
+    plain: int  # ordinary players: no ability
 
     @property
     def villagers(self) -> int:
@@ -94,11 +94,11 @@ def faction_counts(m: int) -> list[tuple[Faction, int]]:
     return [(Faction.WOLF, c.wolves), (Faction.GHOST, c.ghosts), (Faction.VILLAGER, c.villagers)]
 
 
-WOLF_KILL_SHARE = 0.25  # tỉ lệ Sói có Giết trực tiếp; còn lại Giết khi chết (chọn bằng mô phỏng cân bằng)
-HOLDER_GROUP_WEIGHTS = (3, 3, 1, 1)  # trọng số nhóm: tấn công, phòng thủ, gây rối, tình báo (cho người có chức năng sau 4 người đầu)
+WOLF_KILL_SHARE = 0.25  # share of wolves with direct Kill; the rest have Kill-on-death (chosen by balance simulation)
+HOLDER_GROUP_WEIGHTS = (3, 3, 1, 1)  # group weights: offense, defense, disruption, intel (for players with abilities, after the first 4 players)
 
 
-# Chức năng không thể cấm khi chia ngẫu nhiên: người thường, Biến hình của Ma, và Giết trực tiếp (Sói cần ít nhất một người chủ động giết).
+# Abilities that cannot be banned in a random deal: ordinary players, the Ghost's Transform, and direct Kill (wolves need at least one killer).
 UNBANNABLE = frozenset({Ability.NONE, Ability.TRANSFORM, Ability.KILL})
 
 
@@ -118,7 +118,7 @@ def wolf_abilities(count: int, banned: frozenset[Ability] = frozenset()) -> list
     """Sói luôn có chức năng tấn công; đảm bảo ít nhất một Sói có Giết trực tiếp (chủ động)."""
     if count == 0:
         return []
-    if Ability.KILL_ON_DEATH in banned:  # chỉ còn Giết trực tiếp
+    if Ability.KILL_ON_DEATH in banned:  # only direct Kill is left
         return [Ability.KILL] * count
     kills = max(1, round(WOLF_KILL_SHARE * count))
     abilities = [Ability.KILL] * kills + [Ability.KILL_ON_DEATH] * (count - kills)

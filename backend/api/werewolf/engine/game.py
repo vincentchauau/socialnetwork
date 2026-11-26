@@ -41,7 +41,7 @@ from api.werewolf.engine.roles import (  # noqa: F401  (re-export)
     validate_roles,
 )
 
-CHAT_SNAPSHOT = 120  # số tin chat tối đa trong mỗi bản state
+CHAT_SNAPSHOT = 120  # maximum chat messages in each state snapshot
 MIN_TIMER = 5
 MAX_TIMER = 600
 
@@ -63,7 +63,7 @@ class Player:
     ability: Ability
     is_bot: bool = False
     alive: bool = True
-    died_on: int | None = None  # đêm (số thứ tự) khi chết; None nếu còn sống
+    died_on: int | None = None  # the night (number) of death; None if still alive
 
 
 @dataclass(frozen=True)
@@ -71,8 +71,8 @@ class Event:
     seq: int
     round: str
     text: str
-    audience: frozenset[int] | None  # None = công khai
-    full_text: str | None = None  # bản có tên cho người xem nhật ký đầy đủ ('' = ẩn)
+    audience: frozenset[int] | None  # None = public
+    full_text: str | None = None  # the version with names for viewers of the full log ('' = hidden)
 
 
 def fac(f: Faction) -> dict[str, str]:
@@ -97,7 +97,7 @@ class Game:
                 raise GameError("Số vai không khớp số người chơi")
             validate_roles(roles)
         self.m = m
-        self._clock = clock  # đồng hồ có thể thay thế khi test
+        self._clock = clock  # a clock that can be replaced in tests
         self._round = ""
         self.max_nights = m * 3
         self.phase = Phase.SETUP
@@ -105,32 +105,32 @@ class Game:
         self.game_over = False
         self.winner: Faction | None = None
         self.events: list[Event] = []
-        self.public_info: dict[int, dict[str, Any]] = {}  # ai cũng biết
-        self.wolf_info: dict[int, dict[str, Any]] = {}  # chỉ phe Sói biết
+        self.public_info: dict[int, dict[str, Any]] = {}  # known to everyone
+        self.wolf_info: dict[int, dict[str, Any]] = {}  # known only to the wolves
         self.last_protect_target: dict[int, int] = {}
 
-        self.actions: dict[int, int] = {}  # đêm: pid -> target id
+        self.actions: dict[int, int] = {}  # night: pid -> target id
         self.night_options: dict[int, list[int]] = {}
-        self.wolf_actions: dict[int, int] = {}  # đêm: Sói -> mục tiêu vote giết (0 = bỏ phiếu trắng)
+        self.wolf_actions: dict[int, int] = {}  # night: wolf -> kill-vote target (0 = blank vote)
         self.wolf_options: dict[int, list[int]] = {}
-        self.votes: dict[int, int] = {}  # ngày: pid -> target id (0 = bỏ trắng)
+        self.votes: dict[int, int] = {}  # day: pid -> target id (0 = blank)
         self.skipped: set[int] = set()
         self.pending_revenge: int | None = None
         self.revenge_options: list[int] = []
         self._revenge_queue: list[Player] = []
         self._next = "day"
-        self._last_step = "night"  # bước vừa xử lý xong: "night" hoặc "day" (để biết thẻ tóm tắt là Bình minh hay Hoàng hôn)
+        self._last_step = "night"  # the step just finished: "night" or "day" (to know whether the recap is Dawn or Dusk)
 
-        self.dead_talk = dead_talk  # True: người chết chat chung với người sống; False: kênh riêng của người chết
-        self.events_enabled = events  # bật thẻ sự kiện ngẫu nhiên mỗi đêm
-        self.forced_event: NightEvent | None = None  # (dùng khi test) luôn dùng thẻ này
+        self.dead_talk = dead_talk  # True: the dead chat in the shared channel with the living; False: the dead have their own channel
+        self.events_enabled = events  # turn on random event cards each night
+        self.forced_event: NightEvent | None = None  # (for tests) always use this card
         self.event: NightEvent | None = None
-        self.vote_history: list[dict[int, int]] = []  # phiếu treo cổ của từng ngày đã qua (bot dùng để nghi ngờ)
+        self.vote_history: list[dict[int, int]] = []  # the lynch votes of each past day (bots use them to suspect)
         self.chat = Chat()
-        self.timer = timer  # giây cho mỗi lượt đêm; ban ngày gấp đôi; None = không giới hạn
+        self.timer = timer  # seconds for each night turn; daytime is double; None = no limit
         self._timer_key: tuple[Any, ...] | None = None
         self._timer_start = 0.0
-        self.recap: dict[str, Any] | None = None  # thẻ tóm tắt Bình minh / Hoàng hôn gần nhất
+        self.recap: dict[str, Any] | None = None  # the latest Dawn / Dusk recap card
         self._recap_seq = 0
         self._deaths: list[dict[str, Any]] = []
         self._wolf_target_for = -1
@@ -141,11 +141,11 @@ class Game:
             Player(i + 1, name, f, a, is_bot)
             for i, ((f, a), (name, is_bot)) in enumerate(zip(roles, entries))
         ]
-        # Sói biết đồng bọn ngay từ đầu (cần để phối hợp Vote chết).
+        # the wolves know each other from the start (needed to coordinate the dead vote).
         self.wolf_info = {p.id: {"faction": Faction.WOLF}
                           for p in self.players if p.faction == Faction.WOLF}
 
-    # ---------- truy vấn ----------
+    # ---------- queries ----------
     def player(self, pid: int) -> Player:
         p = next((x for x in self.players if x.id == pid), None)
         if p is None:
@@ -165,7 +165,7 @@ class Game:
     def check_win(self) -> bool:
         w, v, g = (len(self.alive(f)) for f in (Faction.WOLF, Faction.VILLAGER, Faction.GHOST))
         t = w + v + g
-        if t == 0:  # không còn ai sống: hòa (không có phe thắng)
+        if t == 0:  # nobody is alive: a draw (no faction wins)
             self.game_over, self.winner = True, None
             return True
         winners: list[tuple[Faction, int]] = []
@@ -183,7 +183,7 @@ class Game:
                 self.game_over, self.winner = True, winners[0][0]
         return self.game_over
 
-    # ---------- nhật ký ----------
+    # ---------- log ----------
     def add_event(self, text: str, audience: frozenset[int] | None,
                    full_text: str | None = None) -> None:
         self.events.append(Event(len(self.events), self._round, text, audience, full_text))
@@ -204,7 +204,7 @@ class Game:
             self.public_info.setdefault(target.id, {})[key] = value
             self.announce(f"📢 {text}")
 
-    # ---------- điều khiển ----------
+    # ---------- control ----------
     def start(self) -> None:
         if self.phase != Phase.SETUP:
             raise GameError("Game đã bắt đầu")
@@ -232,7 +232,7 @@ class Game:
             store[pid] = target
             if kind == "ability" and pid in self.wolf_options and pid not in self.wolf_actions \
                     and not self.exclusive(pid, "wolf", self.wolf_options[pid]):
-                self.wolf_actions[pid] = 0  # không còn ai khác để vote giết: tự bỏ phiếu trắng
+                self.wolf_actions[pid] = 0  # nobody else left to vote for: blank vote by itself
         elif self.phase == Phase.DAY:
             if not p.alive:
                 raise GameError("Người chết không được vote")
@@ -281,7 +281,7 @@ class Game:
             self.phase = Phase.SETTLE
         self.advance()
 
-    # ---------- đồng hồ ----------
+    # ---------- clock ----------
     def timer_budget(self) -> int | None:
         if not self.timer or self.phase not in (Phase.NIGHT, Phase.DAY, Phase.REVENGE):
             return None
@@ -378,7 +378,7 @@ class Game:
             else:
                 return
 
-    # ---------- chết / kết thúc ----------
+    # ---------- death / end ----------
     def kill(self, p: Player, cause: str) -> None:
         if not p.alive:
             return
@@ -448,14 +448,14 @@ class Game:
             self.start_night()
         return True
 
-    # ---------- ĐÊM ----------
+    # ---------- NIGHT ----------
     def options_for(self, p: Player) -> list[int]:
         if p.ability in PASSIVE:
             return []
         if p.ability == Ability.TRANSFORM and p.faction != Faction.GHOST:
             return []
         ids = [x.id for x in self.alive() if x.id != p.id]
-        if p.ability == Ability.BLOCK_EFFECTS:  # không bảo vệ cùng người 2 đêm liền
+        if p.ability == Ability.BLOCK_EFFECTS:  # does not protect the same person two nights in a row
             ids = [i for i in ids if i != self.last_protect_target.get(p.id)]
         return ids
 
@@ -492,7 +492,7 @@ class Game:
                     self.actions[p.id] = self.auto_target(p, [self.player(i) for i in opts]).id
             wolf_opts = self.wolf_options_for(p)
             if p.ability == Ability.KILL and len(wolf_opts) == 1 and wolf_opts[0] in opts:
-                # Chỉ còn một mục tiêu và Giết trực tiếp đã nhắm tới được: vote giết cùng người đó là thừa.
+                # Only one target is left and a direct Kill already aims at it: a kill vote on the same person is redundant.
                 wolf_opts = []
             if wolf_opts:
                 self.wolf_options[p.id] = wolf_opts
@@ -506,11 +506,11 @@ class Game:
         ev = self.event.code if self.event else None
         alive_before = len(self.alive())
         acts = {pid: (self.player(pid), self.player(tid)) for pid, tid in self.actions.items()}
-        for p, t in acts.values():  # người dùng thấy bản "Bạn…"; nhật ký đầy đủ thấy bản có tên
+        for p, t in acts.values():  # the user sees the "You..." version; the full log sees the version with names
             self.add_event(f"📝 Bạn dùng {p.ability.value} lên {t.name}", frozenset({p.id}),
                             f"📝 {p.name} ({p.faction.value}, {p.ability.value}) → {t.name}")
         wolf_acts = {pid: (self.player(pid), self.player(tid))
-                     for pid, tid in self.wolf_actions.items() if tid}  # tid 0 = bỏ phiếu trắng
+                     for pid, tid in self.wolf_actions.items() if tid}  # tid 0 = blank vote
         for p, t in wolf_acts.values():
             self.add_event(f"📝 Bạn vote Sói lên {t.name}", frozenset({p.id}),
                             f"📝 {p.name} (Sói) vote Sói → {t.name}")
@@ -519,7 +519,7 @@ class Game:
         reflected: set[int] = set()
 
         def of(ability: Ability):
-            # Generator: kiểm tra `blocked` tại thời điểm duyệt, như bản gốc.
+            # Generator: checks `blocked` at the moment it is iterated, as in the original.
             for pid, (p, t) in list(acts.items()):
                 if p.ability == ability and pid not in blocked:
                     yield pid, p, t
@@ -533,7 +533,7 @@ class Game:
             if (t.id in acts or t.id in wolf_acts) and t.id not in blocked:
                 self.note([p], f"🔄 Bạn đảo chức năng của {t.name}",
                            f"🔄 {p.name} đảo chức năng của {t.name} (hành động của {t.name} quay về chính họ)")
-                for book in (acts, wolf_acts):  # cả chức năng lẫn vote Sói của mục tiêu
+                for book in (acts, wolf_acts):  # both the ability and the wolf vote of the target
                     if t.id in book:
                         old_p, _ = book[t.id]
                         book[t.id] = (old_p, old_p)
@@ -547,7 +547,7 @@ class Game:
             reflected.add(t.id)
             self.note([p], f"↩️ Bạn đặt phản đòn lên {t.name}", f"↩️ {p.name} đặt phản đòn lên {t.name}")
 
-        if ev == "FULL_MOON":  # Trăng tròn: bảo vệ và phản đòn mất tác dụng
+        if ev == "FULL_MOON":  # Full moon: protection and reflection have no effect
             protected.clear()
             reflected.clear()
 
@@ -671,17 +671,17 @@ class Game:
         enemies = [x for x in others if x.faction != p.faction]
         return random.choice(known_enemies or enemies or others)
 
-    # ---------- NGÀY ----------
+    # ---------- DAY ----------
     def start_day(self) -> None:
         self.phase = Phase.DAY
         self._round = f"Ngày {self.night}"
         self.flush_recap("dawn", self.night)
         self.votes, self.skipped = {}, set()
-        for line_bot, text, target in bots.chatter(self):  # bot lên tiếng trước khi vote
+        for line_bot, text, target in bots.chatter(self):  # bots speak before the vote
             self.chat.add(line_bot.id, "public", text, self._round, target, throttle=False)
         cast: dict[int, int] = {}
         day_bots = [p for p in self.alive() if p.is_bot]
-        random.shuffle(day_bots)  # thứ tự ngẫu nhiên để việc "theo phe đang dẫn đầu" không thiên vị ai
+        random.shuffle(day_bots)  # random order so that "following the leading faction" does not favour anyone
         for p in day_bots:
             pick = bots.day_vote(self, p, [x for x in self.alive() if x != p], cast)
             self.votes[p.id] = cast[p.id] = pick.id

@@ -5,7 +5,7 @@ import random
 from dataclasses import dataclass
 from typing import Any
 
-EVENT_CHANCE = 0.5  # xác suất một đêm có thẻ sự kiện
+EVENT_CHANCE = 0.5  # chance that a night has an event card
 
 
 @dataclass(frozen=True)
@@ -14,7 +14,7 @@ class NightEvent:
     icon: str
     title: str
     text: str
-    affects_day: bool = False  # True: còn tác dụng sang ngày hôm sau
+    affects_day: bool = False  # True: still in effect the next day
 
     def view(self) -> dict[str, Any]:
         return {"code": self.code, "icon": self.icon, "title": self.title, "text": self.text,
