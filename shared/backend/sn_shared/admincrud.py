@@ -664,13 +664,14 @@ def records_router(
         return _row_payload(admin, db, _fetch_one(db, admin, [*admin.pk_clause(pk), *visible(admin, db, user, as_admin)]))
 
     c = SimpleNamespace(full=full, own=own, models=models, database=database, admin_view=admin_view, find=find, require_write=require_write, visible=visible, require_managers=require_managers, excel_check=excel_check, media_column=media_column, fetch_row=fetch_row, get_user_dep=get_user_dep, get_db_dep=get_db_dep)
-    _read_routes(router, c)
-    _write_routes(router, c)
-    _file_routes(router, c)
+    read_routes(router, c)
+    write_routes(router, c)
+    import_routes(router, c)
+    file_routes(router, c)
     return router
 
 
-def _read_routes(router: APIRouter, c: SimpleNamespace) -> None:
+def read_routes(router: APIRouter, c: SimpleNamespace) -> None:
     """The read endpoints: the tables, their rows, suggestions and groups, and one row."""
     full, own, admin_view, find, visible, fetch_row, get_user_dep, get_db_dep = c.full, c.own, c.admin_view, c.find, c.visible, c.fetch_row, c.get_user_dep, c.get_db_dep
     @router.get("/tables")
@@ -726,7 +727,7 @@ def _read_routes(router: APIRouter, c: SimpleNamespace) -> None:
         return fetch_row(table, pk, scope, user, db)
 
 
-def _write_routes(router: APIRouter, c: SimpleNamespace) -> None:
+def write_routes(router: APIRouter, c: SimpleNamespace) -> None:
     """The write endpoints: create, the Excel import, batch and single changes, delete."""
     own, admin_view, find, require_write, require_managers, excel_check, get_user_dep, get_db_dep = c.own, c.admin_view, c.find, c.require_write, c.require_managers, c.excel_check, c.get_user_dep, c.get_db_dep
     @router.post("/{table}", status_code=status.HTTP_201_CREATED)
@@ -753,30 +754,6 @@ def _write_routes(router: APIRouter, c: SimpleNamespace) -> None:
             row = _insert_row(admin, db, {**values, owner: user.user_id})
         _audit(user, "create", admin, admin.pk_text(row), as_admin=as_admin)
         return admin.out(row)
-
-    @router.post("/{table}/import-plan")
-    async def import_plan(table: str, file: UploadFile = File(...), user: TokenPayload = Depends(get_user_dep), db: Session = Depends(get_db_dep)) -> dict:
-        """What importing this Excel file would do: how many of its rows are new and how many have an id already in the table (managers)."""
-        require_managers(user, "Only an admin or a moderator may import rows")
-        excel_check(table, file)
-        plan = _plan_import(find(table, user, True), await file.read(), db)
-        return {"rows": plan["rows"], "new": plan["new"], "existing": plan["existing"]}
-
-    @router.post("/{table}/import")
-    async def import_rows(
-        table: str,
-        file: UploadFile = File(...),
-        overwrite: bool = Form(False),
-        user: TokenPayload = Depends(get_user_dep),
-        db: Session = Depends(get_db_dep),
-    ) -> dict:
-        """Imports the rows of an Excel file (managers). A row whose id is already in the table is overwritten only when `overwrite`
-        is set, else it is skipped: the rows that are not there yet are always created."""
-        require_managers(user, "Only an admin or a moderator may import rows")
-        excel_check(table, file)
-        admin = find(table, user, True)
-        plan = _plan_import(admin, await file.read(), db)
-        return _apply_import(admin, plan["data"], overwrite, user, db)
 
     @router.post("/{table}/batch-update")
     def update_rows(table: str, body: dict = Body(...), user: TokenPayload = Depends(get_user_dep), db: Session = Depends(get_db_dep)) -> dict:
@@ -832,7 +809,35 @@ def _write_routes(router: APIRouter, c: SimpleNamespace) -> None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-def _file_routes(router: APIRouter, c: SimpleNamespace) -> None:
+def import_routes(router: APIRouter, c: SimpleNamespace) -> None:
+    """The Excel import of the rows: a plan first, then the import itself (managers only)."""
+    find, require_managers, excel_check, get_user_dep, get_db_dep = c.find, c.require_managers, c.excel_check, c.get_user_dep, c.get_db_dep
+    @router.post("/{table}/import-plan")
+    async def import_plan(table: str, file: UploadFile = File(...), user: TokenPayload = Depends(get_user_dep), db: Session = Depends(get_db_dep)) -> dict:
+        """What importing this Excel file would do: how many of its rows are new and how many have an id already in the table (managers)."""
+        require_managers(user, "Only an admin or a moderator may import rows")
+        excel_check(table, file)
+        plan = _plan_import(find(table, user, True), await file.read(), db)
+        return {"rows": plan["rows"], "new": plan["new"], "existing": plan["existing"]}
+
+    @router.post("/{table}/import")
+    async def import_rows(
+        table: str,
+        file: UploadFile = File(...),
+        overwrite: bool = Form(False),
+        user: TokenPayload = Depends(get_user_dep),
+        db: Session = Depends(get_db_dep),
+    ) -> dict:
+        """Imports the rows of an Excel file (managers). A row whose id is already in the table is overwritten only when `overwrite`
+        is set, else it is skipped: the rows that are not there yet are always created."""
+        require_managers(user, "Only an admin or a moderator may import rows")
+        excel_check(table, file)
+        admin = find(table, user, True)
+        plan = _plan_import(admin, await file.read(), db)
+        return _apply_import(admin, plan["data"], overwrite, user, db)
+
+
+def file_routes(router: APIRouter, c: SimpleNamespace) -> None:
     """The file cells of a row: add, list, read and delete the files."""
     database, find, require_managers, media_column, fetch_row, get_user_dep, get_db_dep = c.database, c.find, c.require_managers, c.media_column, c.fetch_row, c.get_user_dep, c.get_db_dep
     @router.post("/{table}/{pk}/files/{column}")
