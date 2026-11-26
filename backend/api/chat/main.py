@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import re
 import time
 from collections import Counter
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Awaitable, AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -384,56 +384,17 @@ async def serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> No
             await asyncio.shield(people_changed())
 
 
-def create_app(database_url: str | None = None, clock: Callable[[], float] = time.monotonic) -> FastAPI:
-    require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
-    session_factory = open_database(database_url)
-
-    @asynccontextmanager
-    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        handle = start_consumer("chat", application.state.session_factory)
-        await start_cluster()
-        try:
-            yield
-        finally:
-            await lobby.close()
-            if application.state.cluster is not None:
-                await application.state.cluster.stop()
-            if handle is not None:
-                await _stop_account_consumer(handle)
-
-    app = FastAPI(title="socialnetwork chat", lifespan=lifespan)
-    app.state.session_factory = session_factory
-    virtual_reply.bind(session_factory)
-    app.state.background = set()  # tasks of the virtual replies, kept alive until done
-    app.state.write_throttle = UserRateLimiter(max_events=60, window=10.0)  # one person may only write so often (reads are free)
-    hub = RoomHub()
-    presence = Presence()
-    app.state.rooms_version = 0
-    app.state.people_version = 0
-    with session_factory() as session:
-        app.state.public_slugs = service.public_slugs(session)
-    chat_sockets: Counter[int] = Counter()  # open /ws sockets per user id, over all rooms
-    lobby_sockets: Counter[int] = Counter()
-
-    remote_online: set[int] = set()  # online in the other copies of the chat
-
-    def local_online() -> set[int]:
-        return set(chat_sockets) | set(lobby_sockets)
-
-    def online_users() -> set[int]:
-        """Who has the chat open: a socket in a room, or the lobby the page itself keeps (in any copy of the chat)."""
-        return local_online() | remote_online
-
-    lobby = Lobby(
-        presence,
-        RoomHub(),
-        allow=lambda slug: slug in app.state.public_slugs,
-        extra=lambda: {"version": app.state.rooms_version, "people": app.state.people_version, "online": len(online_users())},
-    )
-    app.state.hub, app.state.presence, app.state.lobby, app.state.online_users = hub, presence, lobby, online_users
-
-    app.state.cluster = None
-
+def wire_cluster(
+    app: FastAPI,
+    hub: RoomHub,
+    presence: Presence,
+    lobby: Lobby,
+    session_factory: sessionmaker,
+    remote_online: set[int],
+    local_online: Callable[[], set[int]],
+    close_sockets: Callable[[str, int, str], Awaitable[None]],
+) -> tuple[Callable[[], Awaitable[None]], Callable[[str], Awaitable[None]], Callable[[], Awaitable[None]]]:
+    """Connect this copy of the chat to the other copies (through Redis when it is set): what changes is sent, what they report is read."""
     async def cluster_changed() -> None:
         if app.state.cluster is not None:
             await app.state.cluster.write_presence()
@@ -489,6 +450,59 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
         cluster = clustering.Cluster(client)
         app.state.cluster, hub.cluster = cluster, cluster
         await cluster.start(on_cluster_event, lambda: {"rooms": presence.local_rooms(), "online": sorted(local_online())}, refresh_remote)
+    return people_changed, presence_changed, start_cluster
+
+
+def create_app(database_url: str | None = None, clock: Callable[[], float] = time.monotonic) -> FastAPI:
+    require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
+    session_factory = open_database(database_url)
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        handle = start_consumer("chat", application.state.session_factory)
+        await start_cluster()
+        try:
+            yield
+        finally:
+            await lobby.close()
+            if application.state.cluster is not None:
+                await application.state.cluster.stop()
+            if handle is not None:
+                await _stop_account_consumer(handle)
+
+    app = FastAPI(title="socialnetwork chat", lifespan=lifespan)
+    app.state.session_factory = session_factory
+    virtual_reply.bind(session_factory)
+    app.state.background = set()  # tasks of the virtual replies, kept alive until done
+    app.state.write_throttle = UserRateLimiter(max_events=60, window=10.0)  # one person may only write so often (reads are free)
+    hub = RoomHub()
+    presence = Presence()
+    app.state.rooms_version = 0
+    app.state.people_version = 0
+    with session_factory() as session:
+        app.state.public_slugs = service.public_slugs(session)
+    chat_sockets: Counter[int] = Counter()  # open /ws sockets per user id, over all rooms
+    lobby_sockets: Counter[int] = Counter()
+
+    remote_online: set[int] = set()  # online in the other copies of the chat
+
+    def local_online() -> set[int]:
+        return set(chat_sockets) | set(lobby_sockets)
+
+    def online_users() -> set[int]:
+        """Who has the chat open: a socket in a room, or the lobby the page itself keeps (in any copy of the chat)."""
+        return local_online() | remote_online
+
+    lobby = Lobby(
+        presence,
+        RoomHub(),
+        allow=lambda slug: slug in app.state.public_slugs,
+        extra=lambda: {"version": app.state.rooms_version, "people": app.state.people_version, "online": len(online_users())},
+    )
+    app.state.hub, app.state.presence, app.state.lobby, app.state.online_users = hub, presence, lobby, online_users
+
+    app.state.cluster = None
+
     connections: dict[tuple[str, int], set[WebSocket]] = {}  # the sockets of one user in one room, to close on a ban
 
     async def disconnect(slug: str, user_id: int, reason: str) -> None:
@@ -504,6 +518,9 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
             except Exception:  # already closed
                 pass
 
+    people_changed, presence_changed, start_cluster = wire_cluster(
+        app, hub, presence, lobby, session_factory, remote_online, local_online, close_sockets
+    )
     app.state.disconnect = disconnect
     include_routers(app)
     mount_admin(app)
