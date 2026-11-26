@@ -4,7 +4,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import SearchPanel from "../../app/file/components/SearchPanel";
 import ShareSection from "../../app/file/components/ShareSection";
 import SharedFilePage from "../../app/file/s/[token]/page";
 
@@ -55,30 +54,6 @@ describe("ShareSection", () => {
     inLocale(<ShareSection path="/a.txt" name="a.txt" onClose={() => undefined} />);
     await userEvent.click(await screen.findByRole("button", { name: /Tạo liên kết|Make a link/ }));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
-  });
-});
-
-describe("SearchPanel", () => {
-  it("looks by name in every folder and opens the folder of a result", async () => {
-    api.mockResolvedValue({ entries: [{ name: "holiday.jpg", parent: "/Photos/trip", type: "file", size: 2048 }, { name: "Photos", parent: "/", type: "folder", size: 0 }], more: false } as never);
-    const open = vi.fn();
-    inLocale(<SearchPanel onOpen={open} />);
-    expect(screen.queryByRole("button", { name: /^(Tìm|Find)$/ })).not.toBeInTheDocument();
-    await userEvent.type(screen.getByRole("searchbox"), "p{Enter}");
-    expect(api).not.toHaveBeenCalled(); // two letters at least
-    await userEvent.type(screen.getByRole("searchbox"), "h{Enter}");
-    expect(api).toHaveBeenCalledWith("/api/file/search?q=ph");
-    await userEvent.click(await screen.findByRole("button", { name: /holiday\.jpg/ }));
-    expect(open).toHaveBeenLastCalledWith("/Photos/trip"); // a file opens the folder it is in
-    await userEvent.click(screen.getByRole("button", { name: /^📁 Photos/ }));
-    expect(open).toHaveBeenLastCalledWith("/Photos"); // a folder opens itself
-  });
-
-  it("says when there is nothing and when there is more", async () => {
-    api.mockResolvedValueOnce({ entries: [], more: false } as never);
-    inLocale(<SearchPanel onOpen={() => undefined} />);
-    await userEvent.type(screen.getByRole("searchbox"), "zz{Enter}");
-    expect(await screen.findByText(/Không thấy gì|Nothing found/)).toBeInTheDocument();
   });
 });
 

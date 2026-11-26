@@ -90,26 +90,3 @@ def test_the_days_are_limited(client, alice):
     assert share(client, alice, days=0).status_code == 422 and share(client, alice, days=366).status_code == 422
 
 
-def test_search_finds_files_and_folders_by_name_in_every_folder(client, alice, bob):
-    mkdir(client, alice, "Photos")
-    mkdir(client, alice, "trip", path="/Photos")
-    put(client, alice, "Holiday-photo.JPG", path="/Photos/trip", data=b"1234")
-    put(client, alice, "notes.txt")
-    found = client.get("/search", params={"q": "photo"}, headers=alice).json()
-    assert found["more"] is False
-    assert [(item["name"], item["parent"], item["type"]) for item in found["entries"]] == [("Photos", "/", "folder"), ("Holiday-photo.JPG", "/Photos/trip", "file")]
-    assert found["entries"][1]["size"] == 4
-    assert client.get("/search", params={"q": "photo"}, headers=bob).json()["entries"] == []  # only the person's own tree
-    assert client.get("/search", params={"q": "p"}, headers=alice).status_code == 422
-    assert client.get("/search", params={"q": "photo"}).status_code == 401
-
-
-def test_search_stops_at_a_hundred(client, alice, monkeypatch):
-    from api.file import sharing
-
-    monkeypatch.setattr(sharing, "SEARCH_LIMIT", 3)
-    for number in range(5):
-        put(client, alice, f"match{number}.txt")
-    found = client.get("/search", params={"q": "match"}, headers=alice).json()
-    assert len(found["entries"]) == 3 and found["more"] is True
-    assert files_root(1).is_dir()

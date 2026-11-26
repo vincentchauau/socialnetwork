@@ -1,10 +1,8 @@
 """Giving a file by a link: the owner makes, lists and takes back links; anybody with a link sees what the file is and downloads it."""
 
-import os
-from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Response, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,7 +13,6 @@ from sn_shared.limits import writer
 from sn_shared.origin import check_origin
 from sn_shared.security import TokenPayload
 
-SEARCH_LIMIT = 100
 router = APIRouter()
 Token = Annotated[str, PathParam(min_length=16, max_length=64)]
 
@@ -100,24 +97,4 @@ def shared_download(token: Token) -> FileResponse:
         headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox", "Cache-Control": "private, no-store"},
     )
 
-
-@router.get("/search")
-def search(q: Annotated[str, Query(min_length=2, max_length=100)], user: TokenPayload = Depends(get_current_user)) -> dict:
-    """Files and folders of the person whose name holds `q` (any letter case), in every folder; the first 100."""
-    root = store.files_root(user.user_id)
-    words = q.strip().casefold()
-    found: list[dict] = []
-    if len(words) >= 2 and root.is_dir():
-        for current, folders, names in os.walk(root, followlinks=False):
-            folders.sort()
-            here = Path(current).relative_to(root).as_posix()
-            parent = "/" if here == "." else "/" + here
-            for kind, group in (("folder", folders), ("file", sorted(names))):
-                for name in group:
-                    if words in name.casefold():
-                        full = Path(current) / name
-                        found.append({"name": name, "parent": parent, "type": kind, "size": 0 if kind == "folder" else full.lstat().st_size})
-                        if len(found) >= SEARCH_LIMIT:
-                            return {"entries": found, "more": True}
-    return {"entries": found, "more": False}
 

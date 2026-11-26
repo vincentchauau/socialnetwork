@@ -264,7 +264,7 @@ The tabs, in order: CRUD descriptions (the employer's job descriptions), Create 
 ### Folders
 
 1. A tree at most 6 levels deep, with 1000 entries and names of at most 100 characters.
-2. Search by name across all folders (first 100 results). Folder search in the Explorer searches the current folder and below, up to 200 hits.
+2. Folder search in the Explorer searches the current folder and below, up to 200 hits.
 3. Trash: items are kept 30 days, at most 100 items and 200 MB; the oldest go first. A person can restore an item (to its folder, or to the top if the folder is gone, with a new name if taken) or erase it. Admin deletes in the data area have no trash.
 
 ### Files
@@ -518,7 +518,7 @@ The routes of each module, as the running app serves them (the full path, includ
 - `POST /rooms/{code}/roles`
 - `POST /rooms/{code}/start`
 
-## file (22)
+## file (21)
 
 - `DELETE /entries`
 - `DELETE /share/{token}`
@@ -527,7 +527,6 @@ The routes of each module, as the running app serves them (the full path, includ
 - `GET /download`
 - `GET /entries`
 - `GET /health`
-- `GET /search`
 - `GET /search-folder`
 - `GET /shared/{token}`
 - `GET /shared/{token}/download`
@@ -612,7 +611,7 @@ The routes of each module, as the running app serves them (the full path, includ
 - `POST /jobs/{job_id}/apply`
 - `POST /jobs/{object_id}/comments`
 
-Total listed: 214 routes.
+Total listed: 213 routes.
 
 # 4. Backend test (unit test)
 
