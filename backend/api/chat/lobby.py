@@ -42,7 +42,7 @@ class Lobby:
             return  # a trailing push is already scheduled and will carry the latest state
         wait = self._last_push + self._interval - self._clock()
         if wait <= 0:
-            await self._push()
+            await self.push_lobby()
         else:
             self._pending = asyncio.create_task(self.delayed(wait))
 
@@ -51,9 +51,9 @@ class Lobby:
             await self._sleep(wait)
         finally:
             self._pending = None
-        await self._push()
+        await self.push_lobby()
 
-    async def _push(self) -> None:
+    async def push_lobby(self) -> None:
         self._last_push = self._clock()
         await self.hub.broadcast(LOBBY_KEY, self.frame())
 

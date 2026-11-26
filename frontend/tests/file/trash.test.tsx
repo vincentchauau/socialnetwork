@@ -70,7 +70,7 @@ describe("TrashPanel", () => {
   });
 
   it("shows the problem when an item cannot be put back", async () => {
-    api.mockImplementation(async (_url: string, init?: RequestInit) => {
+    api.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === "POST") throw new Error("Vượt quá dung lượng 100 MB");
       return { entries: trash, keepDays: 30 } as never;
     });

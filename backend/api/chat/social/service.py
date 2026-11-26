@@ -41,14 +41,14 @@ def person_by_name(db: Session, username: str) -> Person | None:
 # ---- blocks ----------------------------------------------------------------------------------------------------
 
 
-def _between(a: int, b: int):
+def between(a: int, b: int):
     """The edges that join the two, whichever way they point."""
     return or_(and_(Edge.src_id == a, Edge.dst_id == b), and_(Edge.src_id == b, Edge.dst_id == a))
 
 
 def blocked_between(db: Session, a: int, b: int) -> bool:
     """One of the two blocked the other."""
-    return db.scalar(select(Edge.src_id).where(Edge.kind == BLOCK, _between(a, b)).limit(1)) is not None
+    return db.scalar(select(Edge.src_id).where(Edge.kind == BLOCK, between(a, b)).limit(1)) is not None
 
 
 def blocked_by(db: Session, me: int, other: int) -> bool:
@@ -78,7 +78,7 @@ def unblock(db: Session, me: int, other: int) -> None:
 
 def relationship_of(db: Session, a: int, b: int) -> Edge | None:
     """The friend row of the pair, whichever way it was asked."""
-    return db.scalar(select(Edge).where(Edge.kind == FRIEND, _between(a, b)))
+    return db.scalar(select(Edge).where(Edge.kind == FRIEND, between(a, b)))
 
 
 def relation(db: Session, me: int, other: int) -> str:
@@ -97,7 +97,7 @@ def friend_person(db: Session, me: int, other: int) -> Person | None:
 
 
 def drop_relationship(db: Session, a: int, b: int) -> None:
-    db.execute(delete(Edge).where(Edge.kind == FRIEND, _between(a, b)))
+    db.execute(delete(Edge).where(Edge.kind == FRIEND, between(a, b)))
 
 
 class Refused(Exception):

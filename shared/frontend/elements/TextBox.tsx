@@ -20,10 +20,10 @@ const FIELD_STYLE = {
 /** One text field: an <input> by default, a <textarea> with `multiline`. */
 export function TextBox(props: TextBoxProps) {
   if (props.multiline) {
-    const { multiline: _multiline, rows = 3, style, ...rest } = props;
+    const { multiline: multilineFlag, rows = 3, style, ...rest } = props;
     return <textarea {...rest} rows={rows} style={{ ...FIELD_STYLE, ...style }} />;
   }
-  const { multiline: _multiline, style, ...rest } = props;
+  const { multiline: multilineFlag, style, ...rest } = props;
   return <input {...rest} style={{ ...FIELD_STYLE, ...style }} />;
 }
 

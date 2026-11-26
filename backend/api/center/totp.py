@@ -34,14 +34,14 @@ RECOVERY_GROUPS = (4, 4, 2)  # abcd-efgh-jk
 DUMMY_SECRET = pyotp.random_base32()  # spent on failures that have no real secret, so they cost the same
 
 
-def _subkey(label: bytes) -> bytes:
+def subkey_totp(label: bytes) -> bytes:
     return hmac.new(get_jwt_secret().encode(), label, hashlib.sha256).digest()
 
 
 def make_cipher(settings: Settings) -> TemplateCipher:
     if not settings.data_key:
         audit.info("TOTP secrets are encrypted with a key derived from JWT_SECRET (set DATA_KEY to decouple them)")
-    key = settings.data_key or base64.urlsafe_b64encode(_subkey(b"totp-secret-subkey")).decode()
+    key = settings.data_key or base64.urlsafe_b64encode(subkey_totp(b"totp-secret-subkey")).decode()
     return TemplateCipher(key)
 
 
@@ -65,7 +65,7 @@ def provisioning_uri(secret: str, username: str) -> str:
     return pyotp.TOTP(secret, digits=DIGITS, interval=STEP_SECONDS).provisioning_uri(name=username, issuer_name=ISSUER)
 
 
-def _now() -> float:
+def now_totp() -> float:
     return time.time()
 
 
@@ -73,7 +73,7 @@ def matching_step(secret: str | None, code: str) -> int | None:
     """The time step (within the drift window) whose code equals `code`, else None. Always checks every step."""
     totp = pyotp.TOTP(secret or DUMMY_SECRET, digits=DIGITS, interval=STEP_SECONDS)
     presented = code.strip().replace(" ", "").encode()
-    current = int(_now() // STEP_SECONDS)
+    current = int(now_totp() // STEP_SECONDS)
     found = None
     for step in range(current - WINDOW_STEPS, current + WINDOW_STEPS + 1):
         if hmac.compare_digest(totp.at(step * STEP_SECONDS).encode(), presented) and secret:
@@ -107,7 +107,7 @@ def normalize_recovery(code: str) -> str:
 
 
 def recovery_hash(code: str) -> str:
-    return hmac.new(_subkey(b"recovery-code-subkey"), normalize_recovery(code).encode(), hashlib.sha256).hexdigest()
+    return hmac.new(subkey_totp(b"recovery-code-subkey"), normalize_recovery(code).encode(), hashlib.sha256).hexdigest()
 
 
 def new_recovery_code() -> str:

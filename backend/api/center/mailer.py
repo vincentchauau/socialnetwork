@@ -48,7 +48,7 @@ class SmtpMailer:
         self.host, self.port, self.user, self.password = host, port, user, password
         self.sender, self.starttls, self.use_ssl, self.timeout = sender, starttls, use_ssl, timeout
 
-    def _build(self, message: Message) -> EmailMessage:
+    def build(self, message: Message) -> EmailMessage:
         built = EmailMessage()
         built["From"] = self.sender
         built["To"] = message.to
@@ -70,7 +70,7 @@ class SmtpMailer:
                 server.starttls(context=ssl.create_default_context())
             if self.user:
                 server.login(self.user, self.password)
-            server.send_message(self._build(message), from_addr=envelope_from, to_addrs=[message.to])
+            server.send_message(self.build(message), from_addr=envelope_from, to_addrs=[message.to])
 
 
 def deliver(mailer: Mailer, message: Message, kind: str) -> None:

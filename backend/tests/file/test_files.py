@@ -314,7 +314,7 @@ def test_scan_ignores_unreadable_entries(tmp_path, monkeypatch):
         return real(path, *args, **kwargs)
 
     monkeypatch.setattr(files.os, "lstat", flaky)
-    assert files._scan(root) == (0, 1)
+    assert files.scan_files(root) == (0, 1)
 
 
 def test_spool_from_stream(tmp_path, monkeypatch):
@@ -326,7 +326,7 @@ def test_spool_from_stream(tmp_path, monkeypatch):
 def test_busy_user_gets_429(client, alice, monkeypatch):
     from sn_shared import userlock
 
-    lock = userlock._locks[1 % userlock.LOCK_STRIPES]
+    lock = userlock.locks_userlock[1 % userlock.LOCK_STRIPES]
     original = userlock.user_lock.__init__
 
     def short(self, user_id, timeout=0.05):

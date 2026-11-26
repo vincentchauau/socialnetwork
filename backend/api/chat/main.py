@@ -71,7 +71,7 @@ def joined_messages_scope(db, user: TokenPayload):
     return and_(Message.room_id.in_(joined_room_ids(user)), Message.deleted_at.is_(None))
 
 
-def _enter(factory: sessionmaker, slug: str, user: TokenPayload) -> str | None:
+def enter(factory: sessionmaker, slug: str, user: TokenPayload) -> str | None:
     """Why this user may not open a socket in the room, or None: it must exist and they must be an active member."""
     with factory() as session:
         room = service.room_by_slug(session, slug)
@@ -155,7 +155,7 @@ def authorize(websocket: WebSocket) -> TokenPayload | None:
         return None
 
 
-async def _receive(websocket: WebSocket, user: TokenPayload) -> str | None:
+async def receive_main(websocket: WebSocket, user: TokenPayload) -> str | None:
     """Next text frame; None for a binary one. The token is only checked at connect,
     so stop listening when it expires (raises Expired)."""
     remaining = max(user.expires_at - time.time(), 0)
@@ -167,7 +167,7 @@ async def _receive(websocket: WebSocket, user: TokenPayload) -> str | None:
         return None
 
 
-def _public_slugs(factory: sessionmaker) -> set[str]:
+def public_slugs_main(factory: sessionmaker) -> set[str]:
     with factory() as session:
         return service.public_slugs(session)
 
@@ -248,7 +248,7 @@ async def serve_lobby(websocket: WebSocket, rt: SimpleNamespace) -> None:
         limiter = SlidingWindow(RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS)
         while True:
             try:
-                raw = await _receive(websocket, user)
+                raw = await receive_main(websocket, user)
             except Expired:
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                 return
@@ -296,7 +296,7 @@ async def serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> No
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     await websocket.accept()
-    not_allowed = await run_in_threadpool(_enter, app.state.session_factory, room, user)
+    not_allowed = await run_in_threadpool(enter, app.state.session_factory, room, user)
     if not_allowed is not None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=not_allowed)
         return
@@ -327,7 +327,7 @@ async def serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> No
             await websocket.send_json(presence_frame(presence, room))
         while True:
             try:
-                raw = await _receive(websocket, user)
+                raw = await receive_main(websocket, user)
             except Expired:
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                 return
@@ -434,7 +434,7 @@ def wire_cluster(
             await lobby.notify()
         elif kind == "changed":
             await refresh_remote()
-            app.state.public_slugs = await run_in_threadpool(_public_slugs, session_factory)
+            app.state.public_slugs = await run_in_threadpool(public_slugs_main, session_factory)
             app.state.rooms_version += 1
             app.state.people_version += 1
             await lobby.notify()

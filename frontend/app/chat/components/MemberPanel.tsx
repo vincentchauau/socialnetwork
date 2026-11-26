@@ -138,7 +138,7 @@ export default function MemberPanel({ room, myId, version, onlineIds, onWrite, o
           { key: "unmute", label: tr("rm_bat_tieng"), variant: "secondary", show: mutedOnes.length > 0, onClick: set(mutedOnes, { muted: false }) },
           { key: "kick", label: tr("rm_moi_ra"), variant: "danger", show: chosen.some((m) => m.status === "joined" || m.status === "pending"), onClick: () => setAsk({ kind: "kick", ids: chosenIds }) },
           { key: "ban", label: tr("rm_chan"), variant: "danger", show: chosen.some((m) => m.status !== "banned"), onClick: () => setAsk({ kind: "ban", ids: chosenIds }) },
-        ].filter((action) => action.show || chosen.length === 0).map(({ show: _show, ...action }) => action) as BulkAction[]
+        ].filter((action) => action.show || chosen.length === 0).map(({ show: showFlag, ...action }) => action) as BulkAction[]
       : statusTerm === "banned"
         ? [{ key: "unban", label: tr("rm_bo_chan"), variant: "primary", onClick: () => void each(chosenIds, (id) => chatApi.changeMember(room.slug, id, { status: "joined" })) }]
         : [{ key: "back", label: tr("rm_them_lai"), variant: "primary", onClick: () => void each(chosenIds, (id) => chatApi.addMember(room.slug, { user_id: id })) }];

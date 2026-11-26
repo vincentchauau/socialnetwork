@@ -133,7 +133,7 @@ class ToolBox:
         tools: Collection[str] | None = None,
     ) -> None:
         self.scope = scope
-        self._provider = provider
+        self.provider_seed_other = provider
         self._spend = spend_model_call or (lambda: None)  # called before llm_tool and web_tool use the model
         self._max_calls = max_calls
         self.passages: list[Passage] = []
@@ -164,10 +164,10 @@ class ToolBox:
         return result
 
     def model(self) -> AiProvider:
-        if self._provider is None:
+        if self.provider_seed_other is None:
             raise ToolError("No AI service is available for this tool")
         self._spend()
-        return self._provider
+        return self.provider_seed_other
 
 
 def shown(arguments: dict[str, Any]) -> dict[str, Any]:

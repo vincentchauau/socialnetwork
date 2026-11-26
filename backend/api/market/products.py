@@ -83,7 +83,7 @@ def escape_like(term: str) -> str:
     return term.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2).replace("%", "\\%").replace("_", "\\_")
 
 
-def _page(db: Session, query: Select[Any], cursor: int | None, limit: int) -> ProductPage:
+def page_products(db: Session, query: Select[Any], cursor: int | None, limit: int) -> ProductPage:
     if cursor is not None:
         query = query.where(Product.id < cursor)
     rows = db.execute(query.order_by(Product.id.desc()).limit(limit + 1)).all()
@@ -121,7 +121,7 @@ def list_products(
         query = query.where(Product.price_cents <= max_price)
     if seller:
         query = query.where(Product.seller_id.in_(select(directory.Person.user_id).where(func.lower(directory.Person.username) == seller.strip().lower())))
-    return _page(db, query, cursor, limit)
+    return page_products(db, query, cursor, limit)
 
 
 @router.get("/categories", response_model=list[Facet])
@@ -137,7 +137,7 @@ def my_products(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ProductPage:
-    return _page(db, active_product_query().where(Product.seller_id == user.user_id), cursor, limit)
+    return page_products(db, active_product_query().where(Product.seller_id == user.user_id), cursor, limit)
 
 
 @router.get(

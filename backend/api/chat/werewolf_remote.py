@@ -17,7 +17,7 @@ TIMEOUT_SECONDS = 5.0
 UNAVAILABLE = "The game is not available"
 
 
-def _send(method: str, path: str, payload: dict | None) -> None:
+def send(method: str, path: str, payload: dict | None) -> None:
     url, secret = os.environ.get("WEREWOLF_URL", "").rstrip("/"), os.environ.get("WEREWOLF_SECRET", "")
     if not url or len(secret) < servicesig.MIN_SECRET_CHARS:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, UNAVAILABLE)
@@ -38,7 +38,7 @@ def _send(method: str, path: str, payload: dict | None) -> None:
 
 def call(app: FastAPI, method: str, path: str, payload: dict | None = None) -> None:
     """Make the call (blocking: run it in a thread). Raises the HTTPException the game answered with."""
-    sender = getattr(app.state, "werewolf_call", None) or _send
+    sender = getattr(app.state, "werewolf_call", None) or send
     sender(method, path, payload)
 
 

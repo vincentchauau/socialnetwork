@@ -22,7 +22,7 @@ NOT_FOUND = "Session not found"
 router = APIRouter(prefix="/auth", tags=["sessions"], dependencies=[Depends(check_origin)])
 
 
-def _item(row: UserSession, current_sid: str | None) -> SessionItem:
+def item(row: UserSession, current_sid: str | None) -> SessionItem:
     return SessionItem(
         id=row.sid, current=row.sid == current_sid, created_at=usersessions.as_utc(row.created_at),
         last_seen_at=usersessions.as_utc(row.last_seen_at), ip=row.ip, user_agent=row.user_agent, method=row.method,
@@ -31,7 +31,7 @@ def _item(row: UserSession, current_sid: str | None) -> SessionItem:
 
 @router.get("/sessions", response_model=list[SessionItem])
 def list_sessions(session: AuthSession = Depends(current_session), db: Session = Depends(get_db)) -> list[SessionItem]:
-    return [_item(row, session.sid) for row in usersessions.active_sessions(db, session.user.id)]
+    return [item(row, session.sid) for row in usersessions.active_sessions(db, session.user.id)]
 
 
 @router.post("/sessions/revoke-others", response_model=RevokedOut)

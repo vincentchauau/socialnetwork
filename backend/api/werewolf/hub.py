@@ -54,7 +54,7 @@ class GameHub:
             self._last.pop(old, None)
         sockets[socket] = user_id
         for old in displaced:
-            await self._close(old)
+            await self.close_hub(old)
 
     def leave(self, room: str, socket: WebSocket) -> None:
         self._last.pop(socket, None)
@@ -66,7 +66,7 @@ class GameHub:
             del self._rooms[room]
 
     @staticmethod
-    async def _close(socket: WebSocket, code: int = status.WS_1008_POLICY_VIOLATION) -> None:
+    async def close_hub(socket: WebSocket, code: int = status.WS_1008_POLICY_VIOLATION) -> None:
         try:
             await socket.close(code=code)
         except Exception:  # already closed
@@ -86,7 +86,7 @@ class GameHub:
             if state is None:
                 for socket in sockets:
                     self.leave(room, socket)
-                    sends.append(self._close(socket))
+                    sends.append(self.close_hub(socket))
                 continue
             frame = dumps({"type": "state", "state": state})
             sends.extend(self.push_state(room, socket, frame) for socket in sockets)
@@ -95,7 +95,7 @@ class GameHub:
     async def push_state(self, room: str, socket: WebSocket, frame: str) -> None:
         if self._last.get(socket) == frame:
             return
-        if await self._deliver(room, socket, frame):
+        if await self.deliver(room, socket, frame):
             self._last[socket] = frame
 
     async def send_chat(self, room: str, recipients: list[int], message: dict[str, Any]) -> None:
@@ -103,12 +103,12 @@ class GameHub:
         wanted = set(recipients)
         frame = dumps({"type": "chat", "message": message})
         targets = [s for s, uid in self._rooms.get(room, {}).items() if uid in wanted]
-        await asyncio.gather(*(self._deliver(room, s, frame) for s in targets))
+        await asyncio.gather(*(self.deliver(room, s, frame) for s in targets))
 
     async def send_error(self, socket: WebSocket, message: str) -> None:
         await socket.send_text(dumps({"type": "error", "error": message}))
 
-    async def _deliver(self, room: str, socket: WebSocket, frame: str) -> bool:
+    async def deliver(self, room: str, socket: WebSocket, frame: str) -> bool:
         try:
             await asyncio.wait_for(socket.send_text(frame), self._send_timeout)
         except Exception:  # slow or dead socket: drop it, keep delivering to the rest
@@ -119,4 +119,4 @@ class GameHub:
     async def close_room(self, room: str) -> None:
         for socket in list(self._rooms.get(room, {})):
             self.leave(room, socket)
-            await self._close(socket, status.WS_1001_GOING_AWAY)
+            await self.close_hub(socket, status.WS_1001_GOING_AWAY)

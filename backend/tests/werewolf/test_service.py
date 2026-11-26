@@ -142,7 +142,7 @@ def test_background_steps_survive_errors():
         raise RuntimeError("boom")
 
     async def run():
-        task = asyncio.create_task(service._forever(None, 0.001, failing))
+        task = asyncio.create_task(service.forever_service(None, 0.001, failing))
         await asyncio.sleep(0.05)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):

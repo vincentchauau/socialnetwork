@@ -261,7 +261,7 @@ class TotpLoginBody(BaseModel):
     recovery_code: str | None = Field(default=None, max_length=MAX_INPUT)
 
     @model_validator(mode="after")
-    def _exactly_one(self):
+    def exactly_one_schemas(self):
         if (self.code is None) == (self.recovery_code is None):
             raise ValueError("Send either code or recovery_code")
         return self

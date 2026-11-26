@@ -41,7 +41,7 @@ class BodyLimitMiddleware:
         max_bytes = self.limit(scope.get("path", ""))
         declared = dict(scope["headers"]).get(b"content-length", b"")
         if declared.isdigit() and int(declared) > max_bytes:
-            await self._reject(scope, receive, send)
+            await self.reject(scope, receive, send)
             return
         received = 0
         exceeded = False
@@ -69,7 +69,7 @@ class BodyLimitMiddleware:
         except BodyTooLarge:
             pass
         if exceeded and not started:
-            await self._reject(scope, receive, send)
+            await self.reject(scope, receive, send)
 
-    async def _reject(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def reject(self, scope: Scope, receive: Receive, send: Send) -> None:
         await JSONResponse({"detail": "Request too large"}, status_code=413)(scope, receive, send)

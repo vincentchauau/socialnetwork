@@ -41,7 +41,7 @@ class Clock:
 @pytest.fixture
 def clock(monkeypatch):
     fake = Clock()
-    monkeypatch.setattr(totp, "_now", fake)
+    monkeypatch.setattr(totp, "now_totp", fake)
     return fake
 
 

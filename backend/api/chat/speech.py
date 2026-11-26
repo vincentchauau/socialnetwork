@@ -36,7 +36,7 @@ def enabled() -> bool:
     return bool(api_key())
 
 
-def _post(model: str, body: dict) -> dict:
+def post_speech(model: str, body: dict) -> dict:
     request = urllib.request.Request(
         f"{BASE_URL}/models/{model}:generateContent", data=json.dumps(body).encode(), method="POST",
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key()},
@@ -45,7 +45,7 @@ def _post(model: str, body: dict) -> dict:
         return json.loads(response.read())
 
 
-def _wav(pcm: bytes, rate: int) -> bytes:
+def wav_speech(pcm: bytes, rate: int) -> bytes:
     out = io.BytesIO()
     with wave.open(out, "wb") as file:
         file.setnchannels(1)
@@ -59,9 +59,9 @@ def transcribe(pcm: bytes, rate: int) -> str:
     """The words in PCM16 mono sound ("" when there are none, or the model cannot be reached)."""
     if not enabled() or not pcm:
         return ""
-    body = {"contents": [{"parts": [{"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(_wav(pcm, rate)).decode()}}, {"text": HEARD_PROMPT}]}]}
+    body = {"contents": [{"parts": [{"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(wav_speech(pcm, rate)).decode()}}, {"text": HEARD_PROMPT}]}]}
     try:
-        data = _post(os.environ.get("STT_MODEL", DEFAULT_STT_MODEL), body)
+        data = post_speech(os.environ.get("STT_MODEL", DEFAULT_STT_MODEL), body)
         return str(data["candidates"][0]["content"]["parts"][0].get("text", "")).strip()
     except (urllib.error.URLError, TimeoutError, OSError, ValueError, KeyError, IndexError):
         log.warning("the speech could not be turned into text", exc_info=True)
@@ -81,7 +81,7 @@ def synthesize(text: str, voice: str) -> tuple[bytes, int] | None:
         "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}},
     }
     try:
-        data = _post(os.environ.get("TTS_MODEL", DEFAULT_TTS_MODEL), body)
+        data = post_speech(os.environ.get("TTS_MODEL", DEFAULT_TTS_MODEL), body)
         return base64.b64decode(data["candidates"][0]["content"]["parts"][0]["inlineData"]["data"]), TTS_RATE
     except (urllib.error.URLError, TimeoutError, OSError, ValueError, KeyError, IndexError):
         log.warning("the words could not be turned into a voice", exc_info=True)

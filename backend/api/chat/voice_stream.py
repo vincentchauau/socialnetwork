@@ -80,7 +80,7 @@ def slide_of(topic: str, speaker_id: int, caller_id: int) -> list[str]:
 
 def voice_frames(speaker: tuple[int, str, str, str], reply: str):
     """The frames that read the answer aloud, one per sentence, each made when it is asked for (a generator: the caller sends each as it comes)."""
-    uid, username, name, _avatar = speaker
+    uid, username, name, avatar = speaker
     pieces = sentences(reply) or [reply]
     utterance = secrets.token_hex(6)
     for number, piece in enumerate(pieces):

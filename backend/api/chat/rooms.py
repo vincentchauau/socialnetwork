@@ -42,9 +42,9 @@ class RoomHub:
         """To the sockets of this copy only."""
         # Sent concurrently so one slow client cannot hold up the rest of the room.
         sockets = list(self._rooms.get(room, ()))
-        await asyncio.gather(*(self._deliver(room, socket, payload) for socket in sockets))
+        await asyncio.gather(*(self.deliver(room, socket, payload) for socket in sockets))
 
-    async def _deliver(self, room: str, socket: WebSocket, payload: dict) -> None:
+    async def deliver(self, room: str, socket: WebSocket, payload: dict) -> None:
         try:
             await asyncio.wait_for(socket.send_json(payload), self._send_timeout)
         except Exception:  # slow or dead socket: drop it, keep delivering to the rest

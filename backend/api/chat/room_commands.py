@@ -54,7 +54,7 @@ def parse_saying(content: str) -> tuple[str, str] | None:
     return None
 
 
-def _same(wanted: str, person: dict[str, Any]) -> bool:
+def same_room_commands(wanted: str, person: dict[str, Any]) -> bool:
     """A name as written (`Giang Le`, `giang_le`, `@Giang_Le`) is the username or the name of the person."""
     key = lambda text: re.sub(r"[\s_]+", " ", str(text)).strip().lower()  # noqa: E731
     return key(wanted) in (key(person["username"]), key(person.get("name") or ""))
@@ -68,7 +68,7 @@ def owns(factory, slug: str, user_id: int) -> bool:
         return room is not None and room.user_id == user_id
 
 
-def _detail(response: httpx.Response) -> str:
+def detail_room_commands(response: httpx.Response) -> str:
     try:
         return str(response.json().get("detail") or "That could not be done")
     except ValueError:
@@ -82,11 +82,11 @@ async def run(app: FastAPI, slug: str, cookies: dict[str, str], origin: str, com
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://chat", cookies=cookies, headers={"Origin": origin}) as client:
         if command in ROOM_COMMANDS:
             done = await client.patch(f"/rooms/{slug}", json={"state": "closed" if command == "close" else "open"})
-            return None if done.is_success else _detail(done)
+            return None if done.is_success else detail_room_commands(done)
         found = await client.get(f"/rooms/{slug}/members")
         if not found.is_success:
-            return _detail(found)
-        people: list[dict[str, Any]] = [m for m in found.json() if _same(name, m)]
+            return detail_room_commands(found)
+        people: list[dict[str, Any]] = [m for m in found.json() if same_room_commands(name, m)]
         if not people:
             return f"{name} is not in this room"
         user_id = people[0]["user_id"]
@@ -100,4 +100,4 @@ async def run(app: FastAPI, slug: str, cookies: dict[str, str], origin: str, com
             "unban": lambda: client.patch(member, json={"status": "joined"}),
         }[command]
         response = await done()
-        return None if response.is_success else _detail(response)
+        return None if response.is_success else detail_room_commands(response)

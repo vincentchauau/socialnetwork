@@ -79,7 +79,7 @@ GAME_CODE_LENGTH = 5  # the length of a werewolf room code
 _ANNOUNCED: dict[tuple[int, str], datetime] = {}  # (room, what) -> when it was said (in memory: a restart may say it once more)
 
 
-def _secret() -> bytes:
+def secret_service() -> bytes:
     secret = os.environ.get("WEREWOLF_SECRET") or os.environ.get("JWT_SECRET")
     if not secret and os.environ.get("APP_ENV") == "production":
         raise RuntimeError("WEREWOLF_SECRET or JWT_SECRET must be set in production")
@@ -88,7 +88,7 @@ def _secret() -> bytes:
 
 def game_code(room: Room) -> str:
     """The code of the Werewolf game of a room: worked out from its address and a secret, so nothing is stored (the same every time)."""
-    digest = hmac.new(_secret(), f"game:{room.slug}".encode(), hashlib.sha256).digest()
+    digest = hmac.new(secret_service(), f"game:{room.slug}".encode(), hashlib.sha256).digest()
     return "".join(GAME_CODE_LETTERS[digest[i] % len(GAME_CODE_LETTERS)] for i in range(GAME_CODE_LENGTH))
 
 

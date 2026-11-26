@@ -80,7 +80,7 @@ def seconds_left(row: QrLogin) -> int:
     return max(0, int((as_utc(row.expires_at) - utcnow()).total_seconds()))
 
 
-def _transition(db: Session, request_id: str, from_status: str, **values) -> bool:
+def transition_qr(db: Session, request_id: str, from_status: str, **values) -> bool:
     """pending/approved -> new status, only while unexpired; True when THIS call made the change."""
     result = db.execute(
         update(QrLogin)
@@ -93,17 +93,17 @@ def _transition(db: Session, request_id: str, from_status: str, **values) -> boo
 
 
 def approve(db: Session, request_id: str, user_id: int, approver_sid: str | None) -> bool:
-    return _transition(
+    return transition_qr(
         db, request_id, "pending", status="approved", user_id=user_id, approver_sid=approver_sid, approved_at=utcnow()
     )
 
 
 def deny(db: Session, request_id: str) -> bool:
-    return _transition(db, request_id, "pending", status="denied")
+    return transition_qr(db, request_id, "pending", status="denied")
 
 
 def consume(db: Session, request_id: str) -> bool:
-    return _transition(db, request_id, "approved", status="consumed")
+    return transition_qr(db, request_id, "approved", status="consumed")
 
 
 def take_attempt(db: Session, request_id: str) -> bool:

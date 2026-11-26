@@ -26,15 +26,15 @@ class SlidingWindow:
     def __init__(self, max_events: int, window_seconds: float, now: Callable[[], float] = time.monotonic) -> None:
         self._max_events = max_events
         self._window = window_seconds
-        self._now = now
+        self.now_totp = now
         self._events: deque[float] = deque()
 
     def idle(self) -> bool:
-        current = self._now()
+        current = self.now_totp()
         return not self._events or self._events[-1] <= current - self._window
 
     def allow(self) -> bool:
-        current = self._now()
+        current = self.now_totp()
         while self._events and self._events[0] <= current - self._window:
             self._events.popleft()
         if len(self._events) >= self._max_events:
@@ -56,11 +56,11 @@ class UserRateLimiter:
         window = self._events.get(user_id)
         if window is None:
             if len(self._events) >= PRUNE_AT:
-                self._prune()
+                self.prune()
             window = self._events[user_id] = SlidingWindow(self._max, self._window, self._clock)
         return window.allow()
 
-    def _prune(self) -> None:
+    def prune(self) -> None:
         for key in [k for k, w in self._events.items() if w.idle()]:
             del self._events[key]
 

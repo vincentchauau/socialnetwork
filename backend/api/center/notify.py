@@ -10,7 +10,7 @@ from api.center.methods import has_verified_email
 from api.center.models import User
 
 
-def _link(request: Request, path: str, token: str) -> str:
+def link_notify(request: Request, path: str, token: str) -> str:
     """Links come from the PUBLIC_URL setting, never from the request (host-header poisoning).
 
     The token travels in the URL fragment: browsers never send it to a server, a log or a Referer header.
@@ -45,7 +45,7 @@ def send_link_mail(
     request: Request, background: BackgroundTasks, kind: str, to: str, token: str, code: str | None
 ) -> None:
     path = {"verify": "/verify-email", "login": "/login/magic", "reset": "/reset-password"}[kind]
-    send_in_background(request, background, kind, to, link=_link(request, path, token), code=code)
+    send_in_background(request, background, kind, to, link=link_notify(request, path, token), code=code)
 
 
 def send_code_mail(request: Request, background: BackgroundTasks, kind: str, to: str, code: str) -> None:

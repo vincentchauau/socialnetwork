@@ -31,7 +31,7 @@ class CreateBody(BaseModel):
 
     @field_validator("timerSeconds")
     @classmethod
-    def _timer(cls, value: int) -> int:
+    def timer_schemas(cls, value: int) -> int:
         if value != 0 and not MIN_TIMER <= value <= MAX_TIMER:
             raise ValueError(f"must be 0 or {MIN_TIMER}..{MAX_TIMER}")
         return value
@@ -46,7 +46,7 @@ class OptionsBody(BaseModel):
 
     @field_validator("timerSeconds")
     @classmethod
-    def _timer(cls, value: int | None) -> int | None:
+    def timer_schemas(cls, value: int | None) -> int | None:
         if value is not None and value != 0 and not MIN_TIMER <= value <= MAX_TIMER:
             raise ValueError(f"must be 0 or {MIN_TIMER}..{MAX_TIMER}")
         return value

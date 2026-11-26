@@ -19,15 +19,15 @@ MAX_PIXELS = 4096 * 4096
 TIME_BUDGET = 20.0
 
 
-def _points(landmark) -> list[tuple[float, float]]:
+def points(landmark) -> list[tuple[float, float]]:
     return [(float(x), float(y)) for x, y in landmark]
 
 
 def frame_features(marks: dict) -> tuple[float, float, float]:
     """(ear, mar, yaw) of one face's face_recognition landmarks."""
-    ear = (lv.eye_aspect_ratio(_points(marks["left_eye"])) + lv.eye_aspect_ratio(_points(marks["right_eye"]))) / 2
-    mar = lv.mouth_aspect_ratio(_points(marks["top_lip"]), _points(marks["bottom_lip"]))
-    return ear, mar, lv.yaw_proxy(_points(marks["nose_bridge"]), _points(marks["chin"]))
+    ear = (lv.eye_aspect_ratio(points(marks["left_eye"])) + lv.eye_aspect_ratio(points(marks["right_eye"]))) / 2
+    mar = lv.mouth_aspect_ratio(points(marks["top_lip"]), points(marks["bottom_lip"]))
+    return ear, mar, lv.yaw_proxy(points(marks["nose_bridge"]), points(marks["chin"]))
 
 
 def liveness_actions(raw: bytes, clock=time.monotonic) -> list[str]:

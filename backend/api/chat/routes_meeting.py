@@ -30,7 +30,7 @@ ROOM_CLOSED = "This room is closed"
 NOT_SET_UP = "Calls are not set up"
 
 
-def _out(slug: str, meeting: Meeting, user: TokenPayload) -> dict[str, Any]:
+def out_routes_meeting(slug: str, meeting: Meeting, user: TokenPayload) -> dict[str, Any]:
     """What the browser needs to join: where LiveKit is, the name of its room, and the ticket of this person (members only get one)."""
     if not livekit_tickets.configured():
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, NOT_SET_UP)
@@ -89,7 +89,7 @@ def start_meeting(request: Request, slug: Slug, user: TokenPayload = Depends(get
     if line is not None:
         db.refresh(line)
         announce(request, slug, [line])
-    out = _out(slug, meeting, user)
+    out = out_routes_meeting(slug, meeting, user)
     call_ear.watch_in_background(meeting.room_name, slug)  # (the ear listens to the microphones of the call; asked at each join, it listens once)
     return out
 
@@ -117,7 +117,7 @@ def current_meeting(slug: Slug, user: TokenPayload = Depends(get_current_user), 
     db.commit()
     if meeting is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No meeting in this room")
-    return _out(slug, meeting, user)
+    return out_routes_meeting(slug, meeting, user)
 
 
 MAX_VOICE_SECONDS = 30

@@ -8,10 +8,10 @@ from tests.center.helpers import CREDS, STRONG, register
 
 @pytest.fixture
 def run(client):
-    def _run(*argv, password=STRONG):
+    def run_test_cli(*argv, password=STRONG):
         return cli.main(list(argv), read_password=lambda: password, open_session=client.app.state.session_factory)
 
-    return _run
+    return run_test_cli
 
 
 def user_of(client) -> User:

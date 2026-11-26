@@ -96,7 +96,7 @@ def test_a_new_public_room_on_one_copy_is_known_to_the_other(two):
 def test_a_copy_that_leaves_takes_its_picture_away(two):
     first, second = two
     key = clustering.PRESENCE_KEY + first.app.state.cluster.replica
-    client = fakeredis.FakeRedis(server=first.app.state.cluster._client.connection_pool.connection_kwargs["server"])
+    client = fakeredis.FakeRedis(server=first.app.state.cluster.client_revocation.connection_pool.connection_kwargs["server"])
     deadline = time.time() + 5
     while not client.exists(key) and time.time() < deadline:
         time.sleep(0.05)

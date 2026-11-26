@@ -87,7 +87,7 @@ def new_code() -> str:
     return f"{secrets.randbelow(10**CODE_DIGITS):0{CODE_DIGITS}d}"
 
 
-def _store(db: Session, user_id: int, purpose: str, phone: str, code: str) -> None:
+def store_phones(db: Session, user_id: int, purpose: str, phone: str, code: str) -> None:
     codes.insert(db, user_id, codes.PHONE, purpose, phone, TTL[purpose], code=code, mac=code_mac)
     codes.trim_live(db, user_id, codes.PHONE, purpose, MAX_LIVE_CODES)
 
@@ -97,9 +97,9 @@ def issue(db: Session, user: User | None, purpose: str, phone: str) -> str:
     purge(db)
     code = new_code()
     if user is None:
-        codes.rehearse(db, lambda owner: _store(db, owner, purpose, phone, code))
+        codes.rehearse(db, lambda owner: store_phones(db, owner, purpose, phone, code))
     else:
-        _store(db, user.id, purpose, phone, code)
+        store_phones(db, user.id, purpose, phone, code)
     db.commit()
     return code
 
@@ -118,7 +118,7 @@ def drop_codes(db: Session, user_id: int, purpose: str) -> None:
         VerificationCode.user_id == user_id, VerificationCode.channel == codes.PHONE, VerificationCode.purpose == purpose)))
 
 
-def _deliver(provider: SmsProvider, phone: str, text: str) -> None:
+def deliver(provider: SmsProvider, phone: str, text: str) -> None:
     try:
         provider.send(phone, text)
     except Exception as exc:  # noqa: BLE001 - a provider problem must never reach the client
@@ -141,4 +141,4 @@ def spend_daily(request: Request, purpose: str) -> bool:
 
 def queue_sms(request: Request, background: BackgroundTasks, purpose: str, phone: str, code: str) -> None:
     """Queue one REAL send (the caller has already counted it against the daily cap)."""
-    background.add_task(_deliver, request.app.state.sms, phone, TEXTS[purpose].format(code=code))
+    background.add_task(deliver, request.app.state.sms, phone, TEXTS[purpose].format(code=code))

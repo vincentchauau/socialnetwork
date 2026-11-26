@@ -24,7 +24,7 @@ from api.center.models import Passkey, User, utcnow
 from api.center.notify import send_code_mail
 from api.center.reauth import REAUTH_FAILED, available_methods, set_fresh
 from api.center.routes_auth import verify_google_or_throttle
-from api.center.routes_passkeys import options_gate, options_out, _store
+from api.center.routes_passkeys import options_gate, options_out, store_routes_passkeys
 from api.center.schemas import FreshOut, GoogleBody, OkOut, PasskeyLoginBody, PasskeyOptionsOut, ReauthCodeBody, ReauthMethodsOut
 
 GOOGLE_PROOF_TTL_SECONDS = 3600.0  # Google ID tokens live an hour
@@ -36,19 +36,19 @@ def throttle_key(request: Request, user: User) -> str:
     return f"{user.id}|{client_ip(request)}"
 
 
-def _guard(request: Request, user: User) -> None:
+def guard(request: Request, user: User) -> None:
     if request.app.state.fresh_throttle.is_blocked(throttle_key(request, user)):
         audit.warning("reauth locked user=%r ip=%s", user.username, client_ip(request))
         raise too_many()
 
 
-def _fail(request: Request, user: User, how: str) -> HTTPException:
+def fail(request: Request, user: User, how: str) -> HTTPException:
     request.app.state.fresh_throttle.record(throttle_key(request, user))
     audit.warning("reauth %s failed user=%r ip=%s", how, user.username, client_ip(request))
     return HTTPException(status.HTTP_401_UNAUTHORIZED, REAUTH_FAILED)
 
 
-def _granted(request: Request, response: Response, user: User, how: str) -> FreshOut:
+def granted(request: Request, response: Response, user: User, how: str) -> FreshOut:
     request.app.state.fresh_throttle.reset(throttle_key(request, user))
     audit.info("reauth ok (%s) user=%r ip=%s", how, user.username, client_ip(request))
     return set_fresh(response, request, user, settings_of(request))
@@ -70,7 +70,7 @@ def passkey_options(request: Request, session: AuthSession = Depends(csrf_sessio
 
 
 def verified_own_passkey(request: Request, db: Session, user: User, body: PasskeyLoginBody) -> Passkey:
-    challenge = pk.read_challenge(body.challenge_token, pk.REAUTH, _store(request))  # single use
+    challenge = pk.read_challenge(body.challenge_token, pk.REAUTH, store_routes_passkeys(request))  # single use
     if challenge.user_id != user.id:
         raise pk.PasskeyError("challenge belongs to another account")
     passkey = db.scalar(select(Passkey).where(Passkey.credential_id == pk.credential_id_of(body.credential)))
@@ -92,14 +92,14 @@ def passkey_verify(
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> FreshOut:  # fmt: skip
     user = session.user
-    _guard(request, user)
+    guard(request, user)
     try:
         verified_own_passkey(request, db, user, body)
     except pk.PasskeyError:
         db.rollback()
-        raise _fail(request, user, "passkey") from None
+        raise fail(request, user, "passkey") from None
     db.commit()
-    return _granted(request, response, user, "passkey")
+    return granted(request, response, user, "passkey")
 
 
 # --- Google ----------------------------------------------------------------------------------------
@@ -110,20 +110,20 @@ def google(
     body: GoogleBody, request: Request, response: Response, session: AuthSession = Depends(csrf_session)
 ) -> FreshOut:
     user = session.user
-    _guard(request, user)
+    guard(request, user)
     try:
         identity = verify_google_or_throttle(request, body.id_token)
     except HTTPException as exc:
         if exc.status_code == status.HTTP_401_UNAUTHORIZED:
-            raise _fail(request, user, "google") from None
+            raise fail(request, user, "google") from None
         raise
     if user.google_sub is None or not secrets.compare_digest(identity.sub, user.google_sub):
-        raise _fail(request, user, "google")
+        raise fail(request, user, "google")
     ttl = max(1.0, identity.exp - time.time()) if identity.exp else GOOGLE_PROOF_TTL_SECONDS
     digest = hashlib.sha256(body.id_token.encode()).hexdigest()
     if not request.app.state.kv.set_if_absent(f"google-reauth:{digest}", ttl):  # one ID token, one proof
-        raise _fail(request, user, "google")
-    return _granted(request, response, user, "google")
+        raise fail(request, user, "google")
+    return granted(request, response, user, "google")
 
 
 # --- mailed code -----------------------------------------------------------------------------------
@@ -154,7 +154,7 @@ def email_verify(
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> FreshOut:  # fmt: skip
     user = session.user
-    _guard(request, user)
+    guard(request, user)
     email_routes.gate_submit(request)
     failure_key = email_routes.code_failure_key(f"reauth:{user.id}")
     email_routes.guard_code_attempts(request, failure_key)
@@ -163,6 +163,6 @@ def email_verify(
     if not et.check_code(db, row, body.code) or row is None or not et.consume(db, row.id):
         db.rollback()
         email_routes.count_code_failure(request, failure_key)
-        raise _fail(request, user, "email")
+        raise fail(request, user, "email")
     db.commit()
-    return _granted(request, response, user, "email")
+    return granted(request, response, user, "email")

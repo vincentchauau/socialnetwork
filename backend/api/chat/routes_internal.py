@@ -40,7 +40,7 @@ class GameOver(BaseModel):
     seen: list[str] = Field(default_factory=list, max_length=MAX_LINES)
 
 
-def _card(body: GameOver) -> dict:
+def card_routes_internal(body: GameOver) -> dict:
     """The roles of everybody, then what happened that all of them saw, as the lines of a card that fits in a message."""
     lines: list[str] = []
     used = 0
@@ -58,7 +58,7 @@ def _card(body: GameOver) -> dict:
     return {"type": "detail", "title": CARD_TITLE, "lines": lines, "actions": []}
 
 
-def _say(request: Request, body: GameOver) -> tuple[str, list[dict]] | None:
+def say(request: Request, body: GameOver) -> tuple[str, list[dict]] | None:
     """The lines saved in the room whose game is `body.code`, with the frames to send; None when the chat has no such room."""
     with request.app.state.session_factory() as db:
         room = service.room_by_game_code(db, body.code)
@@ -67,7 +67,7 @@ def _say(request: Request, body: GameOver) -> tuple[str, list[dict]] | None:
         winner = body.winner if body.winner in WINNERS else "DRAW"
         lines = [service.say_text(db, room, f"game_over:{winner}:{body.days}")]
         if body.roles or body.seen:
-            lines.append(service.say_card(db, room, _card(body)))
+            lines.append(service.say_card(db, room, card_routes_internal(body)))
         db.commit()
         for line in lines:
             db.refresh(line)
@@ -86,7 +86,7 @@ async def game_over(request: Request) -> Response:
         body = GameOver.model_validate(json.loads(raw))
     except (ValueError, ValidationError):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid request") from None
-    said = await run_in_threadpool(_say, request, body)
+    said = await run_in_threadpool(say, request, body)
     if said is not None:
         slug, frames = said
         for frame in frames:

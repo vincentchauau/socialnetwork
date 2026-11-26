@@ -33,7 +33,7 @@ PUBLIC_BLOCK = re.compile(
     r"(?P<pem>-----BEGIN PUBLIC KEY-----.+?-----END PUBLIC KEY-----)",
     re.DOTALL | re.MULTILINE,
 )
-_lock = threading.RLock()
+key_lock = threading.RLock()
 _cache: dict[str, tuple[str, object]] = {}
 _file_cache: dict[str, tuple[tuple[int, int, int], str]] = {}
 _ephemeral: "Signer | None" = None
@@ -58,11 +58,11 @@ def thumbprint(public_key: Ed25519PublicKey) -> str:
     return base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")[:KID_LENGTH]
 
 
-def _raw(public_key: Ed25519PublicKey) -> bytes:
+def raw_jwtkeys(public_key: Ed25519PublicKey) -> bytes:
     return public_key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
 
-def _read(name: str) -> str:
+def read_jwtkeys(name: str) -> str:
     """The value of NAME, or the contents of the file named by NAME_FILE ('' when neither is set)."""
     path = os.environ.get(f"{name}_FILE", "").strip()
     if path:
@@ -108,7 +108,7 @@ def load_private(pem: str) -> Ed25519PrivateKey:
 
 
 def memo(kind: str, source: str, build):
-    with _lock:
+    with key_lock:
         hit = _cache.get(kind)
         if hit is not None and hit[0] == source:
             return hit[1]
@@ -120,7 +120,7 @@ def memo(kind: str, source: str, build):
 def get_signer() -> Signer:
     """The signing key; RuntimeError when none is configured (and an ephemeral one is not allowed)."""
     global _ephemeral
-    pem = _read("JWT_PRIVATE_KEY")
+    pem = read_jwtkeys("JWT_PRIVATE_KEY")
     if pem:
         kid_override = os.environ.get("JWT_KEY_ID", "").strip()
         if kid_override and not re.fullmatch(KID_PATTERN, kid_override):
@@ -133,7 +133,7 @@ def get_signer() -> Signer:
         return memo("signer", pem + "\0" + kid_override, build)
     if is_production():
         raise RuntimeError("JWT_PRIVATE_KEY (or JWT_PRIVATE_KEY_FILE) is required in production")
-    with _lock:
+    with key_lock:
         if _ephemeral is None:
             key = Ed25519PrivateKey.generate()
             _ephemeral = Signer(thumbprint(key.public_key()), key)
@@ -153,7 +153,7 @@ def parse_public_keys(text: str) -> dict[str, Ed25519PublicKey]:
         if not isinstance(key, Ed25519PublicKey):
             raise RuntimeError("JWT_PUBLIC_KEYS must contain Ed25519 public keys only")
         kid = match.group("kid") or thumbprint(key)
-        if kid in keys and _raw(keys[kid]) != _raw(key):
+        if kid in keys and raw_jwtkeys(keys[kid]) != raw_jwtkeys(key):
             raise RuntimeError(f"JWT_PUBLIC_KEYS lists the key id {kid!r} more than once")
         keys[kid] = key
     return keys
@@ -161,15 +161,15 @@ def parse_public_keys(text: str) -> dict[str, Ed25519PublicKey]:
 
 def get_verification_keys() -> dict[str, Ed25519PublicKey]:
     """kid -> public key accepted for access tokens (empty when nothing is configured)."""
-    text = _read("JWT_PUBLIC_KEYS")
+    text = read_jwtkeys("JWT_PUBLIC_KEYS")
     keys: dict[str, Ed25519PublicKey] = {}
     if text:
         keys = dict(memo("public", text, lambda: parse_public_keys(text)))
         if not keys:
             raise RuntimeError("JWT_PUBLIC_KEYS holds no PEM public key")
-    if _read("JWT_PRIVATE_KEY") or _ephemeral is not None:
+    if read_jwtkeys("JWT_PRIVATE_KEY") or _ephemeral is not None:
         signer = get_signer()
-        if signer.kid in keys and _raw(keys[signer.kid]) != _raw(signer.public_key):
+        if signer.kid in keys and raw_jwtkeys(keys[signer.kid]) != raw_jwtkeys(signer.public_key):
             raise RuntimeError(f"JWT_KEY_ID {signer.kid!r} collides with a key id listed in JWT_PUBLIC_KEYS")
         keys[signer.kid] = signer.public_key
     return keys
@@ -187,7 +187,7 @@ def require_verification_keys() -> None:
 def reset() -> None:
     """Forget cached keys and the ephemeral signer (tests)."""
     global _ephemeral
-    with _lock:
+    with key_lock:
         _cache.clear()
         _file_cache.clear()
         _ephemeral = None

@@ -41,7 +41,7 @@ SIGNUP_DISPLAY_NAME = "Passkey"
 router = APIRouter(prefix="/auth", tags=["passkeys"], dependencies=[Depends(check_origin)])
 
 
-def _store(request: Request) -> pk.ChallengeStore:
+def store_routes_passkeys(request: Request) -> pk.ChallengeStore:
     return request.app.state.passkey_challenges
 
 
@@ -69,7 +69,7 @@ def login_options(request: Request) -> PasskeyOptionsOut:
 
 def verified_login(request: Request, db: Session, body: PasskeyLoginBody) -> Passkey:
     settings = settings_of(request)
-    challenge = pk.read_challenge(body.challenge_token, pk.LOGIN, _store(request))
+    challenge = pk.read_challenge(body.challenge_token, pk.LOGIN, store_routes_passkeys(request))
     passkey = db.scalar(select(Passkey).where(Passkey.credential_id == pk.credential_id_of(body.credential)))
     if passkey is None:
         raise pk.PasskeyError("unknown credential")
@@ -126,7 +126,7 @@ def verified_signup_passkey(request: Request, db: Session, credential_json: str,
     """
     try:
         credential = json.loads(credential_json)
-        challenge = pk.read_challenge(token, pk.SIGNUP, _store(request))
+        challenge = pk.read_challenge(token, pk.SIGNUP, store_routes_passkeys(request))
         columns = pk.verify_registration(settings_of(request), credential, challenge)
     except (ValueError, pk.PasskeyError):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, REGISTRATION_FAILED) from None
@@ -138,7 +138,7 @@ def verified_signup_passkey(request: Request, db: Session, credential_json: str,
 # --- link and manage ------------------------------------------------------------------------------
 
 
-def _listing(user: User) -> PasskeyList:
+def listing(user: User) -> PasskeyList:
     return PasskeyList(passkeys=passkey_items(user))
 
 
@@ -176,7 +176,7 @@ def add_passkey(
 ) -> PasskeyList:  # fmt: skip
     user = session.user
     try:
-        challenge = pk.read_challenge(body.challenge_token, pk.LINK, _store(request))
+        challenge = pk.read_challenge(body.challenge_token, pk.LINK, store_routes_passkeys(request))
         if challenge.user_id != user.id:
             raise pk.PasskeyError("challenge belongs to another account")
         columns = pk.verify_registration(settings_of(request), body.credential, challenge)
@@ -195,15 +195,15 @@ def add_passkey(
         raise HTTPException(status.HTTP_409_CONFLICT, DUPLICATE) from None
     audit.info("passkey added user=%r ip=%s", user.username, client_ip(request))
     notify(request, background, user, "passkey_added")
-    return _listing(user)
+    return listing(user)
 
 
 @router.get("/me/passkeys", response_model=PasskeyList)
 def list_passkeys(session: AuthSession = Depends(current_session)) -> PasskeyList:
-    return _listing(session.user)
+    return listing(session.user)
 
 
-def _own(user: User, passkey_id: int) -> Passkey:
+def own(user: User, passkey_id: int) -> Passkey:
     for passkey in user.passkeys:
         if passkey.id == passkey_id:
             return passkey
@@ -215,13 +215,13 @@ def rename_passkey(
     passkey_id: int, body: PasskeyRenameBody, session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> PasskeyList:  # fmt: skip
-    passkey = _own(session.user, passkey_id)
+    passkey = own(session.user, passkey_id)
     name = body.name.strip()
     if not name:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "name: Enter a name")
     passkey.name = name
     db.commit()
-    return _listing(session.user)
+    return listing(session.user)
 
 
 @router.delete("/me/passkeys/{passkey_id}", response_model=PasskeyList)
@@ -230,7 +230,7 @@ def delete_passkey(
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> PasskeyList:  # fmt: skip
     user = session.user
-    passkey = _own(user, passkey_id)
+    passkey = own(user, passkey_id)
     ensure_reauth(request, user, body.password if body else None)
     if len(user.passkeys) == 1 and usable_methods(user, without="passkey") == 0:
         raise HTTPException(status.HTTP_409_CONFLICT, KEEP_ONE)
@@ -238,4 +238,4 @@ def delete_passkey(
     db.commit()
     audit.info("passkey removed user=%r ip=%s", user.username, client_ip(request))
     notify(request, background, user, "passkey_removed")
-    return _listing(user)
+    return listing(user)

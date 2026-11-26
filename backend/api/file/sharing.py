@@ -32,7 +32,7 @@ def file_of(user_id: int, path: str):
     return target if target.parts and target.real.is_file() else None
 
 
-def _out(record: dict, size: int | None = None) -> dict:
+def out_sharing(record: dict, size: int | None = None) -> dict:
     return {
         "token": record["token"], "path": record["path"], "page": shares.PAGE_PATH + record["token"], "createdAt": int(record["createdAt"]),
         "expiresAt": int(record["expiresAt"]) if record.get("expiresAt") else None, **({"size": size} if size is not None else {}),
@@ -49,7 +49,7 @@ def make_share(body: ShareIn, user: TokenPayload = Depends(writer)) -> dict:
         held = shares.mine(user.user_id)
         if len(held) >= shares.MAX_SHARES_PER_USER and not any(item["path"] == target.virtual for item in held):
             raise HTTPException(status.HTTP_409_CONFLICT, f"Chỉ chia sẻ được tối đa {shares.MAX_SHARES_PER_USER} tệp")
-        return _out(shares.make(user.user_id, target.virtual, body.days), target.real.stat().st_size)
+        return out_sharing(shares.make(user.user_id, target.virtual, body.days), target.real.stat().st_size)
 
 
 @router.get("/shares")
@@ -59,7 +59,7 @@ def list_shares(user: TokenPayload = Depends(get_current_user)) -> dict:
     for record in shares.mine(user.user_id):
         target = file_of(user.user_id, record["path"])
         if target is not None:
-            out.append(_out(record, target.real.stat().st_size))
+            out.append(out_sharing(record, target.real.stat().st_size))
     return {"shares": out}
 
 

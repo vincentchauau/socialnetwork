@@ -12,7 +12,7 @@ from sn_shared.security import INTERNAL_ALGORITHM, ISSUER, AuthError, get_jwt_se
 MFA_TTL_SECONDS = 5 * 60
 
 
-def _make(typ: str, user_id: int, ver: int, ttl_seconds: int, **extra: str | None) -> str:
+def make(typ: str, user_id: int, ver: int, ttl_seconds: int, **extra: str | None) -> str:
     now = int(time.time())
     claims = {"iss": ISSUER, "sub": str(user_id), "typ": typ, "ver": ver, "iat": now, "exp": now + ttl_seconds}
     claims.update({k: v for k, v in extra.items() if v is not None})
@@ -20,17 +20,17 @@ def _make(typ: str, user_id: int, ver: int, ttl_seconds: int, **extra: str | Non
 
 
 def create_refresh_token(user_id: int, ver: int, ttl_seconds: int, sid: str | None = None) -> str:
-    return _make("refresh", user_id, ver, ttl_seconds, sid=sid)
+    return make("refresh", user_id, ver, ttl_seconds, sid=sid)
 
 
 def create_mfa_token(user_id: int, ver: int, ttl_seconds: int = MFA_TTL_SECONDS, method: str | None = None) -> str:
     """`method` is the primary factor already passed (it becomes the session's method after the second step)."""
-    return _make("mfa", user_id, ver, ttl_seconds, mth=method)
+    return make("mfa", user_id, ver, ttl_seconds, mth=method)
 
 
 def create_fresh_token(user_id: int, ver: int, ttl_seconds: int, sid: str | None) -> str:
     """Proof of a recent re-authentication, bound to one user and one session."""
-    return _make("fresh", user_id, ver, ttl_seconds, sid=sid)
+    return make("fresh", user_id, ver, ttl_seconds, sid=sid)
 
 
 def decode_claims(token: str, typ: str) -> dict:

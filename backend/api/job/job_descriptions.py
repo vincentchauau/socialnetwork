@@ -45,7 +45,7 @@ def index_skills(db: Session, job: JobDescription) -> None:
     job.skill_keys = shared_skills.keys_of(names)
 
 
-def _plain(changes: dict) -> dict:
+def plain_job_descriptions(changes: dict) -> dict:
     """The lists of the job as the plain data that goes into the row."""
     plain = dict(changes)
     for name in LIST_FIELDS:
@@ -67,7 +67,7 @@ def create_job_description(
     )
     if body.status == "open" and (open_count or 0) >= MAX_OPEN_JOBS_PER_USER:
         raise HTTPException(status.HTTP_409_CONFLICT, "Too many open jobs; close one first")
-    fields = _plain(body.model_dump())
+    fields = plain_job_descriptions(body.model_dump())
     job = JobDescription(owner_id=user.user_id, **fields)
     db.add(job)
     db.flush()
@@ -147,7 +147,7 @@ def update_job_description(
     db: Session = Depends(get_db),
 ) -> JobDescriptionDetail:
     job = ensure_owner(get_job_description(db, job_id), user)
-    changes = _plain(body.model_dump(exclude_unset=True))
+    changes = plain_job_descriptions(body.model_dump(exclude_unset=True))
     salary_min = changes.get("salary_min", job.salary_min)
     salary_max = changes.get("salary_max", job.salary_max)
     try:

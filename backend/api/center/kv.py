@@ -51,13 +51,13 @@ class MemoryKv:
 
     def __init__(self, max_keys: int = DEFAULT_MAX_KEYS, now: Callable[[], float] = time.monotonic) -> None:
         self._max_keys = max_keys
-        self._now = now
+        self.now_totp = now
         self._hits: dict[str, tuple[float, list[float]]] = {}  # key -> (window, timestamps)
         self._flags: dict[str, float] = {}  # key -> expiry
-        self._lock = threading.Lock()
+        self.guard = threading.Lock()
 
-    def _recent(self, key: str, window: float) -> list[float]:
-        cutoff = self._now() - window
+    def recent_kv(self, key: str, window: float) -> list[float]:
+        cutoff = self.now_totp() - window
         recent = [t for t in self._hits.get(key, (window, []))[1] if t > cutoff]
         if recent:
             self._hits[key] = (window, recent)
@@ -65,44 +65,44 @@ class MemoryKv:
             self._hits.pop(key, None)
         return recent
 
-    def _make_room(self) -> None:
+    def make_room(self) -> None:
         for key, (window, _) in list(self._hits.items()):
-            self._recent(key, window)
+            self.recent_kv(key, window)
         while len(self._hits) >= self._max_keys:
             oldest = min(self._hits, key=lambda k: self._hits[k][1][-1])
             del self._hits[oldest]
 
-    def _append(self, key: str, window: float) -> int:
+    def append_kv(self, key: str, window: float) -> int:
         if key not in self._hits and len(self._hits) >= self._max_keys:
-            self._make_room()
-        recent = self._recent(key, window)
-        recent.append(self._now())
+            self.make_room()
+        recent = self.recent_kv(key, window)
+        recent.append(self.now_totp())
         self._hits[key] = (window, recent)
         return len(recent)
 
     def hit(self, key: str, window: float) -> int:
-        with self._lock:
-            return self._append(key, window)
+        with self.guard:
+            return self.append_kv(key, window)
 
     def hit_capped(self, key: str, window: float, limit: int) -> bool:
-        with self._lock:
-            if len(self._recent(key, window)) >= limit:
+        with self.guard:
+            if len(self.recent_kv(key, window)) >= limit:
                 return False
-            self._append(key, window)
+            self.append_kv(key, window)
             return True
 
     def count(self, key: str, window: float) -> int:
-        with self._lock:
-            return len(self._recent(key, window))
+        with self.guard:
+            return len(self.recent_kv(key, window))
 
     def clear(self, key: str) -> None:
-        with self._lock:
+        with self.guard:
             self._hits.pop(key, None)
             self._flags.pop(key, None)
 
     def set_if_absent(self, key: str, ttl: float) -> bool:
-        with self._lock:
-            now = self._now()
+        with self.guard:
+            now = self.now_totp()
             if len(self._flags) >= self._max_keys:
                 self._flags = {k: v for k, v in self._flags.items() if v > now}
                 if len(self._flags) >= self._max_keys:
@@ -113,7 +113,7 @@ class MemoryKv:
             return True
 
     def tracked_keys(self, prefix: str = "") -> int:
-        with self._lock:
+        with self.guard:
             return sum(1 for k in self._hits if k.startswith(prefix))
 
     def probe(self) -> str:
@@ -125,8 +125,8 @@ class RedisKv:
     MULTI/EXEC transaction, so concurrent replicas never lose a count."""
 
     def __init__(self, client: redis.Redis, now: Callable[[], float] = time.time) -> None:
-        self._client = client
-        self._now = now
+        self.client_revocation = client
+        self.now_totp = now
 
     @classmethod
     def from_url(cls, url: str) -> "RedisKv":
@@ -137,13 +137,13 @@ class RedisKv:
         return cls(client)
 
     @staticmethod
-    def _name(key: str) -> str:
+    def name_kv(key: str) -> str:
         return KEY_PREFIX + key
 
-    def _add(self, key: str, window: float) -> tuple[int, str]:
-        name, now = self._name(key), self._now()
+    def add(self, key: str, window: float) -> tuple[int, str]:
+        name, now = self.name_kv(key), self.now_totp()
         member = f"{now!r}:{secrets.token_hex(6)}"
-        pipe = self._client.pipeline(transaction=True)
+        pipe = self.client_revocation.pipeline(transaction=True)
         pipe.zremrangebyscore(name, "-inf", now - window)
         pipe.zadd(name, {member: now})
         pipe.expire(name, max(1, math.ceil(window)) + TTL_SLACK_SECONDS)
@@ -151,33 +151,33 @@ class RedisKv:
         return int(pipe.execute()[-1]), member
 
     def hit(self, key: str, window: float) -> int:
-        return self._add(key, window)[0]
+        return self.add(key, window)[0]
 
     def hit_capped(self, key: str, window: float, limit: int) -> bool:
-        total, member = self._add(key, window)
+        total, member = self.add(key, window)
         if total <= limit:
             return True
-        self._client.zrem(self._name(key), member)  # over the cap: this attempt does not count
+        self.client_revocation.zrem(self.name_kv(key), member)  # over the cap: this attempt does not count
         return False
 
     def count(self, key: str, window: float) -> int:
-        name = self._name(key)
-        pipe = self._client.pipeline(transaction=True)
-        pipe.zremrangebyscore(name, "-inf", self._now() - window)
+        name = self.name_kv(key)
+        pipe = self.client_revocation.pipeline(transaction=True)
+        pipe.zremrangebyscore(name, "-inf", self.now_totp() - window)
         pipe.zcard(name)
         return int(pipe.execute()[-1])
 
     def clear(self, key: str) -> None:
-        self._client.delete(self._name(key))
+        self.client_revocation.delete(self.name_kv(key))
 
     def set_if_absent(self, key: str, ttl: float) -> bool:
-        return bool(self._client.set(self._name(key), "1", nx=True, ex=max(1, math.ceil(ttl))))
+        return bool(self.client_revocation.set(self.name_kv(key), "1", nx=True, ex=max(1, math.ceil(ttl))))
 
     def tracked_keys(self, prefix: str = "") -> int:
-        return sum(1 for _ in self._client.scan_iter(match=self._name(prefix) + "*"))
+        return sum(1 for _ in self.client_revocation.scan_iter(match=self.name_kv(prefix) + "*"))
 
     def probe(self) -> str:
-        self._client.ping()
+        self.client_revocation.ping()
         return STATUS_OK
 
 
@@ -189,53 +189,53 @@ class ResilientKv:
     ) -> None:
         self._primary = primary
         self._fallback = fallback or MemoryKv()
-        self._now = now
+        self.now_totp = now
         self._degraded = False
         self._last_logged: float | None = None
         self._log_lock = threading.Lock()
 
-    def _failed(self, exc: Exception) -> None:
+    def failed(self, exc: Exception) -> None:
         self._degraded = True
         with self._log_lock:
-            now = self._now()
+            now = self.now_totp()
             if self._last_logged is not None and now - self._last_logged < ERROR_LOG_INTERVAL_SECONDS:
                 return
             self._last_logged = now
         audit.error("redis unavailable (%s): limits are per process until it recovers", type(exc).__name__)
 
-    def _call(self, method: str, *args):
+    def call_store(self, method: str, *args):
         try:
             result = getattr(self._primary, method)(*args)
         except (RedisError, OSError) as exc:
-            self._failed(exc)
+            self.failed(exc)
             return getattr(self._fallback, method)(*args)
         self._degraded = False
         return result
 
     def hit(self, key: str, window: float) -> int:
-        return self._call("hit", key, window)
+        return self.call_store("hit", key, window)
 
     def hit_capped(self, key: str, window: float, limit: int) -> bool:
-        return self._call("hit_capped", key, window, limit)
+        return self.call_store("hit_capped", key, window, limit)
 
     def count(self, key: str, window: float) -> int:
-        return self._call("count", key, window)
+        return self.call_store("count", key, window)
 
     def clear(self, key: str) -> None:
         self._fallback.clear(key)  # also drop what a past outage left in memory
-        self._call("clear", key)
+        self.call_store("clear", key)
 
     def set_if_absent(self, key: str, ttl: float) -> bool:
-        return self._call("set_if_absent", key, ttl)
+        return self.call_store("set_if_absent", key, ttl)
 
     def tracked_keys(self, prefix: str = "") -> int:
-        return self._call("tracked_keys", prefix)
+        return self.call_store("tracked_keys", prefix)
 
     def probe(self) -> str:
         try:
             self._primary.probe()
         except (RedisError, OSError) as exc:
-            self._failed(exc)
+            self.failed(exc)
             return STATUS_DEGRADED
         self._degraded = False
         return STATUS_OK

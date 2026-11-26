@@ -26,7 +26,7 @@ def voice(value: float, who: str) -> tuple[str, bytes]:
 ANA, BEN, CLEO = voice(0.0, "ana"), voice(0.5, "ben"), voice(1.0, "cleo")
 
 
-def _post(c, audio, data=None):
+def post_test_identify_voice(c, audio, data=None):
     return c.post("/auth/login/voice", data=data or {}, files={"audio": audio} if audio else None)
 
 
@@ -58,46 +58,46 @@ def add_voice_user(c, username, embedding: bytes, **extra):
 
 def test_identifies_a_single_account(bio_client):
     enroll(bio_client, "ana", ANA)
-    response = _post(bio_client, ANA)
+    response = post_test_identify_voice(bio_client, ANA)
     assert response.status_code == 200 and response.json()["username"] == "ana"
     assert cookie_names(response) == COOKIES
 
 
 def test_picks_the_right_account_among_several(three):
     for name, audio in (("cleo", CLEO), ("ana", ANA), ("ben", BEN)):
-        response = _post(three, audio)
+        response = post_test_identify_voice(three, audio)
         assert response.status_code == 200 and response.json()["username"] == name
         three.cookies.clear()
 
 
 def test_near_voice_signs_in(three):
-    assert _post(three, voice(0.05, "x")).json()["username"] == "ana"
+    assert post_test_identify_voice(three, voice(0.05, "x")).json()["username"] == "ana"
 
 
 def test_below_threshold_is_rejected(three):
-    assert shape(_post(three, voice(0.2, "x"))) == FAILED  # similarity 0.8 to ana, under 0.88
+    assert shape(post_test_identify_voice(three, voice(0.2, "x"))) == FAILED  # similarity 0.8 to ana, under 0.88
 
 
 def test_ambiguous_match_is_rejected_and_margin_is_configurable(bio_client):
     enroll(bio_client, "ana", ANA)
     add_voice_user(bio_client, "twin", b"A:v0.03-twin")  # similarity gap 0.03 < 0.05
-    assert shape(_post(bio_client, ANA)) == FAILED
+    assert shape(post_test_identify_voice(bio_client, ANA)) == FAILED
     object.__setattr__(bio_client.app.state.settings, "voice_identify_margin", 0.01)
-    assert _post(bio_client, ANA).json()["username"] == "ana"
+    assert post_test_identify_voice(bio_client, ANA).json()["username"] == "ana"
 
 
 def test_unknown_voice_and_no_candidates(bio_client):
-    assert shape(_post(bio_client, ANA)) == FAILED  # nobody enrolled
+    assert shape(post_test_identify_voice(bio_client, ANA)) == FAILED  # nobody enrolled
     enroll(bio_client, "ana", ANA)
-    assert shape(_post(bio_client, voice(9.0, "stranger"))) == FAILED
+    assert shape(post_test_identify_voice(bio_client, voice(9.0, "stranger"))) == FAILED
 
 
 def test_identical_401s_across_failure_types(three):
     responses = [
-        _post(three, voice(0.2, "x")),
-        _post(three, voice(9.0, "x")),
-        _post(three, ("b.webm", b"bad-recording")),
-        _post(three, None),
+        post_test_identify_voice(three, voice(0.2, "x")),
+        post_test_identify_voice(three, voice(9.0, "x")),
+        post_test_identify_voice(three, ("b.webm", b"bad-recording")),
+        post_test_identify_voice(three, None),
     ]
     for response in responses:
         assert shape(response) == FAILED and "set-cookie" not in response.headers
@@ -108,7 +108,7 @@ def test_method_not_enabled_is_the_same_401(bio_client):
     with bio_client.app.state.session_factory() as db:
         db.scalar(select(User).where(func.lower(User.username) == "ana")).voice_login = False
         db.commit()
-    assert shape(_post(bio_client, ANA)) == FAILED
+    assert shape(post_test_identify_voice(bio_client, ANA)) == FAILED
 
 
 def test_no_candidate_does_one_dummy_comparison(bio_client, monkeypatch):
@@ -116,7 +116,7 @@ def test_no_candidate_does_one_dummy_comparison(bio_client, monkeypatch):
     engine = bio_client.app.state.biometrics
     original = engine.audio_similarity
     monkeypatch.setattr(engine, "audio_similarity", lambda a, b: calls.append(a) or original(a, b))
-    assert shape(_post(bio_client, ANA)) == FAILED
+    assert shape(post_test_identify_voice(bio_client, ANA)) == FAILED
     assert calls == [DUMMY_VOICE]
 
 
@@ -138,7 +138,7 @@ def test_username_given_path_unchanged(three):
     three.cookies.clear()
     assert shape(login_voice(three, "ana", BEN)) == FAILED
     assert shape(login_voice(three, "ghost", ANA)) == FAILED
-    assert _post(three, ANA, data={"username": "  "}).status_code == 200  # blank = identification
+    assert post_test_identify_voice(three, ANA, data={"username": "  "}).status_code == 200  # blank = identification
 
 
 # --- throttles and cap ------------------------------------------------------------------------
@@ -146,8 +146,8 @@ def test_username_given_path_unchanged(three):
 
 def test_per_ip_throttle_is_separate_from_the_face_counters(three):
     for _ in range(5):
-        assert _post(three, voice(9.0, "x")).status_code == 401
-    blocked = _post(three, ANA)
+        assert post_test_identify_voice(three, voice(9.0, "x")).status_code == 401
+    blocked = post_test_identify_voice(three, ANA)
     assert blocked.status_code == 429 and "Too many attempts" in blocked.text
     assert not three.app.state.identify_ip_throttle.is_blocked("testclient")
     assert three.post("/auth/login/webcam", files={"video": ("c.webm", b"x")}).status_code == 401
@@ -157,27 +157,27 @@ def test_global_throttle_is_separate(three):
     glob = three.app.state.voice_identify_global_throttle
     for _ in range(100):
         glob.record("all")
-    assert _post(three, ANA).status_code == 429
+    assert post_test_identify_voice(three, ANA).status_code == 429
     assert not three.app.state.identify_global_throttle.is_blocked("all")
 
 
 def test_success_clears_the_ip_counter(three):
-    assert _post(three, voice(9.0, "x")).status_code == 401
-    assert _post(three, ANA).status_code == 200
+    assert post_test_identify_voice(three, voice(9.0, "x")).status_code == 401
+    assert post_test_identify_voice(three, ANA).status_code == 200
     assert three.app.state.voice_identify_ip_throttle.tracked_keys() == 0
 
 
 def test_candidate_cap_asks_for_a_username(three, monkeypatch):
     monkeypatch.setattr("api.center.identify.MAX_IDENTIFY_CANDIDATES", 2)
-    response = _post(three, ANA)
+    response = post_test_identify_voice(three, ANA)
     assert response.status_code == 422 and response.json()["detail"] == "Enter your username"
     assert login_voice(three, "ana", ANA).status_code == 200
 
 
 def test_audit_log_has_no_vectors_or_guessed_names(three, caplog):
     caplog.set_level(logging.INFO, logger="auth.audit")
-    _post(three, voice(9.0, "mallory"))
-    _post(three, ANA)
+    post_test_identify_voice(three, voice(9.0, "mallory"))
+    post_test_identify_voice(three, ANA)
     text = caplog.text
     assert "voice identify failed ip=testclient" in text and "login ok (voice identify)" in text
     assert "A:" not in text and "mallory" not in text
@@ -236,7 +236,7 @@ def test_voice_only_gets_a_generated_handle_and_signs_in_without_it(bio_client):
     name = response.json()["username"]
     assert name.startswith("user-") and len(name) == 11 and row(bio_client, name).voice_login is True
     bio_client.cookies.clear()
-    assert _post(bio_client, ANA).json()["username"] == name
+    assert post_test_identify_voice(bio_client, ANA).json()["username"] == name
 
 
 def test_register_voice_endpoint_without_a_username(bio_client):

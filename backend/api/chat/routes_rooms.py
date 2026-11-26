@@ -128,10 +128,10 @@ def list_rooms(
     owners = service.owner_names(db, [room for room, _ in rows])
     titles = service.dm_titles(db, [room for room, _ in rows], user.user_id)
     pictures = service.dm_avatars(db, [room for room, _ in rows], user.user_id)
-    return [room_out(request, room, n, mine_by_room.get(room.id), unread.get(room.id, 0), _hit(hits.get(room.id)), last.get(room.id), owners.get(room.id, ""), titles.get(room.id), pictures.get(room.id)) for room, n in rows]
+    return [room_out(request, room, n, mine_by_room.get(room.id), unread.get(room.id, 0), hit(hits.get(room.id)), last.get(room.id), owners.get(room.id, ""), titles.get(room.id), pictures.get(room.id)) for room, n in rows]
 
 
-def _hit(found: dict | None) -> SearchHit | None:
+def hit(found: dict | None) -> SearchHit | None:
     if found is None:
         return None
     message = found["message"]
@@ -175,7 +175,7 @@ def update_room(slug: Slug, body: RoomUpdate, request: Request, user: TokenPaylo
     return one_out(request, db, room, me, user)
 
 
-def _drop_game(request: Request, code: str | None) -> None:
+def drop_game_routes_rooms(request: Request, code: str | None) -> None:
     """The game of a deleted room goes with it (it would keep its players' seats, which count toward their limit): the game is asked to drop it."""
     if code:
         try:
@@ -204,13 +204,13 @@ def remove_room(
         service.purge_room(db, room)
         db.commit()
         changed(request, db)
-        _drop_game(request, game_code)
+        drop_game_routes_rooms(request, game_code)
         return
     members = [m.user_id for m in db.scalars(select(RoomMember).where(RoomMember.room_id == room.id, RoomMember.status == service.JOINED))]
     service.set_state(db, room, service.DELETED, actor_id=user.user_id)  # hidden, with everything in it kept
     db.commit()
     changed(request, db)
-    _drop_game(request, game_code)
+    drop_game_routes_rooms(request, game_code)
     for user_id in members:
         disconnect(request, slug, user_id, "Room deleted")
 

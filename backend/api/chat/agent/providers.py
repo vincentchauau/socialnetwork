@@ -83,7 +83,7 @@ class DummyProvider:
 Http = Callable[[str, dict[str, str], bytes], dict[str, Any]]
 
 
-def _post(url: str, headers: dict[str, str], body: bytes) -> dict[str, Any]:
+def post_providers(url: str, headers: dict[str, str], body: bytes) -> dict[str, Any]:
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310 - a fixed https address
@@ -93,10 +93,10 @@ def _post(url: str, headers: dict[str, str], body: bytes) -> dict[str, Any]:
 
 
 class GeminiProvider:
-    def __init__(self, key: str, model: str = DEFAULT_MODEL, http: Http = _post) -> None:
+    def __init__(self, key: str, model: str = DEFAULT_MODEL, http: Http = post_providers) -> None:
         if not key:
             raise RuntimeError("AI_PROVIDER=gemini needs GEMINI_API_KEY")
-        self._key, self._model, self._http = key, model, http
+        self.key_throttle, self._model, self._http = key, model, http
 
     def reply(self, persona: Persona, history: list[Line], caller: str) -> str:
         return self.reply_with_usage(persona, history, caller)[0]
@@ -108,7 +108,7 @@ class GeminiProvider:
             "contents": [{"role": "user", "parts": [{"text": f"Cuộc trò chuyện gần đây:\n{transcript}\n\nHãy viết tin nhắn tiếp theo của bạn."}]}],
             "generationConfig": {"maxOutputTokens": MAX_OUTPUT_TOKENS, "temperature": 0.9},
         }
-        headers = {"Content-Type": "application/json", "x-goog-api-key": self._key}
+        headers = {"Content-Type": "application/json", "x-goog-api-key": self.key_throttle}
         data = self._http(f"{BASE_URL}/models/{self._model}:generateContent", headers, json.dumps(body).encode())
         try:
             parts = data["candidates"][0]["content"]["parts"]
@@ -129,5 +129,5 @@ def get_provider(http: Http | None = None) -> Provider:
         return DummyProvider()
     if name == "gemini":
         key = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
-        return GeminiProvider(key, os.environ.get("GEMINI_MODEL", DEFAULT_MODEL), http or _post)
+        return GeminiProvider(key, os.environ.get("GEMINI_MODEL", DEFAULT_MODEL), http or post_providers)
     raise RuntimeError(f"Unknown AI_PROVIDER {name!r}")

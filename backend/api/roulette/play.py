@@ -23,7 +23,7 @@ STATS_MAX = 1000
 STATS_TOP = 5
 
 
-def _wallet(db: Session, user: TokenPayload, lock: bool = False) -> Wallet:
+def wallet_play(db: Session, user: TokenPayload, lock: bool = False) -> Wallet:
     query = select(Wallet).where(Wallet.user_id == user.user_id)
     if lock:
         query = query.with_for_update()  # two spins at once cannot spend the same chips
@@ -37,7 +37,7 @@ def _wallet(db: Session, user: TokenPayload, lock: bool = False) -> Wallet:
 
 @router.get("/wallet", response_model=WalletOut)
 def read_wallet(user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> WalletOut:
-    wallet = _wallet(db, user)
+    wallet = wallet_play(db, user)
     db.commit()
     return WalletOut(chips=wallet.chips)
 
@@ -45,7 +45,7 @@ def read_wallet(user: TokenPayload = Depends(reader), db: Session = Depends(get_
 @router.post("/wallet/refill", response_model=WalletOut)
 def refill(user: TokenPayload = Depends(writer), db: Session = Depends(get_db)) -> WalletOut:
     """A person with no chips left starts again with the first amount."""
-    wallet = _wallet(db, user, lock=True)
+    wallet = wallet_play(db, user, lock=True)
     if wallet.chips > 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "You still have chips")
     wallet.chips = START_CHIPS
@@ -56,7 +56,7 @@ def refill(user: TokenPayload = Depends(writer), db: Session = Depends(get_db)) 
 @router.post("/spin", response_model=SpinOut, status_code=status.HTTP_201_CREATED)
 def spin(body: SpinIn, user: TokenPayload = Depends(writer), db: Session = Depends(get_db)) -> Spin:
     stake = sum(bet.amount for bet in body.bets)
-    wallet = _wallet(db, user, lock=True)
+    wallet = wallet_play(db, user, lock=True)
     if stake > wallet.chips:
         raise HTTPException(status.HTTP_409_CONFLICT, "Not enough chips")
     number = game.spin()

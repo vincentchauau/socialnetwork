@@ -41,7 +41,7 @@ def describe(schema: dict[str, str]) -> str:
     return "; ".join(f"{name}({columns})" for name, columns in schema.items())
 
 
-def _authorizer(action: int, arg1: str | None, arg2: str | None, db: str | None, source: str | None) -> int:
+def authorizer_sandbox_sql(action: int, arg1: str | None, arg2: str | None, db: str | None, source: str | None) -> int:
     if action in (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_RECURSIVE):
         return sqlite3.SQLITE_OK
     if action == sqlite3.SQLITE_FUNCTION and (arg2 or "").lower() in ALLOWED_FUNCTIONS:
@@ -74,7 +74,7 @@ def run_query(tables: dict[str, list[tuple]], query: str, limit: int, schema: di
                 marks = ",".join("?" * len(rows[0]))
                 connection.executemany(f"INSERT INTO {name} VALUES ({marks})", rows)
         connection.commit()
-        connection.set_authorizer(_authorizer)
+        connection.set_authorizer(authorizer_sandbox_sql)
         steps = {"n": 0}
 
         def budget() -> int:
@@ -88,13 +88,13 @@ def run_query(tables: dict[str, list[tuple]], query: str, limit: int, schema: di
             fetched = cursor.fetchmany(limit + 1)
         except sqlite3.Error as error:
             raise QueryError(f"The query failed: {str(error)[:200]}") from None
-        shown = [[_cell(value) for value in row] for row in fetched[:limit]]
+        shown = [[cell(value) for value in row] for row in fetched[:limit]]
         return QueryResult(columns=names, rows=shown, truncated=len(fetched) > limit)
     finally:
         connection.close()
 
 
-def _cell(value: Any) -> Any:
+def cell(value: Any) -> Any:
     if isinstance(value, str):
         return value[:CELL_CHARS]
     if isinstance(value, bytes):

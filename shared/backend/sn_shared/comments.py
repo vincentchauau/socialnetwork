@@ -32,15 +32,15 @@ RATING_MAX = 5
 MAX_ID = 2**63 - 1
 
 
-def _utcnow() -> datetime:
+def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class _Base(DeclarativeBase):
+class Base(DeclarativeBase):
     pass
 
 
-class Comment(_Base):
+class Comment(Base):
     __tablename__ = "comments"
     __table_args__ = (
         Index("ix_comments_object", "object_type", "object_id", "id"),
@@ -56,12 +56,12 @@ class Comment(_Base):
     content: Mapped[str] = mapped_column(Text, default="")
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     once: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 def ensure_table(engine: Engine) -> None:
-    _Base.metadata.create_all(engine)
+    Base.metadata.create_all(engine)
 
 
 # ---- what an app says about its kind of thing ---------------------------------------------------------------------
@@ -107,16 +107,16 @@ class CommentOut(BaseModel):
     edited_at: datetime | None
 
 
-def _invalid(message: str) -> HTTPException:
+def invalid(message: str) -> HTTPException:
     return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, message)
 
 
 def checked_content(kind: CommentKind, value: str | None) -> str:
     content = (value or "").strip()
     if len(content) < kind.content_min:
-        raise _invalid("Write something" if kind.content_min else "The comment is too short")
+        raise invalid("Write something" if kind.content_min else "The comment is too short")
     if len(content) > kind.content_max:
-        raise _invalid(f"A comment is at most {kind.content_max} characters")
+        raise invalid(f"A comment is at most {kind.content_max} characters")
     return content
 
 
@@ -126,9 +126,9 @@ def checked_content(kind: CommentKind, value: str | None) -> str:
 def check_rating(kind: CommentKind, rating: int | None) -> None:
     """A kind of comment with no rating refuses one; a kind that needs a rating refuses none."""
     if kind.rating == "none" and rating is not None:
-        raise _invalid("This kind of comment has no rating")
+        raise invalid("This kind of comment has no rating")
     if kind.rating == "required" and rating is None:
-        raise _invalid("Give a rating")
+        raise invalid("Give a rating")
 
 
 def may_moderate(kind: CommentKind, db: Session, comment: Comment, user: TokenPayload) -> bool:
@@ -181,7 +181,7 @@ def comments_router(kind: CommentKind) -> APIRouter:
         content = checked_content(kind, body.content)
         check_rating(kind, body.rating)
         if not content and body.rating is None:
-            raise _invalid("Write something or give a rating")
+            raise invalid("Write something or give a rating")
         if kind.once and db.scalar(
             select(Comment.id).where(Comment.object_type == kind.object_type, Comment.object_id == object_id, Comment.user_id == user.user_id)
         ) is not None:
@@ -214,7 +214,7 @@ def comments_router(kind: CommentKind) -> APIRouter:
         if "rating" in sent:
             check_rating(kind, body.rating)
             comment.rating = body.rating
-        comment.edited_at = _utcnow()
+        comment.edited_at = utcnow()
         db.commit()
         attach_names(db, [comment])
         return comment

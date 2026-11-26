@@ -29,7 +29,7 @@ class EnsureBody(BaseModel):
     bot_names: list[tuple[str, str]] = Field(default_factory=list, max_length=100)
 
 
-async def _signed(request: Request, scope: str) -> bytes:
+async def signed_internal(request: Request, scope: str) -> bytes:
     raw = await request.body()
     secret = os.environ.get("WEREWOLF_SECRET", "")
     if len(raw) > MAX_BODY_BYTES or not servicesig.verify(
@@ -42,7 +42,7 @@ async def _signed(request: Request, scope: str) -> bytes:
 @router.post("/ensure")
 async def ensure(request: Request) -> dict[str, bool]:
     """The game under `code` exists and the person sits in it (see `ensure_game`)."""
-    raw = await _signed(request, "POST /internal/ensure")
+    raw = await signed_internal(request, "POST /internal/ensure")
     try:
         body = EnsureBody.model_validate(json.loads(raw))
     except (ValueError, ValidationError):
@@ -55,6 +55,6 @@ async def ensure(request: Request) -> dict[str, bool]:
 @router.delete("/rooms/{code}", status_code=status.HTTP_204_NO_CONTENT)
 async def drop(code: str, request: Request) -> Response:
     """The game of a room that is gone goes too (it would keep its players' seats, which count toward their limit)."""
-    await _signed(request, f"DELETE /internal/rooms/{code}")
+    await signed_internal(request, f"DELETE /internal/rooms/{code}")
     request.app.state.ww_store.delete(code)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

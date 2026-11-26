@@ -74,7 +74,7 @@ def too_many_candidates(db: Session, kind: Modality = FACE) -> bool:
     return candidate_count(db, kind) > MAX_IDENTIFY_CANDIDATES
 
 
-def _identify(request: Request, db: Session, kind: Modality, probe: bytes) -> User | None:
+def identify_identify(request: Request, db: Session, kind: Modality, probe: bytes) -> User | None:
     """The account closest to the probe, if that match is strict and unambiguous; else None.
 
     The probe is the only factor. Always walks every candidate (and runs one dummy comparison when there
@@ -102,12 +102,12 @@ def _identify(request: Request, db: Session, kind: Modality, probe: bytes) -> Us
 
 def identify(request: Request, db: Session, face: bytes) -> User | None:
     """Webcam sign-in without a username: the account whose face is closest, if strict and unambiguous."""
-    return _identify(request, db, FACE, face)
+    return identify_identify(request, db, FACE, face)
 
 
 def identify_voice(request: Request, db: Session, voice: bytes) -> User | None:
     """Voice sign-in without a username: the account whose voice is closest, if strict and unambiguous."""
-    return _identify(request, db, VOICE, voice)
+    return identify_identify(request, db, VOICE, voice)
 
 
 def ensure_unique(

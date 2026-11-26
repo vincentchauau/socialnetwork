@@ -60,15 +60,15 @@ def put(user_id: int, real: Path, parts: tuple[str, ...]) -> dict:
     }
     shutil.move(str(real), str(folder / ITEM))
     (folder / META).write_text(json.dumps(meta), encoding="utf-8")
-    _trim(user_id)
+    trim(user_id)
     return meta
 
 
-def _age(meta: dict) -> int:
+def age(meta: dict) -> int:
     return int(meta.get("seq", meta["deletedAt"] * 10**9))
 
 
-def _read(folder: Path) -> dict | None:
+def read_trash(folder: Path) -> dict | None:
     try:
         meta = json.loads((folder / META).read_text(encoding="utf-8"))
         return meta if isinstance(meta, dict) and meta.get("id") == folder.name and (folder / ITEM).exists() else None
@@ -78,15 +78,15 @@ def _read(folder: Path) -> dict | None:
 
 def entries(user_id: int) -> list[dict]:
     """What is in the trash, the newest first; what has stayed too long is erased first."""
-    _trim(user_id)
+    trim(user_id)
     home = trash_dir(user_id)
     if not home.is_dir():
         return []
-    found = [meta for meta in (_read(folder) for folder in home.iterdir() if folder.is_dir()) if meta]
-    return sorted(found, key=_age, reverse=True)
+    found = [meta for meta in (read_trash(folder) for folder in home.iterdir() if folder.is_dir()) if meta]
+    return sorted(found, key=age, reverse=True)
 
 
-def _trim(user_id: int) -> None:
+def trim(user_id: int) -> None:
     """Erase what is older than KEEP_DAYS, then the oldest while there are too many items or too many bytes."""
     home = trash_dir(user_id)
     if not home.is_dir():
@@ -96,12 +96,12 @@ def _trim(user_id: int) -> None:
     for folder in home.iterdir():
         if not folder.is_dir():
             continue
-        meta = _read(folder)
+        meta = read_trash(folder)
         if meta is None or now - meta["deletedAt"] > KEEP_DAYS * 86400:
             shutil.rmtree(folder, ignore_errors=True)
         else:
             kept.append(meta)
-    kept.sort(key=_age)  # the oldest first
+    kept.sort(key=age)  # the oldest first
     total = sum(meta["size"] for meta in kept)
     while kept and (len(kept) > MAX_ITEMS or total > MAX_BYTES):
         oldest = kept.pop(0)
@@ -114,7 +114,7 @@ def find(user_id: int, entry_id: str) -> tuple[Path, dict] | None:
     if not entry_id or not all(char in "0123456789abcdef" for char in entry_id) or len(entry_id) != ID_BYTES * 2:
         return None
     folder = trash_dir(user_id) / entry_id
-    meta = _read(folder) if folder.is_dir() else None
+    meta = read_trash(folder) if folder.is_dir() else None
     return (folder, meta) if meta else None
 
 

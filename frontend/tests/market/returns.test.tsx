@@ -24,7 +24,7 @@ beforeEach(() => { api.mockReset(); who = "alice"; });
 
 describe("order returns and discount", () => {
   it("lets the buyer ask for a return of a delivered order, and shows the discount", async () => {
-    api.mockImplementation(async (_url: string, init?: RequestInit) => (init?.method === "PATCH" ? order("return_requested") : order("delivered")));
+    api.mockImplementation(async (url: string, init?: RequestInit) => (init?.method === "PATCH" ? order("return_requested") : order("delivered")));
     await show();
     await userEvent.click(await screen.findByRole("button", { name: "Yêu cầu trả hàng" }));
     await waitFor(() => expect(patched()).toEqual(["return_requested"]));

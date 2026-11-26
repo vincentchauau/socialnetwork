@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.chat.agent.tools import MAX_ITEMS, Http, NoArgs, Tool, _get, _money, _write, action, clip, field, form_card, register, site_path
+from api.chat.agent.tools import MAX_ITEMS, Http, NoArgs, Tool, get_tools, money, write, action, clip, field, form_card, register, site_path
 
 
 class ProductId(BaseModel):
@@ -25,8 +25,8 @@ class EditProduct(BaseModel):
 
 
 def product(args: ProductId, token: str, http: Http) -> dict[str, Any]:
-    p = _get("market", f"/products/{args.product_id}", {}, token, http)
-    lines = [f"{_money(p['price_cents'])} {p.get('currency', '')}".strip(), f"Seller: {clip(p['seller_username'], 32)}", f"In stock: {p['stock']}", f"Category: {clip(p['category'], 32)}"]
+    p = get_tools("market", f"/products/{args.product_id}", {}, token, http)
+    lines = [f"{money(p['price_cents'])} {p.get('currency', '')}".strip(), f"Seller: {clip(p['seller_username'], 32)}", f"In stock: {p['stock']}", f"Category: {clip(p['category'], 32)}"]
     if p.get("description"):
         lines.append(clip(p["description"], 300))
     card: dict[str, Any] = {
@@ -46,11 +46,11 @@ def product(args: ProductId, token: str, http: Http) -> dict[str, Any]:
 
 
 def my_products(_: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    page = _get("market", "/me/products", {"limit": MAX_ITEMS}, token, http)
+    page = get_tools("market", "/me/products", {"limit": MAX_ITEMS}, token, http)
     items = [
         {
             "title": f"#{p['id']} {clip(p['name'])}",
-            "subtitle": f"{_money(p['price_cents'])} · {p['stock']} in stock",
+            "subtitle": f"{money(p['price_cents'])} · {p['stock']} in stock",
             "href": "/market",
             "actions": [
                 action("Edit", "market.edit", {"product_id": p["id"]}),
@@ -63,7 +63,7 @@ def my_products(_: NoArgs, token: str, http: Http) -> dict[str, Any]:
 
 
 def edit_form(args: ProductId, token: str, http: Http) -> dict[str, Any]:
-    p = _get("market", f"/products/{args.product_id}", {}, token, http)
+    p = get_tools("market", f"/products/{args.product_id}", {}, token, http)
     fields = [
         field("name", "Name", "text", required=True, max=80, value=p["name"]),
         field("description", "Description", "textarea", max=2000, value=p.get("description", "")),
@@ -74,7 +74,7 @@ def edit_form(args: ProductId, token: str, http: Http) -> dict[str, Any]:
 
 
 def edit_product(args: EditProduct, token: str, http: Http) -> dict[str, Any]:
-    current = _get("market", f"/products/{args.product_id}", {}, token, http)
+    current = get_tools("market", f"/products/{args.product_id}", {}, token, http)
     body = {
         "name": args.name if args.name is not None else current["name"],
         "description": args.description if args.description is not None else current.get("description", ""),
@@ -83,12 +83,12 @@ def edit_product(args: EditProduct, token: str, http: Http) -> dict[str, Any]:
         "category": current["category"],
         "image_url": current.get("image_url"),
     }
-    _write("market", f"/products/{args.product_id}", body, token, http, method="PUT")
+    write("market", f"/products/{args.product_id}", body, token, http, method="PUT")
     return {"type": "done", "summary": f"Saved {clip(body['name'], 40)}", "href": "/market"}
 
 
 def remove_product(args: ProductId, token: str, http: Http) -> dict[str, Any]:
-    _write("market", f"/products/{args.product_id}", {}, token, http, method="DELETE")
+    write("market", f"/products/{args.product_id}", {}, token, http, method="DELETE")
     return {"type": "done", "summary": f"Removed product #{args.product_id}", "href": "/market"}
 
 
@@ -125,33 +125,33 @@ class Review(BaseModel):
 
 
 def uncart(args: ProductId, token: str, http: Http) -> dict[str, Any]:
-    _write("market", f"/cart/items/{args.product_id}", {}, token, http, method="DELETE")
+    write("market", f"/cart/items/{args.product_id}", {}, token, http, method="DELETE")
     return {"type": "done", "summary": f"Took product #{args.product_id} out of your cart", "href": "/market/cart"}
 
 
 def sales(_: NoArgs, token: str, http: Http) -> dict[str, Any]:
     from api.chat.agent.tools import order_buttons
 
-    page = _get("market", "/sales", {"limit": MAX_ITEMS}, token, http)
+    page = get_tools("market", "/sales", {"limit": MAX_ITEMS}, token, http)
     items = [
-        {"title": f"#{o['id']} {o['status']} · {clip(o['buyer_username'], 24)}", "subtitle": _money(o["total_cents"]), "href": "/market/orders", "actions": order_buttons(o, selling=True)}
+        {"title": f"#{o['id']} {o['status']} · {clip(o['buyer_username'], 24)}", "subtitle": money(o["total_cents"]), "href": "/market/orders", "actions": order_buttons(o, selling=True)}
         for o in page["items"][:MAX_ITEMS]
     ]
     return {"type": "list", "title": "Orders you sell", "items": items}
 
 
 def pay(args: OrderRef, token: str, http: Http) -> dict[str, Any]:
-    order = _write("market", f"/orders/{args.order_id}/pay", {}, token, http, extra={"Idempotency-Key": uuid.uuid4().hex})
+    order = write("market", f"/orders/{args.order_id}/pay", {}, token, http, extra={"Idempotency-Key": uuid.uuid4().hex})
     return {"type": "done", "summary": f"Order #{args.order_id} is {order['status']}", "href": "/market/orders"}
 
 
 def order_status(args: OrderStatus, token: str, http: Http) -> dict[str, Any]:
-    order = _write("market", f"/orders/{args.order_id}/status", {"status": args.status}, token, http, method="PATCH")
+    order = write("market", f"/orders/{args.order_id}/status", {"status": args.status}, token, http, method="PATCH")
     return {"type": "done", "summary": f"Order #{args.order_id} is now {order['status']}", "href": "/market/orders"}
 
 
 def reviews(args: ProductId, token: str, http: Http) -> dict[str, Any]:
-    rows = _get("market", f"/products/{args.product_id}/reviews", {"limit": MAX_ITEMS}, token, http)
+    rows = get_tools("market", f"/products/{args.product_id}/reviews", {"limit": MAX_ITEMS}, token, http)
     items = [{"title": f"{'★' * r['rating']}{'☆' * (5 - r['rating'])} {clip(r['username'], 24)}", "subtitle": clip(r["content"] or "", 120)} for r in rows[:MAX_ITEMS]]
     return {"type": "list", "title": f"Reviews of product #{args.product_id}", "items": items}
 
@@ -165,7 +165,7 @@ def review_form(args: ProductId, token: str, http: Http) -> dict[str, Any]:
 
 
 def post_review(args: Review, token: str, http: Http) -> dict[str, Any]:
-    _write("market", f"/products/{args.product_id}/reviews", {"rating": args.rating, "content": args.content}, token, http)
+    write("market", f"/products/{args.product_id}/reviews", {"rating": args.rating, "content": args.content}, token, http)
     return {"type": "done", "summary": f"Thanks for reviewing product #{args.product_id}"}
 
 

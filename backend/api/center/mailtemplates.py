@@ -85,41 +85,41 @@ _LINK_MAILS: dict[str, tuple[str, str, str]] = {
 }
 
 
-def _page(body: str) -> str:
+def page_mailtemplates(body: str) -> str:
     return f"<!doctype html><html><body><h2>{escape(APP_NAME)}</h2>{body}</body></html>"
 
 
-def _p(text: str) -> str:
+def p_mailtemplates(text: str) -> str:
     return f"<p>{escape(text)}</p>"
 
 
 def link_mail(kind: str, link: str, code: str | None) -> Rendered:
     subject, intro, code_intro = _LINK_MAILS[kind]
     text = [intro, link]
-    body = _p(intro) + f'<p><a href="{escape(link, quote=True)}">{escape(link)}</a></p>'
+    body = p_mailtemplates(intro) + f'<p><a href="{escape(link, quote=True)}">{escape(link)}</a></p>'
     if code:
         text += ["", code_intro, code]
-        body += _p(code_intro) + f"<p><strong>{escape(code)}</strong></p>"
+        body += p_mailtemplates(code_intro) + f"<p><strong>{escape(code)}</strong></p>"
     text += ["", IGNORE]
-    body += _p(IGNORE)
-    return Rendered(subject=f"{subject} - {APP_NAME}", text=LINE_BREAK.join(text), html=_page(body))
+    body += p_mailtemplates(IGNORE)
+    return Rendered(subject=f"{subject} - {APP_NAME}", text=LINE_BREAK.join(text), html=page_mailtemplates(body))
 
 
 def code_mail(code: str) -> Rendered:
     """Re-authentication: a code only, never a link."""
     intro = "Nhập mã này để xác nhận thao tác nhạy cảm trong tài khoản (có hiệu lực 10 phút):"
     text = LINE_BREAK.join([intro, code, "", IGNORE])
-    body = _p(intro) + f"<p><strong>{escape(code)}</strong></p>" + _p(IGNORE)
-    return Rendered(subject=f"Xác nhận thao tác - {APP_NAME}", text=text, html=_page(body))
+    body = p_mailtemplates(intro) + f"<p><strong>{escape(code)}</strong></p>" + p_mailtemplates(IGNORE)
+    return Rendered(subject=f"Xác nhận thao tác - {APP_NAME}", text=text, html=page_mailtemplates(body))
 
 
-def _notice(kind: str, **ctx: str) -> Rendered:
+def notice(kind: str, **ctx: str) -> Rendered:
     subject, template = EVENTS[kind]
     values = {"username": "", "phone": "", "new_email": "", "old_username": "", "new_username": "", "ip": "", "ua": "", **ctx}
     what = template.format(**values)
     text = f"{what}\n\n{SECURITY_TIP}"
     escaped = {k: escape(str(v)) for k, v in values.items()}
-    html = _page(f"<p>{template.format(**escaped)}</p>" + _p(SECURITY_TIP))
+    html = page_mailtemplates(f"<p>{template.format(**escaped)}</p>" + p_mailtemplates(SECURITY_TIP))
     return Rendered(subject=f"{subject} - {APP_NAME}", text=text, html=html)
 
 
@@ -129,4 +129,4 @@ def render(kind: str, **ctx: str | None) -> Rendered:
         return code_mail(str(ctx["code"]))
     if kind in _LINK_MAILS:
         return link_mail(kind, str(ctx["link"]), ctx.get("code"))
-    return _notice(kind, **{k: str(v) for k, v in ctx.items() if v is not None})
+    return notice(kind, **{k: str(v) for k, v in ctx.items() if v is not None})

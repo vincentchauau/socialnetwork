@@ -62,7 +62,7 @@ class QueueSpec:
         return f"{self.name}.dlq"
 
 
-async def _declare(channel, spec: QueueSpec):
+async def declare_messaging(channel, spec: QueueSpec):
     import aio_pika
 
     dlx = await channel.declare_exchange(spec.dead_exchange, aio_pika.ExchangeType.DIRECT, durable=True)
@@ -82,25 +82,25 @@ class WorkQueue:
         self.spec = spec
         self._connection = None
         self._channel = None
-        self._lock = asyncio.Lock()
+        self.guard = asyncio.Lock()
 
-    async def _ensure(self):
+    async def ensure(self):
         import aio_pika
 
-        async with self._lock:
+        async with self.guard:
             if self._channel is not None and not self._channel.is_closed:
                 return self._channel
-            await self._drop()
+            await self.drop()
             try:
                 self._connection = await aio_pika.connect(timeout=CONNECT_TIMEOUT_SECONDS, **rabbitmq_settings())
                 self._channel = await self._connection.channel(publisher_confirms=True)
-                await _declare(self._channel, self.spec)
+                await declare_messaging(self._channel, self.spec)
             except BaseException:
-                await self._drop()
+                await self.drop()
                 raise
             return self._channel
 
-    async def _drop(self) -> None:
+    async def drop(self) -> None:
         connection, self._connection, self._channel = self._connection, None, None
         if connection is not None:
             with contextlib.suppress(Exception):
@@ -110,7 +110,7 @@ class WorkQueue:
         import aio_pika
 
         try:
-            channel = await asyncio.wait_for(self._ensure(), CONNECT_TIMEOUT_SECONDS + 1)
+            channel = await asyncio.wait_for(self.ensure(), CONNECT_TIMEOUT_SECONDS + 1)
             await channel.default_exchange.publish(
                 aio_pika.Message(payload, content_type=content_type, delivery_mode=aio_pika.DeliveryMode.PERSISTENT),
                 routing_key=self.spec.name,
@@ -121,13 +121,13 @@ class WorkQueue:
 
     async def ping(self) -> bool:
         try:
-            await asyncio.wait_for(self._ensure(), CONNECT_TIMEOUT_SECONDS)
+            await asyncio.wait_for(self.ensure(), CONNECT_TIMEOUT_SECONDS)
         except Exception:
             return False
         return True
 
     async def close(self) -> None:
-        await self._drop()
+        await self.drop()
 
 
 Handler = Callable[[bytes], Awaitable[str]]
@@ -144,7 +144,7 @@ async def consume(spec: QueueSpec, handler: Handler, stop: asyncio.Event) -> Non
     try:
         channel = await connection.channel()
         await channel.set_qos(prefetch_count=PREFETCH)
-        queue = await _declare(channel, spec)
+        queue = await declare_messaging(channel, spec)
 
         async def on_message(message) -> None:
             try:
@@ -208,12 +208,12 @@ class EventLog:
     def __init__(self, topic: str) -> None:
         self.topic = topic
         self._producer = None
-        self._lock = asyncio.Lock()
+        self.guard = asyncio.Lock()
 
-    async def _ensure(self):
+    async def ensure(self):
         from aiokafka import AIOKafkaProducer
 
-        async with self._lock:
+        async with self.guard:
             if self._producer is not None:
                 return self._producer
             producer = AIOKafkaProducer(bootstrap_servers=kafka_bootstrap(), acks="all", request_timeout_ms=3000)
@@ -226,17 +226,17 @@ class EventLog:
             self._producer = producer
             return producer
 
-    async def _reset(self) -> None:
+    async def reset_channel(self) -> None:
         producer, self._producer = self._producer, None
         if producer is not None:
             await quiet_stop(producer)
 
     async def publish(self, key: str, value: bytes) -> tuple[int, int]:
         try:
-            producer = await self._ensure()
+            producer = await self.ensure()
             meta = await asyncio.wait_for(producer.send_and_wait(self.topic, value, key=key.encode()), SEND_TIMEOUT_SECONDS)
         except Exception as exc:
-            await self._reset()
+            await self.reset_channel()
             raise Unavailable("kafka") from exc
         return meta.partition, meta.offset
 
@@ -270,4 +270,4 @@ class EventLog:
             await quiet_stop(consumer)
 
     async def close(self) -> None:
-        await self._reset()
+        await self.reset_channel()

@@ -78,13 +78,13 @@ class AiProvider(Protocol):
     def web_search(self, query: str, max_results: int) -> dict: ...
 
 
-def _words(text: str) -> list[str]:
+def words_provider(text: str) -> list[str]:
     folded = unicodedata.normalize("NFKD", text.replace("đ", "d").replace("Đ", "D"))
     ascii_text = folded.encode("ascii", "ignore").decode("ascii").lower()
     return re.findall(r"[a-z0-9]+", ascii_text)
 
 
-def _timestamp(seconds: int) -> str:
+def timestamp(seconds: int) -> str:
     return f"{seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d},000"
 
 
@@ -108,7 +108,7 @@ class DummyProvider:
     min_similarity = 0.25  # one shared word of a short question gives about 0.3; a lone collision is rare at this size
 
     def video_script(self, prompt: str) -> VideoScript:
-        words = _words(prompt) or ["untitled"]
+        words = words_provider(prompt) or ["untitled"]
         slug = "_".join(words[:SLUG_WORDS])
         stories = tuple(
             f"[CAMERA: {SHOTS[n % len(SHOTS)]}] [VISUALS: scene {n + 1} of {SCENES} about \"{prompt.strip()}\"] "
@@ -116,7 +116,7 @@ class DummyProvider:
             for n in range(SCENES)
         )
         blocks = [
-            f"{n + 1}\n{_timestamp(n * SCENE_SECONDS)} --> {_timestamp((n + 1) * SCENE_SECONDS)}\nScene {n + 1}: {prompt.strip()}"
+            f"{n + 1}\n{timestamp(n * SCENE_SECONDS)} --> {timestamp((n + 1) * SCENE_SECONDS)}\nScene {n + 1}: {prompt.strip()}"
             for n in range(SCENES)
         ]
         return VideoScript(topic=slug, filename=slug, stories=stories, subtitles=(Subtitle("en", "\n\n".join(blocks)),))
@@ -156,7 +156,7 @@ class DummyProvider:
         vectors = []
         for text in texts:
             vector = [0.0] * EMBEDDING_DIMENSIONS
-            for word in _words(text):
+            for word in words_provider(text):
                 digest = hashlib.md5(word.encode("utf-8"), usedforsecurity=False).digest()
                 slot = int.from_bytes(digest[:4], "big") % EMBEDDING_DIMENSIONS
                 vector[slot] += 1.0 if digest[4] % 2 == 0 else -1.0

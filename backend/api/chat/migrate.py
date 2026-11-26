@@ -52,7 +52,7 @@ FOREIGN_KEYS = (
 ROOM_COLUMN_DEFAULTS = {"kind": "chat", "visibility": "public", "join_policy": "open"}
 
 
-def _columns(engine: Engine, table: str) -> set[str]:
+def columns_migrate(engine: Engine, table: str) -> set[str]:
     return {column["name"] for column in inspect(engine).get_columns(table)} if table in inspect(engine).get_table_names() else set()
 
 
@@ -77,7 +77,7 @@ def ensure_columns(engine: Engine) -> list[str]:
 
 def rename_owner_column(engine: Engine) -> bool:
     """The owner of a room was `rooms.owner_id`: it is `rooms.user_id` now. True when it was renamed."""
-    have = _columns(engine, "rooms")
+    have = columns_migrate(engine, "rooms")
     if "owner_id" not in have or "user_id" in have:
         return False
     with engine.begin() as connection:
@@ -88,7 +88,7 @@ def rename_owner_column(engine: Engine) -> bool:
 
 def rename_meeting_room_column(engine: Engine) -> bool:
     """The name of the room of a meeting at the video server was `meetings.jitsi_room`: it is `meetings.room_name` now. True when renamed."""
-    have = _columns(engine, "meetings")
+    have = columns_migrate(engine, "meetings")
     if "jitsi_room" not in have or "room_name" in have:
         return False
     with engine.begin() as connection:
@@ -169,12 +169,12 @@ def fold_legacy(engine: Engine) -> None:
     """What the columns that are going held, put where it lives now: a mute still running becomes the reason `muted` of a joined member, a card
     becomes a message that starts with `CARD_PREFIX`."""
     with engine.begin() as connection:
-        if "muted_until" in _columns(engine, "room_members"):
+        if "muted_until" in columns_migrate(engine, "room_members"):
             connection.execute(
                 text("UPDATE room_members SET status_reason = :muted WHERE status = 'joined' AND muted_until IS NOT NULL AND muted_until > :now"),
                 {"muted": MUTED_REASON, "now": now()},
             )
-        if "kind" in _columns(engine, "messages"):
+        if "kind" in columns_migrate(engine, "messages"):
             connection.execute(
                 text("UPDATE messages SET content = :prefix || content WHERE kind = 'card' AND content NOT LIKE :like"),
                 {"prefix": CARD_PREFIX, "like": CARD_PREFIX + "%"},
@@ -189,7 +189,7 @@ def drop_legacy_columns(engine: Engine) -> list[str]:
         for index in ("ix_rooms_owner", "ix_rooms_listing"):
             connection.execute(text(f"DROP INDEX IF EXISTS {index}"))
     for table, names in LEGACY_COLUMNS.items():
-        have = _columns(engine, table)
+        have = columns_migrate(engine, table)
         for name in names:
             if name not in have:
                 continue
@@ -221,7 +221,7 @@ def relax_unused_columns(engine: Engine) -> bool:
 
 def widen_avatar(engine: Engine) -> bool:
     """`rooms.avatar` holds a small image now, not only an address: PostgreSQL's varchar(255) becomes text. True when widened."""
-    if engine.dialect.name != "postgresql" or "avatar" not in _columns(engine, "rooms"):
+    if engine.dialect.name != "postgresql" or "avatar" not in columns_migrate(engine, "rooms"):
         return False
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE rooms ALTER COLUMN avatar TYPE TEXT"))

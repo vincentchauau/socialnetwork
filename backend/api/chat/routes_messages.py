@@ -123,7 +123,7 @@ def delete_message(slug: Slug, message_id: int, request: Request, user: TokenPay
     emit(request, slug, {"type": "deleted", "id": message_id})
 
 
-def _member_of(db: Session, slug: str, user: TokenPayload) -> Room:
+def member_of(db: Session, slug: str, user: TokenPayload) -> Room:
     """The room, for anyone who is in it (a joined member): pinning is not for the moderators only."""
     room, me = visible(db, slug, user)
     if me is None or me.status != service.JOINED:
@@ -133,7 +133,7 @@ def _member_of(db: Session, slug: str, user: TokenPayload) -> Room:
 
 @router.put("/rooms/{slug}/messages/{message_id}/pin", status_code=status.HTTP_204_NO_CONTENT)
 def pin_message(slug: Slug, message_id: int, request: Request, user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)) -> None:
-    room = _member_of(db, slug, user)
+    room = member_of(db, slug, user)
     message = message_in(db, room, message_id)
     message.pinned_at = service.now()
     db.commit()
@@ -142,7 +142,7 @@ def pin_message(slug: Slug, message_id: int, request: Request, user: TokenPayloa
 
 @router.delete("/rooms/{slug}/messages/{message_id}/pin", status_code=status.HTTP_204_NO_CONTENT)
 def unpin_message(slug: Slug, message_id: int, request: Request, user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)) -> None:
-    room = _member_of(db, slug, user)
+    room = member_of(db, slug, user)
     message = message_in(db, room, message_id)
     message.pinned_at = None
     db.commit()

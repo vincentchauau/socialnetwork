@@ -116,7 +116,7 @@ def test_cli_on_an_old_database_forces_the_relogin_too(tmp_path, monkeypatch):
     from tests.center.test_migrate import make_old_db
 
     monkeypatch.setenv("DATABASE_URL", make_old_db(tmp_path / "old.db"))
-    with cli._open_session() as db:
+    with cli.open_session_cli() as db:
         assert db.scalar(select(User.token_version)) == 1
 
 

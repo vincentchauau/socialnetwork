@@ -73,7 +73,7 @@ def verified_user(db: Session, phone: str) -> User | None:
     return db.scalar(select(User).where(User.phone == phone, User.phone_verified.is_(True)))
 
 
-def _spend_daily(request: Request, purpose: str) -> None:
+def spend_daily_routes_phone(request: Request, purpose: str) -> None:
     """Count one REAL send against the flow's share of the daily cap (429 when it is spent)."""
     if not ph.spend_daily(request, purpose):
         raise too_many()
@@ -118,7 +118,7 @@ def set_phone(
         audit.info("phone verification skipped (taken) user=%r ip=%s", user.username, client_ip(request))
         return OkOut()
     code = ph.issue(db, user, ph.VERIFY, phone)
-    _spend_daily(request, ph.VERIFY)
+    spend_daily_routes_phone(request, ph.VERIFY)
     ph.queue_sms(request, background, ph.VERIFY, phone, code)
     audit.info("phone verification requested user=%r phone=%s ip=%s", user.username, log_phone(phone),
                client_ip(request))  # fmt: skip
@@ -192,7 +192,7 @@ def login_request(
     code = ph.issue(db, user, ph.LOGIN, phone)
     jitter()
     if user is not None:
-        _spend_daily(request, ph.LOGIN)
+        spend_daily_routes_phone(request, ph.LOGIN)
         ph.queue_sms(request, background, ph.LOGIN, phone, code)
     audit.info("phone login requested ip=%s", client_ip(request))
     return OkOut()

@@ -84,13 +84,13 @@ def read_person(username: str, request: Request, user: Me, db: Db) -> PersonOut:
 # ---- friends ---------------------------------------------------------------------------------------------------
 
 
-def _mine(db: Session, user: TokenPayload) -> Person:
+def mine_routes_people(db: Session, user: TokenPayload) -> Person:
     return service.actor_of(db, user.user_id, user.username)  # type: ignore[return-value]
 
 
 @router.post("/friends/{user_id}", response_model=PersonOut)
 def ask(user_id: int, request: Request, user: Me, db: Db) -> PersonOut:
-    me = _mine(db, user)
+    me = mine_routes_people(db, user)
     other = other_person(db, user, user_id)
     try:
         service.request_friendship(db, me, other)
@@ -103,7 +103,7 @@ def ask(user_id: int, request: Request, user: Me, db: Db) -> PersonOut:
 
 @router.post("/friends/{user_id}/accept", response_model=PersonOut)
 def accept(user_id: int, request: Request, user: Me, db: Db) -> PersonOut:
-    me = _mine(db, user)
+    me = mine_routes_people(db, user)
     other = other_person(db, user, user_id)
     try:
         service.accept(db, me, other)
@@ -116,7 +116,7 @@ def accept(user_id: int, request: Request, user: Me, db: Db) -> PersonOut:
 
 @router.post("/friends/{user_id}/decline", status_code=status.HTTP_204_NO_CONTENT)
 def decline(user_id: int, user: Me, db: Db) -> None:
-    me = _mine(db, user)
+    me = mine_routes_people(db, user)
     try:
         service.decline(db, me, known(db, user_id))
     except service.Refused as error:
@@ -187,7 +187,7 @@ administrator = require_groups(admin=True, moderator=True)  # the reports queue:
 
 @router.get("/reports", response_model=list[ReportOut])
 def reports(
-    db: Db, _admin: Annotated[TokenPayload, Depends(administrator)],
+    db: Db, admin_livekit_tickets: Annotated[TokenPayload, Depends(administrator)],
     status_filter: Annotated[str, Query(alias="status", pattern="^(open|reviewed|actioned)$")] = "open",
     limit: Annotated[int, Query(ge=1, le=LIST_LIMIT)] = 50,
 ) -> list[Report]:
@@ -195,7 +195,7 @@ def reports(
 
 
 @router.patch("/reports/{report_id}", response_model=ReportOut)
-def review(report_id: int, body: ReportReview, db: Db, _admin: Annotated[TokenPayload, Depends(administrator)]) -> Report:
+def review(report_id: int, body: ReportReview, db: Db, admin_livekit_tickets: Annotated[TokenPayload, Depends(administrator)]) -> Report:
     row = db.get(Report, report_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")

@@ -13,7 +13,7 @@ MAX_PIXELS = 4096 * 4096  # larger frames are rejected before allocating more me
 TIME_BUDGET = 20.0  # seconds for the whole video
 
 
-def _libs():
+def libs():
     try:
         import cv2
         import face_recognition
@@ -24,7 +24,7 @@ def _libs():
 
 
 def embed_face(raw: bytes, max_frames: int, clock=time.monotonic) -> bytes:
-    cv2, face_recognition, np = _libs()
+    cv2, face_recognition, np = libs()
     fd, path = tempfile.mkstemp(suffix=".webm")  # reopenable by name on Windows
     started = clock()
     try:

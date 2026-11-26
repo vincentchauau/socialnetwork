@@ -20,7 +20,7 @@ def fresh_limits(monkeypatch):
     """Every test starts with its own hour of replies (the limiter is shared by the process)."""
     from api.chat.agent import service
 
-    monkeypatch.setattr(service, "_limiter", service.Limiter(10_000))
+    monkeypatch.setattr(service, "limiter_service", service.Limiter(10_000))
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ class _Client:
 
         from api.chat.agent import tools
 
-        self.app = SimpleNamespace(state=SimpleNamespace(http=tools._call))
+        self.app = SimpleNamespace(state=SimpleNamespace(http=tools.send_request))
 
     def post(self, path: str, content: bytes = b"", headers: dict | None = None) -> _Response:
         import json

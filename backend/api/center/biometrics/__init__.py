@@ -56,19 +56,19 @@ class RealBiometrics:
     """resemblyzer for voices, face_recognition for faces."""
 
     def __init__(self, settings: Settings) -> None:
-        self._s = settings
+        self.s_jobs = settings
 
     @engine_guard
     def audio_embedding(self, raw: bytes) -> bytes:
         from api.center.biometrics.audio import embed_audio
 
-        return embed_audio(raw, self._s.ffmpeg_timeout)
+        return embed_audio(raw, self.s_jobs.ffmpeg_timeout)
 
     @engine_guard
     def face_embedding(self, raw: bytes) -> bytes:
         from api.center.biometrics.video import embed_face
 
-        return embed_face(raw, self._s.max_frames)
+        return embed_face(raw, self.s_jobs.max_frames)
 
     def audio_similarity(self, stored: bytes, probe: bytes) -> float:
         """Cosine similarity; malformed, mismatched or zero-norm data is "no match" (-1.0), never an error."""
@@ -87,7 +87,7 @@ class RealBiometrics:
 
     def audio_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool:
         return self.audio_similarity(stored, probe) >= (
-            self._s.audio_threshold_alone if strict else self._s.audio_threshold
+            self.s_jobs.audio_threshold_alone if strict else self.s_jobs.audio_threshold
         )
 
     def face_matches(self, stored: bytes, probe: bytes, strict: bool = False) -> bool:
@@ -99,7 +99,7 @@ class RealBiometrics:
         template, sample = np.frombuffer(stored, np.float32), np.frombuffer(probe, np.float32)
         if template.shape != sample.shape:
             return False
-        limit = self._s.face_threshold_alone if strict else self._s.face_threshold
+        limit = self.s_jobs.face_threshold_alone if strict else self.s_jobs.face_threshold
         return float(np.linalg.norm(template - sample)) <= limit
 
     def liveness_actions(self, raw: bytes) -> list[str]:

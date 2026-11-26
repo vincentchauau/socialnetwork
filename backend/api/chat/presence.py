@@ -30,17 +30,17 @@ class Presence:
     def local_rooms(self) -> dict[str, dict[int, str]]:
         return {room: dict(names) for room, names in self._names.items()}
 
-    def _all(self, room: str) -> dict[int, str]:
+    def all_presence(self, room: str) -> dict[int, str]:
         return {**self._remote.get(room, {}), **self._names.get(room, {})}
 
-    def _room_names(self) -> set[str]:
+    def room_names(self) -> set[str]:
         return set(self._names) | set(self._remote)
 
     def refusal(self, room: str, user_id: int) -> str | None:
         """Why this user may not open a socket in the room, or None."""
-        members = self._all(room) or None
+        members = self.all_presence(room) or None
         if members is None:
-            return REASON_TOO_MANY_ROOMS if len(self._room_names()) >= MAX_LIVE_ROOMS else None
+            return REASON_TOO_MANY_ROOMS if len(self.room_names()) >= MAX_LIVE_ROOMS else None
         if user_id not in members and len(members) >= MAX_MEMBERS_PER_ROOM:
             return REASON_ROOM_FULL
         return None
@@ -71,7 +71,7 @@ class Presence:
         return True
 
     def members(self, room: str) -> tuple[list[dict], int]:
-        names = self._all(room)
+        names = self.all_presence(room)
         ordered = sorted(names.items(), key=lambda item: (item[1].lower(), item[0]))
         listed = [{"userId": uid, "username": name} for uid, name in ordered[:MAX_MEMBERS_PER_ROOM]]
         return listed, len(names)
@@ -83,7 +83,7 @@ class Presence:
                 "users": len(names),
                 "members": sorted(names.values(), key=lambda name: (name.lower(), name))[:MAX_LOBBY_MEMBERS],
             }
-            for room, names in ((room, self._all(room)) for room in self._room_names())
+            for room, names in ((room, self.all_presence(room)) for room in self.room_names())
             if names
         ]
         entries.sort(key=lambda entry: (-entry["users"], entry["room"]))

@@ -149,13 +149,13 @@ def test_rematch_does_not_leak_the_new_deal(client, room_code):
 def test_nothing_secret_is_ever_pushed_over_websockets(client, room_code, monkeypatch):
     hub = client.app.state.ww_hub
     seen: list[tuple[int, dict]] = []
-    original = hub._deliver
+    original = hub.deliver
 
     async def spy(room, socket, frame):
         seen.append((hub._rooms[room][socket], json.loads(frame)))
         return await original(room, socket, frame)
 
-    monkeypatch.setattr(hub, "_deliver", spy)
+    monkeypatch.setattr(hub, "deliver", spy)
     with ExitStack() as stack:
         for uid in HUMANS:
             open_state(client, stack, room_code, uid)

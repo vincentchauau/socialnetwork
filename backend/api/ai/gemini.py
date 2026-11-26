@@ -19,7 +19,7 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from api.ai.provider import SCENES, AgentAnswer, AiError, Subtitle, Toolbox, VideoScript, _words
+from api.ai.provider import SCENES, AgentAnswer, AiError, Subtitle, Toolbox, VideoScript, words_provider
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ def http_post(path: str, payload: dict[str, Any], key: str) -> dict[str, Any]:
     raise AiError(f"The AI service did not answer ({last})")
 
 
-def _normalize(vector: Sequence[float]) -> list[float]:
+def normalize(vector: Sequence[float]) -> list[float]:
     norm = sum(x * x for x in vector) ** 0.5
     return [x / norm for x in vector] if norm else list(vector)
 
@@ -106,15 +106,15 @@ class GeminiProvider:
     is_dummy = False
 
     def __init__(self, key: str, transport: Transport | None = None) -> None:
-        self._key = key
-        self._transport = transport or (lambda path, payload: http_post(path, payload, self._key))
+        self.key_throttle = key
+        self._transport = transport or (lambda path, payload: http_post(path, payload, self.key_throttle))
         self.llm_model = os.environ.get("GEMINI_LLM_MODEL", DEFAULT_LLM_MODEL)
         self.embed_model = os.environ.get("GEMINI_EMBED_MODEL", DEFAULT_EMBED_MODEL)
         self.dimensions = int(os.environ.get("GEMINI_EMBED_DIMENSIONS", DEFAULT_EMBED_DIMENSIONS))
         self.min_similarity = float(os.environ.get("GEMINI_MIN_SIMILARITY", DEFAULT_MIN_SIMILARITY))
 
     # -- text generation ---------------------------------------------------------------------------------------
-    def _generate(self, system: str, user: str, json_mode: bool = False, max_tokens: int = MAX_ANSWER_TOKENS) -> str:
+    def generate_gemini(self, system: str, user: str, json_mode: bool = False, max_tokens: int = MAX_ANSWER_TOKENS) -> str:
         config: dict[str, Any] = {"maxOutputTokens": max_tokens, "temperature": 0.2}
         if json_mode:
             config["responseMimeType"] = "application/json"
@@ -139,8 +139,8 @@ class GeminiProvider:
         if passages:
             numbered = "\n\n".join(f"[{n}] {text}" for n, text in enumerate(passages, start=1))
             user = f"Passages:\n{numbered}\n\nQuestion: {question.strip()}"
-            return AgentAnswer("text", self._generate(ANSWER_RULES, user))
-        return AgentAnswer("text", self._generate(NO_PASSAGES_RULES, f"Question: {question.strip()}"))
+            return AgentAnswer("text", self.generate_gemini(ANSWER_RULES, user))
+        return AgentAnswer("text", self.generate_gemini(NO_PASSAGES_RULES, f"Question: {question.strip()}"))
 
     def run_agent(self, question: str, toolbox: Toolbox) -> AgentAnswer:
         """Let the model use the tools: ask, run the calls it makes, hand the results back, until it answers."""
@@ -174,7 +174,7 @@ class GeminiProvider:
         raise AiError("The AI service kept calling tools")
 
     def generate(self, prompt: str, max_tokens: int) -> str:
-        return self._generate(GENERAL_RULES, prompt, max_tokens=max(64, max_tokens))
+        return self.generate_gemini(GENERAL_RULES, prompt, max_tokens=max(64, max_tokens))
 
     def web_search(self, query: str, max_results: int) -> dict[str, Any]:
         """Gemini's own Google Search grounding: Google fetches the pages, this server touches none of them."""
@@ -203,12 +203,12 @@ class GeminiProvider:
         return {"answer": answer[:3000], "sources": sources[:max_results]}
 
     def video_script(self, prompt: str) -> VideoScript:
-        raw = self._generate(VIDEO_RULES, f"Prompt: {prompt.strip()}", json_mode=True, max_tokens=MAX_SCRIPT_TOKENS)
+        raw = self.generate_gemini(VIDEO_RULES, f"Prompt: {prompt.strip()}", json_mode=True, max_tokens=MAX_SCRIPT_TOKENS)
         try:
             data = json.loads(re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.M).strip())
             stories = tuple(str(story) for story in data["stories"])
             subtitles = tuple(Subtitle(str(sub["language"]), str(sub["text"])) for sub in data["subtitles"])
-            topic = "_".join(_words(str(data.get("topic", "")))[:SLUG_WORDS]) or "_".join(_words(prompt)[:SLUG_WORDS]) or "untitled"
+            topic = "_".join(words_provider(str(data.get("topic", "")))[:SLUG_WORDS]) or "_".join(words_provider(prompt)[:SLUG_WORDS]) or "untitled"
         except (ValueError, KeyError, TypeError):
             raise AiError("The AI service returned a script that could not be read") from None
         if len(stories) != SCENES or not subtitles or not all(stories):
@@ -229,7 +229,7 @@ class GeminiProvider:
             raise AiError("The AI service returned no embedding") from None
         if not isinstance(values, list) or not values:
             raise AiError("The AI service returned an empty embedding")
-        return _normalize([float(x) for x in values])
+        return normalize([float(x) for x in values])
 
     def embed(self, texts: Sequence[str], purpose: str = "document") -> list[list[float]]:
         if len(texts) <= 1:

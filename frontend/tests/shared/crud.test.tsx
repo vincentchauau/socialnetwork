@@ -195,7 +195,7 @@ describe("CrudView as a data table", () => {
   };
   const richRow = { id: 7, user_id: 3, title: "Hello", created_at: "2024-03-05T10:20:00", active: true, meta: { a: 1, b: [1, 2] }, image: "/media/a.png", secret_note: "***", body: null };
   const serveRich = (rows: object[] = [richRow], total = 134) =>
-    api.mockImplementation(async (_url: string, init?: RequestInit) => (init?.method ? undefined : { total, rows }));
+    api.mockImplementation(async (url: string, init?: RequestInit) => (init?.method ? undefined : { total, rows }));
 
   it("hides technical columns, and the Columns menu shows them again and remembers it", async () => {
     serveRich();
@@ -297,7 +297,7 @@ describe("CrudView references, json, badges and layout", () => {
   };
   const row = { id: 1, user_id: 2, job_id: 9, status: "applied", resume: { headline: "Ứng viên ở Đà Lạt", summary: "Tôi thích làm việc nhóm rất nhiều", skills: ["a", "b"] } };
   const serve = (rows: object[] = [row], labels?: object) =>
-    api.mockImplementation(async (_url: string, init?: RequestInit) => (init?.method ? undefined : { total: rows.length, rows, labels }));
+    api.mockImplementation(async (url: string, init?: RequestInit) => (init?.method ? undefined : { total: rows.length, rows, labels }));
   const headers = () => screen.getAllByRole("columnheader").map((header) => header.textContent?.replace(/\s*[▲▼↕]$/, ""));
 
   it("shows the label of a reference column, visible by default, with the id in the title", async () => {

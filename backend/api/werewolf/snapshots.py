@@ -54,7 +54,7 @@ class GameUnpickler(pickle.Unpickler):
 SEALED = b"gAAAA"  # how a Fernet token begins
 
 
-def _fernet():
+def fernet_snapshots():
     """The key that seals the rows (`WEREWOLF_SNAPSHOT_KEY`, a Fernet key), or None: a saved room holds every role and every secret
     action of a game that is still running, so with a key nobody who reads the database reads them."""
     key = os.environ.get("WEREWOLF_SNAPSHOT_KEY", "").strip()
@@ -74,7 +74,7 @@ def dump(room: Room) -> bytes:
         game._clock = None  # type: ignore[assignment]
     try:
         data = pickle.dumps(room, protocol=pickle.HIGHEST_PROTOCOL)
-        sealer = _fernet()
+        sealer = fernet_snapshots()
         return sealer.encrypt(data) if sealer is not None else data
     finally:
         room.clock = clock
@@ -85,7 +85,7 @@ def dump(room: Room) -> bytes:
 def load(data: bytes, clock: Callable[[], float]) -> Room:
     """A room from its bytes, on the clock of this boot. Raises when the bytes are not a room (or are sealed and there is no key)."""
     if data.startswith(SEALED):
-        sealer = _fernet()
+        sealer = fernet_snapshots()
         if sealer is None:
             raise pickle.UnpicklingError("the room is sealed and there is no key")
         data = sealer.decrypt(data)  # raises when the key is not the one that sealed it
@@ -100,7 +100,7 @@ def load(data: bytes, clock: Callable[[], float]) -> Room:
     return room
 
 
-def _write(factory: sessionmaker, rows: dict[str, bytes], removed: set[str]) -> None:
+def write(factory: sessionmaker, rows: dict[str, bytes], removed: set[str]) -> None:
     with factory() as db:
         for code, data in rows.items():
             live = db.scalar(select(Game).where(Game.room_code == code, Game.status == LIVE))
@@ -120,7 +120,7 @@ async def save(app: FastAPI, *rooms: Room) -> None:
     try:
         rows = {room.code: dump(room) for room in rooms}
         if rows or removed:
-            await run_in_threadpool(_write, app.state.session_factory, rows, removed)
+            await run_in_threadpool(write, app.state.session_factory, rows, removed)
     except Exception:  # noqa: BLE001 - a game must go on when its copy could not be kept
         store.removed |= removed
         log.exception("could not keep the werewolf rooms")
@@ -147,5 +147,5 @@ async def restore(app: FastAPI) -> int:
             store.adopt(room)
             put += 1
     if bad:
-        await run_in_threadpool(_write, app.state.session_factory, {}, bad)
+        await run_in_threadpool(write, app.state.session_factory, {}, bad)
     return put

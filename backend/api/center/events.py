@@ -79,9 +79,9 @@ class EventRelay:
     ) -> None:  # fmt: skip
         self._sessions = session_factory
         self._client_factory = client_factory
-        self._client: Any = None
+        self.client_revocation: Any = None
         self._interval = interval
-        self._lock = threading.Lock()  # one publisher per process at a time
+        self.guard = threading.Lock()  # one publisher per process at a time
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_warned: float | None = None
@@ -91,7 +91,7 @@ class EventRelay:
     def enabled(self) -> bool:
         return self._client_factory is not None
 
-    def _warn(self, exc: Exception) -> None:
+    def warn(self, exc: Exception) -> None:
         now = time.monotonic()
         if self._last_warned is None or now - self._last_warned >= WARN_INTERVAL_SECONDS:
             self._last_warned = now
@@ -101,15 +101,15 @@ class EventRelay:
         """Publish unpublished rows in id order; returns how many. Never raises (failures retry later)."""
         if self._client_factory is None:
             return 0
-        with self._lock:
+        with self.guard:
             try:
-                if self._client is None:
-                    self._client = self._client_factory()
-                published = self.publish_batches(self._client)
+                if self.client_revocation is None:
+                    self.client_revocation = self._client_factory()
+                published = self.publish_batches(self.client_revocation)
                 self.purge_if_due()
                 return published
             except Exception as exc:  # noqa: BLE001 - Redis or DB trouble must not kill the relay thread
-                self._warn(exc)
+                self.warn(exc)
                 return 0
 
     def publish_batches(self, client: Any) -> int:
@@ -154,10 +154,10 @@ class EventRelay:
         if not self.enabled or self._thread is not None:
             return
         self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="account-event-relay", daemon=True)
+        self._thread = threading.Thread(target=self.run_events, name="account-event-relay", daemon=True)
         self._thread.start()
 
-    def _run(self) -> None:
+    def run_events(self) -> None:
         while not self._stop.is_set():
             self.publish_pending()
             self._stop.wait(self._interval)

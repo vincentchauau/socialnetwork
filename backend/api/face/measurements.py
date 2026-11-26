@@ -22,7 +22,7 @@ def rate_limited(request: Request, user: TokenPayload = Depends(get_current_user
     return user
 
 
-def _out(row: Measurement) -> dict:
+def out_measurements(row: Measurement) -> dict:
     return MeasurementOut.model_validate(row).model_dump(by_alias=True, mode="json")
 
 
@@ -49,7 +49,7 @@ def create_measurement(
         db.execute(delete(Measurement).where(Measurement.id.in_(overflow)))
     db.commit()
     db.refresh(row)
-    return _out(row)
+    return out_measurements(row)
 
 
 @router.get("/measurements")
@@ -64,7 +64,7 @@ def list_measurements(
         .order_by(Measurement.id.desc())
         .limit(limit)
     ).all()
-    return [_out(row) for row in rows]
+    return [out_measurements(row) for row in rows]
 
 
 @router.patch(
@@ -82,7 +82,7 @@ def update_measurement(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Measurement not found")
     row.note = body.note
     db.commit()
-    return _out(row)
+    return out_measurements(row)
 
 
 @router.delete(

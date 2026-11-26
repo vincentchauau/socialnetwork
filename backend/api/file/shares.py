@@ -25,7 +25,7 @@ def shares_dir() -> Path:
     return store.data_dir() / "shares"
 
 
-def _read(path: Path) -> dict | None:
+def read_shares(path: Path) -> dict | None:
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
         return record if isinstance(record, dict) and isinstance(record.get("user_id"), int) and isinstance(record.get("path"), str) else None
@@ -33,7 +33,7 @@ def _read(path: Path) -> dict | None:
         return None
 
 
-def _live(record: dict) -> bool:
+def live(record: dict) -> bool:
     expires = record.get("expiresAt")
     return expires is None or expires > time.time()
 
@@ -42,8 +42,8 @@ def find(token: str) -> dict | None:
     """What the link says (whose file, which path), or None when there is no such link or it ran out."""
     if not TOKEN_PATTERN.match(token):
         return None
-    record = _read(shares_dir() / f"{token}.json")
-    return {**record, "token": token} if record and _live(record) else None
+    record = read_shares(shares_dir() / f"{token}.json")
+    return {**record, "token": token} if record and live(record) else None
 
 
 def mine(user_id: int) -> list[dict]:
@@ -52,8 +52,8 @@ def mine(user_id: int) -> list[dict]:
         return []
     found = []
     for item in home.glob("*.json"):
-        record = _read(item)
-        if record and record["user_id"] == user_id and _live(record):
+        record = read_shares(item)
+        if record and record["user_id"] == user_id and live(record):
             found.append({**record, "token": item.stem})
     return sorted(found, key=lambda record: record["createdAt"], reverse=True)
 
@@ -75,7 +75,7 @@ def drop(user_id: int, token: str) -> bool:
     if not TOKEN_PATTERN.match(token):
         return False
     target = shares_dir() / f"{token}.json"
-    record = _read(target)
+    record = read_shares(target)
     if record is None or record["user_id"] != user_id:
         return False
     target.unlink(missing_ok=True)
@@ -87,6 +87,6 @@ def erase_user(user_id: int) -> None:
     if not home.is_dir():
         return
     for item in home.glob("*.json"):
-        record = _read(item)
+        record = read_shares(item)
         if record and record["user_id"] == user_id:
             item.unlink(missing_ok=True)

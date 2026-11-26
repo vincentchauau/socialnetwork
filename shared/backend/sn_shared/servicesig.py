@@ -16,7 +16,7 @@ MAX_SKEW_SECONDS = 60
 MIN_SECRET_CHARS = 16
 
 
-def _digest(secret: str, timestamp: str, scope: str, body: bytes) -> str:
+def digest(secret: str, timestamp: str, scope: str, body: bytes) -> str:
     return hmac.new(secret.encode(), timestamp.encode() + b"." + scope.encode() + b"." + body, hashlib.sha256).hexdigest()
 
 
@@ -25,7 +25,7 @@ def sign(secret: str, body: bytes, scope: str, *, now: float | None = None) -> d
     if len(secret) < MIN_SECRET_CHARS:
         raise ValueError("The service secret is missing or too short")
     timestamp = str(int(now if now is not None else time.time()))
-    return {TIMESTAMP_HEADER: timestamp, SIGNATURE_HEADER: _digest(secret, timestamp, scope, body)}
+    return {TIMESTAMP_HEADER: timestamp, SIGNATURE_HEADER: digest(secret, timestamp, scope, body)}
 
 
 def verify(secret: str, body: bytes, scope: str, timestamp: str | None, signature: str | None, *, now: float | None = None) -> bool:
@@ -38,4 +38,4 @@ def verify(secret: str, body: bytes, scope: str, timestamp: str | None, signatur
         return False
     if abs((now if now is not None else time.time()) - moment) > MAX_SKEW_SECONDS:
         return False
-    return hmac.compare_digest(_digest(secret, timestamp, scope, body), signature)
+    return hmac.compare_digest(digest(secret, timestamp, scope, body), signature)

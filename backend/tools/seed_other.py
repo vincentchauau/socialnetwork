@@ -90,7 +90,7 @@ def report_target(env: Env, db: Session, kind: str, reporter: int) -> tuple[str,
     return "user", str(env.cast.take(exclude={reporter}).id)
 
 
-def _provider(name: str):
+def provider_seed_other(name: str):
     from api.ai.provider import DummyProvider, get_provider
 
     return DummyProvider() if name == "dummy" else get_provider()

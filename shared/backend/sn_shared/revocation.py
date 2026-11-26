@@ -30,7 +30,7 @@ ERROR_LOG_INTERVAL_SECONDS = 60.0
 MAX_WATCH_RETRIES = 5
 
 _UNSET: Any = object()
-_lock = threading.RLock()
+revocation_lock = threading.RLock()
 _override: Any = _UNSET  # tests: a client (or None to disable) that replaces the REDIS_URL one
 _cached: tuple[str, Any] | None = None  # (url, client)
 _last_logged: float | None = None
@@ -50,7 +50,7 @@ def reset() -> None:
 def log_failure(action: str, exc: BaseException) -> None:
     """One line per minute at most, so an outage cannot flood the logs."""
     global _last_logged
-    with _lock:
+    with revocation_lock:
         now = time.monotonic()
         if _last_logged is not None and now - _last_logged < ERROR_LOG_INTERVAL_SECONDS:
             return
@@ -58,14 +58,14 @@ def log_failure(action: str, exc: BaseException) -> None:
     log.error("revocation store unavailable (%s during %s): failing open", type(exc).__name__, action)
 
 
-def _client() -> Any:
+def client_revocation() -> Any:
     global _cached
     if _override is not _UNSET:
         return _override
     url = os.environ.get("REDIS_URL", "").strip()
     if not url:
         return None
-    with _lock:
+    with revocation_lock:
         if _cached is not None and _cached[0] == url:
             return _cached[1]
         try:
@@ -83,12 +83,12 @@ def _client() -> Any:
 
 def configured() -> bool:
     """True when a store is set up (so a failed publish is worth a warning)."""
-    return _client() is not None
+    return client_revocation() is not None
 
 
 def is_revoked(user_id: int, sid: str | None, ver: int | None) -> bool:
     """True when the session was revoked or the token version is below the account's published minimum."""
-    client = _client()
+    client = client_revocation()
     if client is None:
         return False
     keys = ([f"{SID_PREFIX}{sid}"] if sid else []) + ([f"{MINVER_PREFIX}{user_id}"] if ver is not None else [])
@@ -110,7 +110,7 @@ def is_revoked(user_id: int, sid: str | None, ver: int | None) -> bool:
 
 
 def publish_session_revoked(sid: str, ttl_seconds: int) -> bool:
-    client = _client()
+    client = client_revocation()
     if client is None:
         return False
     try:
@@ -129,7 +129,7 @@ def watch_error():
 
 def publish_min_version(user_id: int, ver: int, ttl_seconds: int) -> bool:
     """Record `ver` as the account's minimum token version (never lowers an existing value)."""
-    client = _client()
+    client = client_revocation()
     if client is None:
         return False
     key = f"{MINVER_PREFIX}{user_id}"

@@ -34,24 +34,24 @@ class AttemptThrottle:
         self._prefix = f"throttle:{name}:"
         self._kv: Kv = kv if kv is not None else MemoryKv(max_keys=max_keys, now=now)
 
-    def _key(self, key: str) -> str:
+    def key_throttle(self, key: str) -> str:
         return self._prefix + key
 
     def is_blocked(self, key: str) -> bool:
-        return self._kv.count(self._key(key), self._window) >= self._max_attempts
+        return self._kv.count(self.key_throttle(key), self._window) >= self._max_attempts
 
     def count(self, key: str) -> int:
-        return self._kv.count(self._key(key), self._window)
+        return self._kv.count(self.key_throttle(key), self._window)
 
     def record(self, key: str) -> None:
-        self._kv.hit(self._key(key), self._window)
+        self._kv.hit(self.key_throttle(key), self._window)
 
     def check_and_record(self, key: str) -> bool:
         """Atomic is_blocked + record: True (and counted) when allowed, False (not counted) when blocked."""
-        return self._kv.hit_capped(self._key(key), self._window, self._max_attempts)
+        return self._kv.hit_capped(self.key_throttle(key), self._window, self._max_attempts)
 
     def reset(self, key: str) -> None:
-        self._kv.clear(self._key(key))
+        self._kv.clear(self.key_throttle(key))
 
     def tracked_keys(self) -> int:
         return self._kv.tracked_keys(self._prefix)

@@ -24,13 +24,13 @@ DEFAULT_HTTP = "http://livekit:7880"
 MIN_SECRET_CHARS = 16
 
 
-def _settings() -> tuple[str, str] | None:
+def settings() -> tuple[str, str] | None:
     key, secret = os.environ.get("LIVEKIT_API_KEY", ""), os.environ.get("LIVEKIT_API_SECRET", "")
     return (key, secret) if key and len(secret) >= MIN_SECRET_CHARS else None
 
 
 def configured() -> bool:
-    return _settings() is not None
+    return settings() is not None
 
 
 def server_url() -> str:
@@ -38,33 +38,33 @@ def server_url() -> str:
     return os.environ.get("LIVEKIT_URL", "").strip().rstrip("/") or DEFAULT_URL
 
 
-def _b64(data: bytes) -> bytes:
+def b64(data: bytes) -> bytes:
     return base64.urlsafe_b64encode(data).rstrip(b"=")
 
 
-def _sign(claims: dict) -> str:
-    found = _settings()
+def sign(claims: dict) -> str:
+    found = settings()
     if found is None:
         raise RuntimeError("LiveKit is not set up")
     key, secret = found
-    head = _b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
-    body = _b64(json.dumps({"iss": key, **claims}).encode())
-    signature = _b64(hmac.new(secret.encode(), head + b"." + body, hashlib.sha256).digest())
+    head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    body = b64(json.dumps({"iss": key, **claims}).encode())
+    signature = b64(hmac.new(secret.encode(), head + b"." + body, hashlib.sha256).digest())
     return (head + b"." + body + b"." + signature).decode()
 
 
 def ticket(identity: str, name: str, room: str, now: float | None = None) -> str:
     """The ticket for this person to join this room: they may publish (microphone, camera, screen) and listen."""
     moment = int(now if now is not None else time.time())
-    return _sign({
+    return sign({
         "sub": identity, "name": name, "nbf": moment - 5, "exp": moment + TICKET_SECONDS,
         "video": {"room": room, "roomJoin": True, "canPublish": True, "canSubscribe": True},
     })
 
 
-def _admin(room: str, now: float | None = None) -> str:
+def admin_livekit_tickets(room: str, now: float | None = None) -> str:
     moment = int(now if now is not None else time.time())
-    return _sign({"sub": "chat", "nbf": moment - 5, "exp": moment + ADMIN_SECONDS, "video": {"roomAdmin": True, "room": room}})
+    return sign({"sub": "chat", "nbf": moment - 5, "exp": moment + ADMIN_SECONDS, "video": {"roomAdmin": True, "room": room}})
 
 
 def close_room(room: str) -> bool:
@@ -74,7 +74,7 @@ def close_room(room: str) -> bool:
     base = os.environ.get("LIVEKIT_HTTP", "").strip().rstrip("/") or DEFAULT_HTTP
     request = urllib.request.Request(
         f"{base}/twirp/livekit.RoomService/DeleteRoom", data=json.dumps({"room": room}).encode(), method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {_admin(room)}"},
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {admin_livekit_tickets(room)}"},
     )
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS):  # noqa: S310 - the address of our own LiveKit

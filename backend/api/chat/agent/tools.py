@@ -43,7 +43,7 @@ class ToolError(Exception):
 Http = Callable[[str, str, dict[str, str], bytes | None], tuple[int, Any]]
 
 
-def _call(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, Any]:
+def send_request(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, Any]:
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310 - fixed addresses of our own services
@@ -133,29 +133,29 @@ def register(*tools: Tool) -> None:
         TOOLS[tool.name] = tool
 
 
-def _headers(token: str) -> dict[str, str]:
+def headers_tools(token: str) -> dict[str, str]:
     return {"Content-Type": "application/json", "Cookie": f"{COOKIE_NAME}={token}"}
 
 
-def _get(service: str, path: str, params: dict[str, Any], token: str, http: Http) -> Any:
-    status, data = http("GET", f"{base(service)}{path}?{urllib.parse.urlencode(params)}", _headers(token), None)
+def get_tools(service: str, path: str, params: dict[str, Any], token: str, http: Http) -> Any:
+    status, data = http("GET", f"{base(service)}{path}?{urllib.parse.urlencode(params)}", headers_tools(token), None)
     if status != 200 or data is None:
         raise ToolError("The search did not work")
     return data
 
 
-def _money(cents: int) -> str:
+def money(cents: int) -> str:
     return f"{cents / 100:,.2f}"
 
 
 def market_search(args: Query, token: str, http: Http) -> dict[str, Any]:
-    page = _get("market", "/products", {"q": args.q, "limit": MAX_ITEMS}, token, http)
-    items = [{"title": clip(p["name"]), "subtitle": f"{_money(p['price_cents'])} · {clip(p['seller_username'], 32)}", "href": "/market"} for p in page["items"][:MAX_ITEMS]]
+    page = get_tools("market", "/products", {"q": args.q, "limit": MAX_ITEMS}, token, http)
+    items = [{"title": clip(p["name"]), "subtitle": f"{money(p['price_cents'])} · {clip(p['seller_username'], 32)}", "href": "/market"} for p in page["items"][:MAX_ITEMS]]
     return {"type": "list", "title": f"Market: {args.q}", "items": items}
 
 
 def jobs_search(args: Query, token: str, http: Http) -> dict[str, Any]:
-    page = _get("job", "/jobs", {"q": args.q, "limit": MAX_ITEMS}, token, http)
+    page = get_tools("job", "/jobs", {"q": args.q, "limit": MAX_ITEMS}, token, http)
     items = [
         {
             "title": f"#{p['id']} {clip(p['title'])}", "subtitle": f"{clip(p['company'], 40)} · {clip(p['location'], 40)}", "href": "/job",
@@ -166,8 +166,8 @@ def jobs_search(args: Query, token: str, http: Http) -> dict[str, Any]:
     return {"type": "list", "title": f"Jobs: {args.q}", "items": items}
 
 
-def _write(service: str, path: str, payload: dict[str, Any], token: str, http: Http, method: str = "POST", extra: dict[str, str] | None = None) -> Any:
-    status, data = http(method, f"{base(service)}{path}", {**_headers(token), **(extra or {})}, json.dumps(payload).encode())
+def write(service: str, path: str, payload: dict[str, Any], token: str, http: Http, method: str = "POST", extra: dict[str, str] | None = None) -> Any:
+    status, data = http(method, f"{base(service)}{path}", {**headers_tools(token), **(extra or {})}, json.dumps(payload).encode())
     if status in (200, 201, 204):
         return data
     detail = data.get("detail") if isinstance(data, dict) else None
@@ -192,38 +192,38 @@ def order_buttons(order: dict[str, Any], selling: bool) -> list[dict[str, Any]]:
 
 
 def market_cart(args: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    cart = _get("market", "/cart", {}, token, http)
+    cart = get_tools("market", "/cart", {}, token, http)
     items = [
         {
-            "title": f"{clip(line['name'])} x{line['quantity']}", "subtitle": _money(line["line_total_cents"]), "href": "/market/cart",
+            "title": f"{clip(line['name'])} x{line['quantity']}", "subtitle": money(line["line_total_cents"]), "href": "/market/cart",
             "actions": [action("Remove", "market.uncart", {"product_id": line["product_id"]}, "do")],
         }
         for line in cart["items"][:MAX_ITEMS]
     ]
-    return {"type": "list", "title": f"Cart: {_money(cart['total_cents'])} ({cart['item_count']})", "items": items}
+    return {"type": "list", "title": f"Cart: {money(cart['total_cents'])} ({cart['item_count']})", "items": items}
 
 
 def market_orders(args: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    page = _get("market", "/orders", {"limit": MAX_ITEMS}, token, http)
+    page = get_tools("market", "/orders", {"limit": MAX_ITEMS}, token, http)
     items = [
-        {"title": f"#{o['id']} {o['status']}", "subtitle": _money(o["total_cents"]), "href": "/market/orders", "actions": order_buttons(o, selling=False)}
+        {"title": f"#{o['id']} {o['status']}", "subtitle": money(o["total_cents"]), "href": "/market/orders", "actions": order_buttons(o, selling=False)}
         for o in page["items"][:MAX_ITEMS]
     ]
     return {"type": "list", "title": "Orders", "items": items}
 
 
 def market_add_to_cart(args: AddToCart, token: str, http: Http) -> dict[str, Any]:
-    _write("market", f"/cart/items/{args.product_id}", {"quantity": args.quantity}, token, http, method="PUT")
+    write("market", f"/cart/items/{args.product_id}", {"quantity": args.quantity}, token, http, method="PUT")
     return {"type": "done", "summary": f"Added {args.quantity} of product #{args.product_id} to your cart", "href": "/market/cart"}
 
 
 def market_checkout(args: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    order = _write("market", "/orders", {}, token, http, extra={"Idempotency-Key": uuid.uuid4().hex})
-    return {"type": "done", "summary": f"Order #{order['id']} placed: {_money(order['total_cents'])}", "href": "/market/orders"}
+    order = write("market", "/orders", {}, token, http, extra={"Idempotency-Key": uuid.uuid4().hex})
+    return {"type": "done", "summary": f"Order #{order['id']} placed: {money(order['total_cents'])}", "href": "/market/orders"}
 
 
 def jobs_applications(args: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    rows = _get("job", "/me/applications", {}, token, http)
+    rows = get_tools("job", "/me/applications", {}, token, http)
     items = [
         {
             "title": f"#{a['job_id']} {clip(a['job_title'])}", "subtitle": f"{clip(a['company'], 40)} · {a['status']}", "href": "/job/applications",
@@ -235,12 +235,12 @@ def jobs_applications(args: NoArgs, token: str, http: Http) -> dict[str, Any]:
 
 
 def market_sell(args: Sell, token: str, http: Http) -> dict[str, Any]:
-    product = _write("market", "/products", {"name": args.name, "price_cents": args.price_cents, "stock": 1}, token, http)
-    return {"type": "done", "summary": f"Listed {clip(product['name'])} for {_money(product['price_cents'])}", "href": "/market"}
+    product = write("market", "/products", {"name": args.name, "price_cents": args.price_cents, "stock": 1}, token, http)
+    return {"type": "done", "summary": f"Listed {clip(product['name'])} for {money(product['price_cents'])}", "href": "/market"}
 
 
 def jobs_apply(args: Apply, token: str, http: Http) -> dict[str, Any]:
-    _write("job", f"/jobs/{args.job_id}/apply", {}, token, http)
+    write("job", f"/jobs/{args.job_id}/apply", {}, token, http)
     return {"type": "done", "summary": f"Applied to job #{args.job_id}", "href": "/job/applications"}
 
 
@@ -254,13 +254,13 @@ TOOLS: dict[str, Tool] = {
         Tool("jobs.applications", NoArgs, False, jobs_applications),
         Tool("market.addcart", AddToCart, True, market_add_to_cart, lambda a: f"Add {a.quantity} of product #{a.product_id} to your cart"),  # type: ignore[attr-defined]
         Tool("market.checkout", NoArgs, True, market_checkout, lambda a: "Place an order for everything in your cart"),
-        Tool("market.sell", Sell, True, market_sell, lambda a: f"List {a.name} for sale at {_money(a.price_cents)}"),  # type: ignore[attr-defined]
+        Tool("market.sell", Sell, True, market_sell, lambda a: f"List {a.name} for sale at {money(a.price_cents)}"),  # type: ignore[attr-defined]
         Tool("jobs.apply", Apply, True, jobs_apply, lambda a: f"Apply to job #{a.job_id} with your profile"),  # type: ignore[attr-defined]
     )
 }
 
 
-def run_tool(name: str, args: dict[str, Any], token: str, confirmed: bool, http: Http = _call) -> dict[str, Any]:
+def run_tool(name: str, args: dict[str, Any], token: str, confirmed: bool, http: Http = send_request) -> dict[str, Any]:
     """The card for this tool call. Raises KeyError for an unknown tool and ValueError for arguments that do not fit."""
     tool = TOOLS[name]
     if tool.form is not None and not confirmed:  # the form to fill in (nothing is written)

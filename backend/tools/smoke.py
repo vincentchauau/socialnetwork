@@ -19,11 +19,11 @@ PERSON_ID = 301
 SKIPPED = ("/openapi", "/docs", "/redoc", "/health", "/internal", "/admin", "/records", "/data")
 
 
-def _modules() -> list[Mount]:
+def modules() -> list[Mount]:
     return [route for route in app.routes if isinstance(route, Mount)]
 
 
-def _tables(client: TestClient, base: str) -> list[str]:
+def tables_smoke(client: TestClient, base: str) -> list[str]:
     reply = client.get(f"/{base}/tables")
     return [table["name"] for table in reply.json()] if reply.status_code == 200 else []
 
@@ -33,13 +33,13 @@ def check(group: str) -> list[str]:
     person = TokenPayload(user_id=PERSON_ID, username="smoke", expires_at=int(time.time()) + 3600, group=group)
     failures: list[str] = []
     tables = routes = 0
-    for module in _modules():
+    for module in modules():
         module.app.dependency_overrides[get_current_user] = lambda: person
         client = TestClient(module.app, raise_server_exceptions=False)
         for base in ("records", "data"):
             if client.get(f"/{base}/tables").status_code >= 500:
                 failures.append(f"{module.path}/{base}/tables")
-            for name in _tables(client, base):
+            for name in tables_smoke(client, base):
                 tables += 1
                 if client.get(f"/{base}/{name}", params={"limit": 50}).status_code >= 500:
                     failures.append(f"{module.path}/{base}/{name}")

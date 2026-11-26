@@ -22,7 +22,7 @@ MAX_GAME_SEATS = 40
 router = new_router()
 
 
-def _game_of(factory: sessionmaker, slug: str, user: TokenPayload) -> tuple[str, str, int, list[tuple[str, str]], bool]:
+def game_of(factory: sessionmaker, slug: str, user: TokenPayload) -> tuple[str, str, int, list[tuple[str, str]], bool]:
     """(the code of the room's game, the title of the room, the seats the game should have: one for each member, 5 to 40, and the
     names of the virtual people in the room: the seats nobody sits in take their names, played by the machine)."""
     with factory() as db:
@@ -61,7 +61,7 @@ async def game(slug: Slug, request: Request, follow: bool = Query(False), user: 
     factory = request.app.state.session_factory
     if not follow:
         await run_in_threadpool(fill_room, request, slug, user)
-    code, title, seats, names, made = await run_in_threadpool(_game_of, factory, slug, user)
+    code, title, seats, names, made = await run_in_threadpool(game_of, factory, slug, user)
     await run_in_threadpool(werewolf_remote.ensure_game, request.app, user.user_id, user.username, code, title, seats, names)
     frame = await run_in_threadpool(said_game, factory, slug, user) if made else None
     if frame:

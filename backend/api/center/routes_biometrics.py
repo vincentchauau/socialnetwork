@@ -137,7 +137,7 @@ def count_attempts(throttles: list, keys: list[str], user_label: str, ip: str) -
         throttle.record(key)  # counted up front (the work is expensive); cleared on success
 
 
-def _reset(throttles: list, keys: list[str]) -> None:
+def reset_throttles(throttles: list, keys: list[str]) -> None:
     for throttle, key in zip(throttles, keys):
         throttle.reset(key)
 
@@ -166,7 +166,7 @@ def login_biometric(
     if not factors_match(request, user, audio, video):
         audit.warning("mfa biometric failed user=%r ip=%s", user.username, ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, BIOMETRIC_FAILED)
-    _reset(throttles, keys)
+    reset_throttles(throttles, keys)
     audit.info("login ok (biometric 2nd factor) user=%r ip=%s", user.username, ip)
     return begin_session(response, request, db, user, settings_of(request), checked_method(claims.get("mth")))
 

@@ -35,7 +35,7 @@ PartialDate = Annotated[str, StringConstraints(pattern=r"^\d{4}-(0[1-9]|1[0-2])(
 Text = Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)]
 
 
-def _url(value: str | None, max_length: int) -> str | None:
+def url_profile(value: str | None, max_length: int) -> str | None:
     """An http(s) address only: anything else (javascript:, data:) is refused."""
     if value is None or value == "":
         return None
@@ -47,22 +47,22 @@ def _url(value: str | None, max_length: int) -> str | None:
     return value
 
 
-class _Item(BaseModel):
+class Item(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class LinkItem(_Item):
+class LinkItem(Item):
     kind: Literal["linkedin", "github", "facebook", "portfolio", "other"] = "other"
     url: str = Field(max_length=300)
     label: str = Field(default="", max_length=60)
 
     @field_validator("url")
     @classmethod
-    def _check_url(cls, value: str) -> str:
-        return _url(value, 300) or ""
+    def check_url(cls, value: str) -> str:
+        return url_profile(value, 300) or ""
 
 
-class ExperienceItem(_Item):
+class ExperienceItem(Item):
     company: str = Field(min_length=1, max_length=100)
     title: str = Field(min_length=1, max_length=100)
     type: Literal["full_time", "part_time", "contract", "internship", "freelance", "other"] = "full_time"
@@ -72,7 +72,7 @@ class ExperienceItem(_Item):
     description: str = Field(default="", max_length=2000)
 
 
-class EducationItem(_Item):
+class EducationItem(Item):
     school: str = Field(min_length=1, max_length=100)
     degree: str = Field(default="", max_length=100)
     field: str = Field(default="", max_length=100)
@@ -81,18 +81,18 @@ class EducationItem(_Item):
     grade: str = Field(default="", max_length=40)
 
 
-class SkillItem(_Item):
+class SkillItem(Item):
     name: str = Field(min_length=1, max_length=60)
     level: Literal["beginner", "intermediate", "advanced", "expert"] | None = None
     years: int | None = Field(default=None, ge=0, le=80)
 
 
-class LanguageItem(_Item):
+class LanguageItem(Item):
     language: str = Field(min_length=1, max_length=60)
     proficiency: Literal["basic", "conversational", "fluent", "native"] = "conversational"
 
 
-class CertificationItem(_Item):
+class CertificationItem(Item):
     name: str = Field(min_length=1, max_length=100)
     issuer: str = Field(default="", max_length=100)
     issued: PartialDate | None = None
@@ -101,11 +101,11 @@ class CertificationItem(_Item):
 
     @field_validator("url")
     @classmethod
-    def _check_url(cls, value: str) -> str:
-        return _url(value, 300) or ""
+    def check_url(cls, value: str) -> str:
+        return url_profile(value, 300) or ""
 
 
-class ProjectItem(_Item):
+class ProjectItem(Item):
     name: str = Field(min_length=1, max_length=100)
     role: str = Field(default="", max_length=100)
     url: str = Field(default="", max_length=300)
@@ -115,8 +115,8 @@ class ProjectItem(_Item):
 
     @field_validator("url")
     @classmethod
-    def _check_url(cls, value: str) -> str:
-        return _url(value, 300) or ""
+    def check_url(cls, value: str) -> str:
+        return url_profile(value, 300) or ""
 
 
 class ProfileBody(BaseModel):
@@ -144,7 +144,7 @@ class ProfileBody(BaseModel):
 
     @field_validator("birth_date")
     @classmethod
-    def _birth_date(cls, value: date | None) -> date | None:
+    def birth_date_profile(cls, value: date | None) -> date | None:
         if value is not None and not MIN_BIRTH_YEAR <= value.year <= date.today().year:
             raise ValueError("The birth date is not valid")
         if value is not None and value > date.today():
@@ -153,12 +153,12 @@ class ProfileBody(BaseModel):
 
     @field_validator("avatar_url")
     @classmethod
-    def _avatar(cls, value: str | None) -> str | None:
-        return _url(value, 255)
+    def validate_avatar(cls, value: str | None) -> str | None:
+        return url_profile(value, 255)
 
     @field_validator("visibility")
     @classmethod
-    def _visibility(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+    def visibility_profile(cls, value: dict[str, str] | None) -> dict[str, str] | None:
         if value is not None:
             unknown = sorted(set(value) - set(VISIBILITY_PARTS))
             if unknown:
@@ -166,7 +166,7 @@ class ProfileBody(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _clean(self) -> "ProfileBody":
+    def clean(self) -> "ProfileBody":
         for field in self.model_fields_set:
             value = getattr(self, field)
             if isinstance(value, str) and value == "":

@@ -35,7 +35,7 @@ export function AccountChangesProvider({ children }: { children: ReactNode }) {
     appliers.current.set(id, apply);
     return () => {
       appliers.current.delete(id);
-      setPending(({ [id]: _gone, ...rest }) => rest);
+      setPending(({ [id]: gone, ...rest }) => rest);
     };
   }, []);
 
@@ -43,7 +43,7 @@ export function AccountChangesProvider({ children }: { children: ReactNode }) {
     setPending((current) => {
       if (dirty) return current[id] === label ? current : { ...current, [id]: label };
       if (!(id in current)) return current;
-      const { [id]: _gone, ...rest } = current;
+      const { [id]: gone, ...rest } = current;
       return rest;
     });
   }, []);

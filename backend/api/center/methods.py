@@ -34,7 +34,7 @@ def methods_status(user: User) -> MethodsStatus:
     )
 
 
-def _utc(value: datetime | None) -> datetime | None:
+def utc_methods(value: datetime | None) -> datetime | None:
     """SQLite hands timestamps back naive; they are always UTC, so every response says so."""
     return value if value is None or value.tzinfo else value.replace(tzinfo=timezone.utc)
 
@@ -42,7 +42,7 @@ def _utc(value: datetime | None) -> datetime | None:
 def passkey_items(user: User) -> list[PasskeyOut]:
     return [
         PasskeyOut(
-            id=p.id, name=p.name, created_at=_utc(p.created_at), last_used_at=_utc(p.last_used_at),
+            id=p.id, name=p.name, created_at=utc_methods(p.created_at), last_used_at=utc_methods(p.last_used_at),
             backed_up=p.backed_up, transports=[t for t in (p.transports or "").split(",") if t],
         )
         for p in user.passkeys

@@ -12,7 +12,7 @@ const order = (id: number, status: string) => ({ id, status, currency: "USD", to
 
 beforeEach(() => {
   api.mockReset();
-  api.mockImplementation(async (_url: string, init?: RequestInit) => (init?.method ? order(1, "paid") : { items: [order(1, "pending_payment"), order(2, "delivered")], next_cursor: null }));
+  api.mockImplementation(async (url: string, init?: RequestInit) => (init?.method ? order(1, "paid") : { items: [order(1, "pending_payment"), order(2, "delivered")], next_cursor: null }));
 });
 
 describe("Pay tab", () => {

@@ -47,7 +47,7 @@ def save_record(factory: sessionmaker, record: GameRecord) -> bool:
     return True
 
 
-def _normalize(player: dict, winner: str, username: str) -> HistoryPlayer:
+def normalize(player: dict, winner: str, username: str) -> HistoryPlayer:
     role, outcome, survived = player.get("role", ""), player.get("outcome", ""), bool(player.get("survived"))
     parts = role_parts(role)
     if parts and outcome:
@@ -72,7 +72,7 @@ def list_history(session: Session, user_id: int, limit: int) -> list[HistoryEntr
     usernames = directory.names(session, [p["user_id"] for game in games for p in game.players])
     for game in games:
         raw = next(p for p in game.players if p["user_id"] == user_id)
-        mine = _normalize(raw, game.winner, usernames[raw["user_id"]])
+        mine = normalize(raw, game.winner, usernames[raw["user_id"]])
         entries.append(
             HistoryEntry(
                 game_id=game.id,
@@ -87,7 +87,7 @@ def list_history(session: Session, user_id: int, limit: int) -> list[HistoryEntr
                 won=mine.outcome == "won",
                 survived=mine.survived,
                 days_survived=raw.get("days_survived", 0),
-                players=[_normalize(p, game.winner, usernames[p["user_id"]]) for p in game.players],
+                players=[normalize(p, game.winner, usernames[p["user_id"]]) for p in game.players],
             )
         )
     return entries
@@ -116,7 +116,7 @@ def leaderboard(session: Session, top: int = LEADERBOARD_TOP, since: datetime | 
                 continue
             row = tally.setdefault(user_id, [0, 0])
             row[0] += 1
-            row[1] += _normalize(raw, game.winner, "").outcome == "won"
+            row[1] += normalize(raw, game.winner, "").outcome == "won"
     ranked = sorted(((user_id, games, wins) for user_id, (games, wins) in tally.items() if wins > 0), key=lambda item: (-item[2], item[1], item[0]))[:top]
     names = directory.names(session, [user_id for user_id, _, _ in ranked])
     return [LeaderEntry(username=names[user_id], games=games, wins=wins) for user_id, games, wins in ranked]

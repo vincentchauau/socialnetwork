@@ -46,7 +46,7 @@ from api.center.routes_biometrics import (
     Text,
     Upload,
     count_attempts,
-    _reset,
+    reset_throttles,
     factors_match,
     read_face,
     read_probes,
@@ -93,7 +93,7 @@ def random_handle(db: Session) -> str:
             return handle
 
 
-def _templates(
+def templates_routes_methods(
     request: Request, db: Session, voice_file, video_file, exclude_user_id: int | None = None
 ) -> dict:
     """Validate the samples and return the User columns they produce (nothing is stored yet).
@@ -166,7 +166,7 @@ def register_method(password, google_token, passkey, voice_file, video_file) -> 
     return "voice" if voice_file is not None else "webcam"
 
 
-def _register(
+def register_routes_methods(
     request: Request, response: Response, db: Session, username: str | None, *,
     password: str | None = None, google_token: str | None = None, voice_file=None, video_file=None,
     passkey: tuple[str, str] | None = None, email: str | None = None, background: BackgroundTasks | None = None,
@@ -207,7 +207,7 @@ def _register(
         )  # fmt: skip
         if generate:
             name = unique_handle(identity.email, lambda h: handle_taken(db, h))
-    columns.update(_templates(request, db, voice_file, video_file))
+    columns.update(templates_routes_methods(request, db, voice_file, video_file))
     if generate and not name:
         name = random_handle(db)
     user = User(username=name, **columns)
@@ -235,7 +235,7 @@ def register_voice(
 ) -> SessionOut:  # fmt: skip
     if audio is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_AUDIO)
-    return _register(request, response, db, username, voice_file=audio)
+    return register_routes_methods(request, response, db, username, voice_file=audio)
 
 
 @router.post("/register/webcam", status_code=status.HTTP_201_CREATED, response_model=SessionOut)
@@ -245,7 +245,7 @@ def register_webcam(
 ) -> SessionOut:  # fmt: skip
     if video is None or not liveness_ok(request, liveness_token, video):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)  # an `audio` field is ignored
-    return _register(request, response, db, username, video_file=video)
+    return register_routes_methods(request, response, db, username, video_file=video)
 
 
 @combined_router.post("/register/combined", status_code=status.HTTP_201_CREATED, response_model=SessionOut)
@@ -260,7 +260,7 @@ def register_combined(
     if bool(passkey_credential) != bool(passkey_challenge_token):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, PASSKEY_BOTH)
     passkey = (passkey_credential, passkey_challenge_token) if passkey_credential and passkey_challenge_token else None
-    return _register(
+    return register_routes_methods(
         request, response, db, username, password=password, google_token=google_id_token,
         voice_file=voice_audio, video_file=webcam_video, passkey=passkey, email=email, background=background,
     )  # fmt: skip
@@ -269,7 +269,7 @@ def register_combined(
 # --- sign-in --------------------------------------------------------------------------------------
 
 
-def _face_matches(request: Request, user: User, video: Upload) -> bool:
+def face_matches_routes_methods(request: Request, user: User, video: Upload) -> bool:
     """Strict 1-1 face comparison; any processing error is a plain failure."""
     try:
         face = read_face(request, video)
@@ -280,7 +280,7 @@ def _face_matches(request: Request, user: User, video: Upload) -> bool:
     return face is not None and template is not None and request.app.state.biometrics.face_matches(template, face, True)
 
 
-def _biometric_login(
+def biometric_login(
     request: Request, response: Response, db: Session, username: str, audio: Upload, video: Upload, *, method: str,
     live: Callable[[], bool] = lambda: True,
 ) -> SessionOut | MfaRequired:  # fmt: skip
@@ -296,11 +296,11 @@ def _biometric_login(
     elif method == "voice":
         matched = user.voice_login and factors_match(request, user, audio, None, True, ("voice",))
     else:
-        matched = user.webcam_login and live_ok and _face_matches(request, user, video)
+        matched = user.webcam_login and live_ok and face_matches_routes_methods(request, user, video)
     if not matched:
         audit.warning("%s login failed user=%r ip=%s", method, name, ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_FAILED)
-    _reset(throttles, keys)
+    reset_throttles(throttles, keys)
     audit.info("login ok (%s) user=%r ip=%s", method, name, ip)
     return finish_primary_biometric_login(
         response, user, settings_of(request), request=request, db=db, method=method
@@ -367,7 +367,7 @@ def login_voice(
     """With a username: 1-1 comparison. Without: 1-N identification by voice alone."""
     if username is None or not username.strip():
         return identify_login(request, response, db, audio, method="voice")
-    return _biometric_login(request, response, db, username, audio, None, method="voice")
+    return biometric_login(request, response, db, username, audio, None, method="voice")
 
 
 @router.post("/login/webcam", response_model=SessionOut | MfaRequired)
@@ -379,13 +379,13 @@ def login_webcam(
     live = lambda: liveness_ok(request, liveness_token, video)  # noqa: E731 - run after the throttles
     if username is None or not username.strip():
         return identify_login(request, response, db, video, method="webcam", live=live)
-    return _biometric_login(request, response, db, username, None, video, method="webcam", live=live)
+    return biometric_login(request, response, db, username, None, video, method="webcam", live=live)
 
 
 # --- linking and removal --------------------------------------------------------------------------
 
 
-def _enroll(request: Request, session: AuthSession, password: str | None) -> None:
+def enroll(request: Request, session: AuthSession, password: str | None) -> None:
     """Throttle and re-auth, before any (expensive) sample processing."""
     user, throttle = session.user, request.app.state.enroll_throttle
     if throttle.is_blocked(str(user.id)):
@@ -399,7 +399,7 @@ def link_voice(
     request: Request, background: BackgroundTasks, password: Text = None, audio: Upload = None,
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
-    _enroll(request, session, password)
+    enroll(request, session, password)
     voice, _ = read_probes(request, audio, None)
     if voice is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_AUDIO)
@@ -419,7 +419,7 @@ def link_webcam(
     liveness_token: Text = None, session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
     """Face template only; the voice template (if any) is never touched. An `audio` field is ignored."""
-    _enroll(request, session, password)
+    enroll(request, session, password)
     if not liveness_ok(request, liveness_token, video):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NEEDS_FACE)
     face = read_face(request, video)
@@ -435,7 +435,7 @@ def link_webcam(
     return methods_status(user)
 
 
-def _remove(
+def remove_routes_methods(
     request: Request, background: BackgroundTasks, session: AuthSession, db: Session, password: str | None, method: str
 ) -> MethodsStatus:
     user = session.user
@@ -460,11 +460,11 @@ def _remove(
 def remove_voice(
     request: Request, background: BackgroundTasks, password: Text = None, session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
-    return _remove(request, background, session, db, password, "voice")
+    return remove_routes_methods(request, background, session, db, password, "voice")
 
 
 @router.delete("/me/webcam", response_model=MethodsStatus)
 def remove_webcam(
     request: Request, background: BackgroundTasks, password: Text = None, session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
-    return _remove(request, background, session, db, password, "webcam")
+    return remove_routes_methods(request, background, session, db, password, "webcam")

@@ -33,7 +33,7 @@ MAX_LIVE_TOKENS = 3  # live (unused) tokens kept per (user, purpose)
 CODE_DIGITS = 6
 TOKEN_BYTES = 32
 
-_TTL = {VERIFY: VERIFY_TTL, LOGIN: LOGIN_TTL, RESET: RESET_TTL, REAUTH: REAUTH_TTL}
+TTL_emailtokens = {VERIFY: VERIFY_TTL, LOGIN: LOGIN_TTL, RESET: RESET_TTL, REAUTH: REAUTH_TTL}
 
 
 @dataclass(frozen=True)
@@ -54,9 +54,9 @@ def new_code() -> str:
     return f"{secrets.randbelow(10**CODE_DIGITS):0{CODE_DIGITS}d}"
 
 
-def _store(db: Session, user_id: int, purpose: str, email: str, token: str, code: str | None) -> None:
+def store_emailtokens(db: Session, user_id: int, purpose: str, email: str, token: str, code: str | None) -> None:
     codes.insert(
-        db, user_id, codes.EMAIL, purpose, email, _TTL[purpose],
+        db, user_id, codes.EMAIL, purpose, email, TTL_emailtokens[purpose],
         token_hash=hash_token(token), code=code, mac=code_mac,
     )  # fmt: skip
     codes.trim_live(db, user_id, codes.EMAIL, purpose, MAX_LIVE_TOKENS)
@@ -73,9 +73,9 @@ def issue(db: Session, user: User | None, purpose: str, email: str, *, with_code
     token = secrets.token_urlsafe(TOKEN_BYTES)
     code = new_code() if with_code else None
     if user is None:
-        codes.rehearse(db, lambda owner: _store(db, owner, purpose, email, token, code))
+        codes.rehearse(db, lambda owner: store_emailtokens(db, owner, purpose, email, token, code))
     else:
-        _store(db, user.id, purpose, email, token, code)
+        store_emailtokens(db, user.id, purpose, email, token, code)
     db.commit()
     return Issued(token, code)
 

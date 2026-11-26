@@ -46,7 +46,7 @@ def test_an_unknown_person_a_human_and_an_empty_history_get_no_answer(factory):
 
 def test_the_replies_for_one_caller_are_limited_per_hour(factory, monkeypatch):
     know(factory)
-    monkeypatch.setattr(service, "_limiter", service.Limiter(2))
+    monkeypatch.setattr(service, "limiter_service", service.Limiter(2))
     assert [ask(factory) is not None for _ in range(3)] == [True, True, False]
     assert ask(factory, caller_id=2) is not None  # another caller has their own hour
 
@@ -84,7 +84,7 @@ def test_a_failing_model_gives_no_answer_and_does_not_crash(factory, monkeypatch
         def reply_with_usage(self, *args):
             raise providers.AgentError("down")
 
-    monkeypatch.setattr(service, "_provider", Broken())
+    monkeypatch.setattr(service, "provider_seed_other", Broken())
     assert ask(factory) is None
 
 

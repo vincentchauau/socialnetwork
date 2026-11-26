@@ -82,7 +82,7 @@ export function GameOfRoom({ room }: { room: Room }) {
  * The Werewolf, like every app: the page with the game, and the chat of the app under it (Rooms, Members, Messages; the rooms of the
  * Werewolf are the rooms of the chat). The game is the one of the room that is open in the chat; its lobby is where the host deals the roles.
  */
-export default function WerewolfHome(_props: { user: User }) {
+export default function WerewolfHome(props: { user: User }) {
   const [room, setRoom] = useState<Room | null>(null);
   const onRoom = useCallback((next: Room | null) => setRoom(next), []);
 

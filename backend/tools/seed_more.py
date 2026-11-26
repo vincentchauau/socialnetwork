@@ -19,7 +19,7 @@ from tools.seed_cast import keys_of
 from tools.seed_demo_data.jobs import COVER_LETTERS, EMPLOYER_NOTES, VI, EN
 from tools.seed_demo_data.more import DIALOGUES, JOBS, PRODUCTS, REVIEW_TEXTS
 from tools.seed_env import Env
-from tools.seed_jobs import PATHS, _history, _resume
+from tools.seed_jobs import PATHS, history_seed_jobs, resume_seed_jobs
 
 SELLERS = 8
 ORDERS = 26
@@ -118,9 +118,9 @@ def seed_more_jobs(env: Env, db: Session) -> str | None:
         db.add(JobApplicant(
             job_description_id=job.id, user_id=person.id, saved=number % 4 == 0, status=state,
             cover_letter=COVER_LETTERS[number % len(COVER_LETTERS)].format(company=job.company, title=job.title, skills=skills),
-            resume=_resume(person, job), contact_email=f"{person.username.lower()}@example.com",
+            resume=resume_seed_jobs(person, job), contact_email=f"{person.username.lower()}@example.com",
             employer_note=EMPLOYER_NOTES[number % len(EMPLOYER_NOTES)] if state != "submitted" else "",
-            history=_history(env, state, env.rng.uniform(3, 30)),
+            history=history_seed_jobs(env, state, env.rng.uniform(3, 30)),
         ))
     for human in humans[:1]:  # jobs the real person saved without applying
         for job in jobs[1:6:2]:

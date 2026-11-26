@@ -47,7 +47,7 @@ describe("ShareSection", () => {
   });
 
   it("says so when the link could not be made", async () => {
-    api.mockImplementation(async (_url: string, init?: RequestInit) => {
+    api.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === "POST") throw new ApiError(409, "full", {});
       return { shares: [] } as never;
     });

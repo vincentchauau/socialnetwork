@@ -19,7 +19,7 @@ router = APIRouter()
 client_message = TypeAdapter(ActionMsg | ChatMsg | ForceMsg)
 
 
-def _parse(raw: str) -> ActionMsg | ChatMsg | ForceMsg | None:
+def parse(raw: str) -> ActionMsg | ChatMsg | ForceMsg | None:
     if len(raw) > MAX_FRAME_CHARS:  # never hand an oversized frame to the JSON parser
         return None
     try:
@@ -31,7 +31,7 @@ def _parse(raw: str) -> ActionMsg | ChatMsg | ForceMsg | None:
         return None
 
 
-async def _chat(websocket: WebSocket, room: Room, user: TokenPayload, message: ChatMsg) -> str | None:
+async def chat_ws(websocket: WebSocket, room: Room, user: TokenPayload, message: ChatMsg) -> str | None:
     app = websocket.app
     if not app.state.ww_limits.allow("chat", user.user_id):
         return "Bạn gửi quá nhanh, chờ một chút"
@@ -40,14 +40,14 @@ async def _chat(websocket: WebSocket, room: Room, user: TokenPayload, message: C
     return None
 
 
-async def _handle(websocket: WebSocket, room: Room, user: TokenPayload, raw: str) -> str | None:
+async def handle_ws(websocket: WebSocket, room: Room, user: TokenPayload, raw: str) -> str | None:
     """Process one frame; returns an error message for the client, or None."""
-    message = _parse(raw)
+    message = parse(raw)
     if message is None:
         return "Invalid message"
     try:
         if isinstance(message, ChatMsg):
-            return await _chat(websocket, room, user, message)
+            return await chat_ws(websocket, room, user, message)
         if isinstance(message, ActionMsg):
             room.submit(user.user_id, message.target, message.kind)
         else:
@@ -58,7 +58,7 @@ async def _handle(websocket: WebSocket, room: Room, user: TokenPayload, raw: str
     return None
 
 
-async def _refuse(websocket: WebSocket) -> None:
+async def refuse(websocket: WebSocket) -> None:
     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
 
 
@@ -66,15 +66,15 @@ async def _refuse(websocket: WebSocket) -> None:
 async def game_socket(websocket: WebSocket, code: str) -> None:
     # Same rules as chat: cookies ride along automatically, so a missing/foreign Origin is refused.
     if websocket.headers.get("origin") not in allowed_origins():
-        return await _refuse(websocket)
+        return await refuse(websocket)
     try:
         user = payload_from_cookies(websocket.cookies)
     except AuthError:
-        return await _refuse(websocket)
+        return await refuse(websocket)
     app = websocket.app
     room = app.state.ww_store.get(code) if re.fullmatch(ROOM_PATTERN, code) else None
     if room is None or room.seat_index(user.user_id) is None:
-        return await _refuse(websocket)
+        return await refuse(websocket)
 
     hub = app.state.ww_hub
     if hub.is_full():
@@ -87,15 +87,15 @@ async def game_socket(websocket: WebSocket, code: str) -> None:
             try:
                 raw = await asyncio.wait_for(websocket.receive_text(), timeout=remaining)
             except TimeoutError:
-                return await _refuse(websocket)
+                return await refuse(websocket)
             except KeyError:  # binary frame
                 await hub.send_error(websocket, "Only text frames are supported")
                 continue
             if len(raw) > MAX_FRAME_CHARS:
                 return await websocket.close(code=status.WS_1009_MESSAGE_TOO_BIG)
             if not app.state.ww_limits.allow("ws", user.user_id):
-                return await _refuse(websocket)
-            error = await _handle(websocket, room, user, raw)
+                return await refuse(websocket)
+            error = await handle_ws(websocket, room, user, raw)
             if error is not None:
                 await hub.send_error(websocket, error)
     except WebSocketDisconnect:

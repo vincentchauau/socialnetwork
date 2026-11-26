@@ -28,7 +28,7 @@ async def store_record(app: FastAPI, record: GameRecord) -> None:
         record.inflight = False
 
 
-async def _announce(app: FastAPI, record: GameRecord) -> None:
+async def announce(app: FastAPI, record: GameRecord) -> None:
     """Tell the chat, once, that the game is over (it says so in the room, if the game is of a room of the chat)."""
     if record.announced:
         return
@@ -39,7 +39,7 @@ async def _announce(app: FastAPI, record: GameRecord) -> None:
 async def persist(app: FastAPI, room: Room) -> None:
     room.collect_result()
     for record in list(room.records):
-        await _announce(app, record)
+        await announce(app, record)
         if record.attempts < MAX_PERSIST_ATTEMPTS:
             await store_record(app, record)
     room.records[:] = [r for r in room.records if not r.saved]
@@ -55,7 +55,7 @@ async def commit(app: FastAPI, room: Room) -> None:
 async def save_pending(app: FastAPI) -> None:
     """Store (or retry) every result that is still unsaved, including those of rooms already deleted."""
     for record in app.state.ww_store.unsaved_results():
-        await _announce(app, record)
+        await announce(app, record)
         await store_record(app, record)
 
 
@@ -78,7 +78,7 @@ async def tick_once(app: FastAPI) -> int:
     return advanced
 
 
-async def _forever(app: FastAPI, interval: float, step) -> None:
+async def forever_service(app: FastAPI, interval: float, step) -> None:
     while True:
         await asyncio.sleep(interval)
         try:
@@ -88,8 +88,8 @@ async def _forever(app: FastAPI, interval: float, step) -> None:
 
 
 async def reaper_loop(app: FastAPI, interval: float = REAPER_INTERVAL_SECONDS) -> None:
-    await _forever(app, interval, sweep)
+    await forever_service(app, interval, sweep)
 
 
 async def tick_loop(app: FastAPI, interval: float = TICK_SECONDS) -> None:
-    await _forever(app, interval, tick_once)
+    await forever_service(app, interval, tick_once)

@@ -93,17 +93,17 @@ def fetch(url: str, method: str = "GET") -> Fetched:
     scheme, host, port, path = check_url(url)
     if method.upper() not in ("GET", "HEAD"):
         raise FetchError("Only GET and HEAD are allowed")
-    return _send(scheme, host, port, path, method.upper(), {"Accept": "text/*, application/json"}, None)
+    return send(scheme, host, port, path, method.upper(), {"Accept": "text/*, application/json"}, None)
 
 
 def post_json(url: str, payload: bytes, hosts: set[str]) -> Fetched:
     """One POST of a JSON body to a URL on `hosts` (the MCP servers the operator named), under the same rules."""
     scheme, host, port, path = check_url(url, hosts)
     headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
-    return _send(scheme, host, port, path, "POST", headers, payload)
+    return send(scheme, host, port, path, "POST", headers, payload)
 
 
-def _send(scheme: str, host: str, port: int, path: str, method: str, headers: dict[str, str], body: bytes | None) -> Fetched:
+def send(scheme: str, host: str, port: int, path: str, method: str, headers: dict[str, str], body: bytes | None) -> Fetched:
     address = resolve_public(host, port)
     try:
         sock = socket.create_connection((address, port), timeout=TIMEOUT_SECONDS)

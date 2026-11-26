@@ -75,12 +75,12 @@ async def current_user(request: Request, user: Annotated[TokenPayload, Depends(g
 CurrentUser = Annotated[TokenPayload, Depends(current_user)]
 
 
-def _limit(request: Request, kind: str, user: TokenPayload) -> None:
+def limit_routes(request: Request, kind: str, user: TokenPayload) -> None:
     if not request.app.state.ww_limits.allow(kind, user.user_id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests, slow down")
 
 
-def _envelope(room: Room, user_id: int | None) -> dict[str, Any]:
+def envelope(room: Room, user_id: int | None) -> dict[str, Any]:
     return {"id": room.code, "state": room.state_for(user_id)}
 
 
@@ -110,7 +110,7 @@ async def mutate(request: Request, code: str, user: TokenPayload, change) -> dic
     except RoomNotFound as error:
         raise http_error(error) from None
     await commit(request.app, room)
-    return _envelope(room, user.user_id)
+    return envelope(room, user.user_id)
 
 
 # ---- setup (static, no auth needed) ----
@@ -134,7 +134,7 @@ async def setup_meta() -> dict[str, Any]:
     }
 
 
-def _ability(name: str) -> Ability:
+def ability_routes(name: str) -> Ability:
     try:
         return Ability[name]
     except KeyError:
@@ -144,7 +144,7 @@ def _ability(name: str) -> Ability:
 # ---- rooms ----
 @router.post("/rooms", status_code=status.HTTP_201_CREATED)
 async def create_room(request: Request, user: CurrentUser, body: CreateBody = CreateBody()) -> dict[str, Any]:
-    _limit(request, "create", user)
+    limit_routes(request, "create", user)
     roles = parse_roles(body)
     store = request.app.state.ww_store
     try:
@@ -162,7 +162,7 @@ async def create_room(request: Request, user: CurrentUser, body: CreateBody = Cr
     except GameError as error:
         raise http_error(error) from None
     await commit(request.app, room)
-    return _envelope(room, user.user_id)
+    return envelope(room, user.user_id)
 
 
 @router.get("/rooms", response_model=list[RoomSummary])
@@ -178,12 +178,12 @@ async def get_room(code: RoomCode, request: Request, user: CurrentUser) -> dict[
         raise http_error(RoomNotFound(code))
     if room.seat_index(user.user_id) is None and room.started:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This game is already running")
-    return _envelope(room, user.user_id)
+    return envelope(room, user.user_id)
 
 
 @router.post("/rooms/{code}/join")
 async def join_room(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
-    _limit(request, "join", user)
+    limit_routes(request, "join", user)
     store = request.app.state.ww_store
     return await mutate(request, code, user, lambda room: store.join(room.code, user.user_id, user.username))
 
@@ -219,7 +219,7 @@ async def set_options(code: RoomCode, body: OptionsBody, request: Request, user:
 async def set_roles(code: RoomCode, body: RolesBody, request: Request, user: CurrentUser) -> dict[str, Any]:
     """The host sets (or deals at random) the role of each seat before the game starts."""
     roles = parse_roles(CreateBody(seats=body.seats)) if body.seats is not None else None
-    banned = tuple(_ability(name) for name in body.banned)
+    banned = tuple(ability_routes(name) for name in body.banned)
     return await mutate(request, code, user, lambda room: room.set_roles(user.user_id, roles, body.random, banned))
 
 
@@ -235,7 +235,7 @@ async def action(code: RoomCode, body: ActionBody, request: Request, user: Curre
 
 @router.post("/rooms/{code}/chat")
 async def chat(code: RoomCode, body: ChatBody, request: Request, user: CurrentUser) -> dict[str, Any]:
-    _limit(request, "chat", user)
+    limit_routes(request, "chat", user)
     try:
         room = request.app.state.ww_store.require(code)
         message = room.chat(user.user_id, body.text, body.target)

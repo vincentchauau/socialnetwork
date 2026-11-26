@@ -77,7 +77,7 @@ class AccountConsumer:
         self.group = app_name
         self.consumer = f"{app_name}-{socket.gethostname()}-{os.getpid()}-{secrets.token_hex(3)}"
         self._sessions = session_factory
-        self._client = client
+        self.client_revocation = client
         self._poll_ms = poll_ms
         self._reclaim_idle_ms = reclaim_idle_ms
         self._module_name = handlers_module
@@ -93,7 +93,7 @@ class AccountConsumer:
         import redis
 
         try:
-            self._client.xgroup_create(ACCOUNT_STREAM, self.group, id="0", mkstream=True)
+            self.client_revocation.xgroup_create(ACCOUNT_STREAM, self.group, id="0", mkstream=True)
         except redis.ResponseError as exc:
             if "BUSYGROUP" not in str(exc):
                 raise
@@ -101,59 +101,59 @@ class AccountConsumer:
     def process_once(self, block_ms: int = 0) -> int:
         """Handle reclaimed stale entries, then new ones; returns how many messages were looked at."""
         handled = 0
-        claimed = self._client.xautoclaim(
+        claimed = self.client_revocation.xautoclaim(
             ACCOUNT_STREAM, self.group, self.consumer, min_idle_time=self._reclaim_idle_ms, start_id="0-0",
             count=BATCH,
         )[1]
         for message_id, fields in claimed:
             if fields is None:  # trimmed from the stream while pending
-                self._ack(message_id)
+                self.ack_events(message_id)
             else:
-                self._handle(message_id, fields)
+                self.handle_events(message_id, fields)
             handled += 1
-        reply = self._client.xreadgroup(
+        reply = self.client_revocation.xreadgroup(
             self.group, self.consumer, {ACCOUNT_STREAM: ">"}, count=BATCH, block=block_ms or None
         )
         for _stream, messages in reply or []:
             for message_id, fields in messages:
-                self._handle(message_id, fields)
+                self.handle_events(message_id, fields)
                 handled += 1
         return handled
 
-    def _deliveries(self, message_id: str) -> int:
-        rows = self._client.xpending_range(ACCOUNT_STREAM, self.group, min=message_id, max=message_id, count=1)
+    def deliveries_events(self, message_id: str) -> int:
+        rows = self.client_revocation.xpending_range(ACCOUNT_STREAM, self.group, min=message_id, max=message_id, count=1)
         return int(rows[0]["times_delivered"]) if rows else 1
 
-    def _ack(self, message_id: str) -> None:
-        self._client.xack(ACCOUNT_STREAM, self.group, message_id)
+    def ack_events(self, message_id: str) -> None:
+        self.client_revocation.xack(ACCOUNT_STREAM, self.group, message_id)
 
-    def _handle(self, message_id: str, fields: dict) -> None:
+    def handle_events(self, message_id: str, fields: dict) -> None:
         try:
-            self._dispatch(fields)
+            self.dispatch_events(fields)
         except Skip as skip:
             log.warning("account event %s skipped: %s", message_id, skip)
-            self._ack(message_id)
+            self.ack_events(message_id)
         except Exception as exc:  # noqa: BLE001 - any handler failure is retried, then dead-lettered
-            if self._deliveries(message_id) >= MAX_DELIVERIES:
+            if self.deliveries_events(message_id) >= MAX_DELIVERIES:
                 self.dead_letter(message_id, fields, exc)
             else:
                 log.warning("account event %s failed (%s): will be retried", message_id, type(exc).__name__)
         else:
-            self._ack(message_id)
+            self.ack_events(message_id)
 
     def dead_letter(self, message_id: str, fields: dict, exc: Exception) -> None:
         log.error("account event %s dead-lettered after %d deliveries (%s)", message_id, MAX_DELIVERIES,
                   type(exc).__name__)  # fmt: skip
-        self._client.xadd(
+        self.client_revocation.xadd(
             DEAD_STREAM,
             {**fields, "app": self.group, "error": type(exc).__name__, "original_id": message_id},
             maxlen=DEAD_MAXLEN, approximate=True,
         )  # fmt: skip
-        self._ack(message_id)
+        self.ack_events(message_id)
 
     # --- handler dispatch ----------------------------------------------------------------------
 
-    def _handlers(self) -> Any:
+    def handlers_events(self) -> Any:
         if self._module is None:
             try:
                 self._module = importlib.import_module(self._module_name)
@@ -166,7 +166,7 @@ class AccountConsumer:
                 raise Skip(f"no {self._module_name}") from None
         return self._module
 
-    def _dispatch(self, fields: dict) -> None:
+    def dispatch_events(self, fields: dict) -> None:
         kind = fields.get("type")
         function_name = {USER_DELETED: "on_user_deleted", USER_RENAMED: "on_user_renamed", USER_CREATED: "on_user_created"}.get(kind)
         try:
@@ -176,7 +176,7 @@ class AccountConsumer:
             raise Skip("malformed event") from None
         if function_name is None:
             raise Skip(f"unknown event type {kind!r}")
-        handler = getattr(self._handlers(), function_name, None)
+        handler = getattr(self.handlers_events(), function_name, None)
         if handler is None:
             raise Skip(f"{self._module_name} has no {function_name}")
         args: tuple = (user_id,)
@@ -213,7 +213,7 @@ class AccountConsumer:
 
     def rename_mark(self, user_id: int) -> int:
         """Highest rename `seq` applied for the user (0: none), so a late older event cannot overwrite a newer name."""
-        raw = self._client.get(self.mark_key(user_id))
+        raw = self.client_revocation.get(self.mark_key(user_id))
         return int(raw) if raw else 0
 
     def raise_rename_mark(self, user_id: int, seq: int) -> None:
@@ -221,7 +221,7 @@ class AccountConsumer:
 
         key = self.mark_key(user_id)
         for _ in range(SEQ_WATCH_RETRIES):
-            with self._client.pipeline() as pipe:
+            with self.client_revocation.pipeline() as pipe:
                 try:
                     pipe.watch(key)
                     current = pipe.get(key)
@@ -236,13 +236,13 @@ class AccountConsumer:
 
     # --- thread --------------------------------------------------------------------------------
 
-    def _warn(self, exc: Exception) -> None:
+    def warn(self, exc: Exception) -> None:
         now = time.monotonic()
         if self._last_warned is None or now - self._last_warned >= WARN_INTERVAL_SECONDS:
             self._last_warned = now
             log.warning("account event consumer %s: redis problem (%s), retrying", self.group, type(exc).__name__)
 
-    def _run(self) -> None:
+    def run_events(self) -> None:
         import redis
 
         while not self._stop.is_set():
@@ -251,11 +251,11 @@ class AccountConsumer:
                 while not self._stop.is_set():
                     self.process_once(self._poll_ms)
             except (redis.RedisError, OSError) as exc:
-                self._warn(exc)
+                self.warn(exc)
                 self._stop.wait(self._poll_ms / 1000)
 
     def start(self) -> "AccountConsumer":
-        self._thread = threading.Thread(target=self._run, name=f"account-events-{self.group}", daemon=True)
+        self._thread = threading.Thread(target=self.run_events, name=f"account-events-{self.group}", daemon=True)
         self._thread.start()
         return self
 

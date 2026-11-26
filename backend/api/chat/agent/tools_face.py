@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.chat.agent.tools import MAX_ITEMS, Http, NoArgs, Tool, ToolError, _get, _write, action, register
+from api.chat.agent.tools import MAX_ITEMS, Http, NoArgs, Tool, ToolError, get_tools, write, action, register
 
 SAVE = {
     "steps": [{"path": "/api/face/measurements", "kind": "json", "fields": ["symmetry", "eye", "nose", "mouth", "ear", "angle"], "capture": {"measurement_id": "id"}}],
@@ -36,7 +36,7 @@ def camera_card(_: BaseModel, token: str, http: Http) -> dict[str, Any]:
 
 
 def measured(args: MeasurementRef, token: str, http: Http) -> dict[str, Any]:
-    rows = _get("face", "/measurements", {"limit": 50}, token, http)
+    rows = get_tools("face", "/measurements", {"limit": 50}, token, http)
     found = next((m for m in rows if m["id"] == args.measurement_id), None)
     if found is None:
         raise ToolError("That measurement was not found")
@@ -44,7 +44,7 @@ def measured(args: MeasurementRef, token: str, http: Http) -> dict[str, Any]:
 
 
 def history(_: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    rows = _get("face", "/measurements", {"limit": MAX_ITEMS}, token, http)
+    rows = get_tools("face", "/measurements", {"limit": MAX_ITEMS}, token, http)
     items = [
         {
             "title": f"Symmetry {pct(m['symmetry'])}", "subtitle": str(m.get("createdAt", ""))[:16].replace("T", " "),
@@ -56,12 +56,12 @@ def history(_: NoArgs, token: str, http: Http) -> dict[str, Any]:
 
 
 def delete_one(args: MeasurementRef, token: str, http: Http) -> dict[str, Any]:
-    _write("face", f"/measurements/{args.measurement_id}", {}, token, http, method="DELETE")
+    write("face", f"/measurements/{args.measurement_id}", {}, token, http, method="DELETE")
     return {"type": "done", "summary": "Deleted that measurement"}
 
 
 def delete_all(_: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    _write("face", "/measurements", {}, token, http, method="DELETE")
+    write("face", "/measurements", {}, token, http, method="DELETE")
     return {"type": "done", "summary": "Deleted all your measurements"}
 
 

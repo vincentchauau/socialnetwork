@@ -41,7 +41,7 @@ def register_sqlite(engine: Engine) -> None:
         return
 
     @event.listens_for(engine, "connect")
-    def _add(connection, _record) -> None:  # noqa: ANN001 - the DBAPI connection
+    def add(connection, _record) -> None:  # noqa: ANN001 - the DBAPI connection
         connection.create_function("fold_text", 1, lambda value: None if value is None else fold(value), deterministic=True)
 
     DB_FOLDS["on"] = True

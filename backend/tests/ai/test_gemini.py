@@ -206,4 +206,4 @@ class TestChoice:
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
         monkeypatch.setenv(variable, " the-key ")
         provider = get_provider()
-        assert provider.name == "gemini" and provider.is_dummy is False and provider._key == "the-key"
+        assert provider.name == "gemini" and provider.is_dummy is False and provider.key_throttle == "the-key"

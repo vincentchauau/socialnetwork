@@ -339,9 +339,9 @@ def test_take_over_makes_a_leaver_a_bot_and_never_blocks_the_phase():
     g = game_of(n=9)
     roles(g, {1: (F.VILLAGER, A.SEE_FACTION), 8: (F.WOLF, A.NONE), 9: (F.WOLF, A.NONE)})
     g.start()
-    assert 1 in g._missing()
+    assert 1 in g.missing()
     g.take_over(1)
-    assert g.player(1).is_bot and 1 not in g._missing()
+    assert g.player(1).is_bot and 1 not in g.missing()
     g.take_over(1)  # already a bot: nothing happens
     for _ in range(40):
         if g.game_over:

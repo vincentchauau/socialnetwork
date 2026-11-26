@@ -18,7 +18,7 @@ class ConfigError(RuntimeError):
     """A required setting is missing or unsafe."""
 
 
-def _flag(name: str) -> bool:
+def flag(name: str) -> bool:
     return os.environ.get(name, "0").strip().lower() in ("1", "true", "yes")
 
 
@@ -39,7 +39,7 @@ def flag_default_on(name: str) -> bool:
     return os.environ.get(name, "1").strip().lower() in ("1", "true", "yes")
 
 
-def _float(name: str, default: float) -> float:
+def float_config(name: str, default: float) -> float:
     raw = os.environ.get(name, "").strip()
     try:
         return float(raw) if raw else default
@@ -128,7 +128,7 @@ class Settings:
         redis_url = os.environ.get("REDIS_URL", "").strip()
         if redis_url and urlparse(redis_url).scheme not in REDIS_SCHEMES:
             raise ConfigError("REDIS_URL must start with redis://, rediss:// or unix://")
-        smtp_ssl = _flag("SMTP_SSL")
+        smtp_ssl = flag("SMTP_SSL")
         settings = Settings(
             jwt_secret=secret,
             env=env,
@@ -137,15 +137,15 @@ class Settings:
             refresh_days=positive_int("REFRESH_DAYS", 14),
             allowed_origins=origins or DEFAULT_ORIGINS,
             google_client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
-            biometrics_enabled=_flag("BIOMETRICS_ENABLED"),
-            liveness_required=_flag("LIVENESS_REQUIRED"),
+            biometrics_enabled=flag("BIOMETRICS_ENABLED"),
+            liveness_required=flag("LIVENESS_REQUIRED"),
             data_key=os.environ.get("DATA_KEY", "").strip(),
-            audio_threshold=_float("AUDIO_THRESHOLD", 0.8),
-            face_threshold=_float("FACE_THRESHOLD", 0.6),
-            audio_threshold_alone=_float("AUDIO_THRESHOLD_ALONE", 0.88),
-            face_threshold_alone=_float("FACE_THRESHOLD_ALONE", 0.45),
-            face_identify_margin=_float("FACE_IDENTIFY_MARGIN", 0.08),
-            voice_identify_margin=_float("VOICE_IDENTIFY_MARGIN", 0.05),
+            audio_threshold=float_config("AUDIO_THRESHOLD", 0.8),
+            face_threshold=float_config("FACE_THRESHOLD", 0.6),
+            audio_threshold_alone=float_config("AUDIO_THRESHOLD_ALONE", 0.88),
+            face_threshold_alone=float_config("FACE_THRESHOLD_ALONE", 0.45),
+            face_identify_margin=float_config("FACE_IDENTIFY_MARGIN", 0.08),
+            voice_identify_margin=float_config("VOICE_IDENTIFY_MARGIN", 0.05),
             webauthn_rp_id=rp_id,
             webauthn_rp_name=os.environ.get("WEBAUTHN_RP_NAME", "").strip() or "Mạng xã hội",
             smtp_host=os.environ.get("SMTP_HOST", "").strip(),
@@ -155,7 +155,7 @@ class Settings:
             smtp_from=os.environ.get("SMTP_FROM", "").strip() or "Mạng xã hội <no-reply@localhost>",
             smtp_starttls=flag_default_on("SMTP_STARTTLS"),
             smtp_ssl=smtp_ssl,
-            smtp_allow_plaintext_auth=_flag("SMTP_ALLOW_PLAINTEXT_AUTH"),
+            smtp_allow_plaintext_auth=flag("SMTP_ALLOW_PLAINTEXT_AUTH"),
             public_url=public_url,
             redis_url=redis_url,
             sms_provider=os.environ.get("SMS_PROVIDER", "").strip().lower(),

@@ -40,7 +40,7 @@ def job_skills(items: list[dict]) -> list[dict]:
     return [dict(item) for item in items]
 
 
-def _resume(person: PersonInfo, job: JobDescription) -> dict:
+def resume_seed_jobs(person: PersonInfo, job: JobDescription) -> dict:
     skills = []
     for item in person.skills[:12]:
         level = item.get("level") if item.get("level") in LEVELS else None
@@ -54,7 +54,7 @@ def _resume(person: PersonInfo, job: JobDescription) -> dict:
     }).model_dump()
 
 
-def _history(env: Env, state: str, applied_days: float) -> list[dict]:
+def history_seed_jobs(env: Env, state: str, applied_days: float) -> list[dict]:
     path = PATHS[state]
     for before, after in zip(path, path[1:]):
         assert APPLICATION_FLOW.allows(before, after), (before, after)
@@ -107,12 +107,12 @@ def seed_jobs(env: Env, db: Session) -> str | None:
         job = jobs[job_index]
         person = person_for(position, job, position == ADMIN_APPLIES)
         age = (env.now - job.created_at.replace(tzinfo=env.now.tzinfo)).days
-        history = _history(env, state, max(2.0, min(age - 1, env.rng.randint(4, 30))))
+        history = history_seed_jobs(env, state, max(2.0, min(age - 1, env.rng.randint(4, 30))))
         skills = ", ".join(i["name"] for i in job.skills_required[:2])
         letter = COVER_LETTERS[position % len(COVER_LETTERS)].format(company=job.company, title=job.title, skills=skills)
         db.add(JobApplicant(
             job_description_id=job.id, user_id=person.id, saved=position in ALSO_SAVED, status=state, cover_letter=letter,
-            resume=_resume(person, job), contact_email=f"{person.username.lower()}@example.com",
+            resume=resume_seed_jobs(person, job), contact_email=f"{person.username.lower()}@example.com",
             employer_note=EMPLOYER_NOTES[position % len(EMPLOYER_NOTES)] if state not in ("submitted",) else "", history=history,
         ))
     for job_index in SAVED_ONLY:

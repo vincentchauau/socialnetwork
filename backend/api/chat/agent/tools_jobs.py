@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.chat.agent.tools import MAX_ITEMS, Http, NoArgs, Tool, _get, _write, action, clip, field, form_card, register
+from api.chat.agent.tools import MAX_ITEMS, Http, NoArgs, Tool, get_tools, write, action, clip, field, form_card, register
 
 EMPLOYMENT = [
     {"value": "full_time", "label": "Full time"},
@@ -71,12 +71,12 @@ def post_job_form(_: BaseModel, token: str, http: Http) -> dict[str, Any]:
 
 
 def post_job(args: PostJob, token: str, http: Http) -> dict[str, Any]:
-    job = _write("job", "/jobs", args.model_dump(exclude_none=True), token, http)
+    job = write("job", "/jobs", args.model_dump(exclude_none=True), token, http)
     return {"type": "done", "summary": f"Posted job #{job['id']}: {clip(job['title'])}", "href": "/job/employer"}
 
 
 def my_jobs(_: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    rows = _get("job", "/me/jobs", {}, token, http)
+    rows = get_tools("job", "/me/jobs", {}, token, http)
     items = [
         {
             "title": f"#{p['id']} {clip(p['title'])}",
@@ -94,7 +94,7 @@ def my_jobs(_: NoArgs, token: str, http: Http) -> dict[str, Any]:
 
 
 def applicants(args: JobId, token: str, http: Http) -> dict[str, Any]:
-    rows = _get("job", f"/jobs/{args.job_id}/applications", {}, token, http)
+    rows = get_tools("job", f"/jobs/{args.job_id}/applications", {}, token, http)
     items = []
     for a in rows[:MAX_ITEMS]:
         moves = []
@@ -116,7 +116,7 @@ def applicants(args: JobId, token: str, http: Http) -> dict[str, Any]:
 
 
 def set_status(args: SetStatus, token: str, http: Http) -> dict[str, Any]:
-    _write("job", f"/applications/{args.application_id}", {"status": args.status}, token, http, method="PATCH")
+    write("job", f"/applications/{args.application_id}", {"status": args.status}, token, http, method="PATCH")
     return {"type": "done", "summary": f"Application #{args.application_id} is now {args.status}", "href": "/job/employer"}
 
 
@@ -155,7 +155,7 @@ class EditPost(BaseModel):
 
 
 def job_detail(args: JobId, token: str, http: Http) -> dict[str, Any]:
-    p = _get("job", f"/jobs/{args.job_id}", {}, token, http)
+    p = get_tools("job", f"/jobs/{args.job_id}", {}, token, http)
     pay = f"{p['salary_min'] or '?'}–{p['salary_max'] or '?'} {p['currency']}" if p.get("salary_min") or p.get("salary_max") else "Salary not shown"
     lines = [f"{clip(p['company'], 60)} · {clip(p['location'] or 'anywhere', 40)}{' · remote' if p.get('remote') else ''}", f"{p['employment_type'].replace('_', ' ')} · {pay}"]
     if p.get("tags"):
@@ -169,12 +169,12 @@ def job_detail(args: JobId, token: str, http: Http) -> dict[str, Any]:
 
 
 def withdraw(args: Withdraw, token: str, http: Http) -> dict[str, Any]:
-    _write("job", f"/applications/{args.application_id}", {}, token, http, method="DELETE")
+    write("job", f"/applications/{args.application_id}", {}, token, http, method="DELETE")
     return {"type": "done", "summary": f"Withdrew application #{args.application_id}"}
 
 
 def edit_post_form(args: JobId, token: str, http: Http) -> dict[str, Any]:
-    p = _get("job", f"/jobs/{args.job_id}", {}, token, http)
+    p = get_tools("job", f"/jobs/{args.job_id}", {}, token, http)
     fields = [
         field("title", "Job title", "text", required=True, max=120, value=p["title"]),
         field("company", "Company", "text", required=True, max=120, value=p["company"]),
@@ -192,12 +192,12 @@ def edit_post_form(args: JobId, token: str, http: Http) -> dict[str, Any]:
 
 def edit_post(args: EditPost, token: str, http: Http) -> dict[str, Any]:
     body = args.model_dump(exclude_none=True, exclude={"job_id"})
-    _write("job", f"/jobs/{args.job_id}", body, token, http, method="PATCH")
+    write("job", f"/jobs/{args.job_id}", body, token, http, method="PATCH")
     return {"type": "done", "summary": f"Saved job #{args.job_id}", "href": "/job/employer"}
 
 
 def remove_post(args: JobId, token: str, http: Http) -> dict[str, Any]:
-    _write("job", f"/jobs/{args.job_id}", {}, token, http, method="DELETE")
+    write("job", f"/jobs/{args.job_id}", {}, token, http, method="DELETE")
     return {"type": "done", "summary": f"Removed job #{args.job_id} and its applications"}
 
 

@@ -105,7 +105,7 @@ class RoomStore:
         if len(self.rooms_of(user_id)) >= self.max_rooms_per_user:
             raise TooManyRooms(f"Bạn đang ở trong {self.max_rooms_per_user} phòng, hãy rời bớt một phòng")
 
-    def _new_code(self) -> str:
+    def new_code(self) -> str:
         while True:
             code = "".join(self.rng.choices(CODE_ALPHABET, k=CODE_LENGTH))
             if code not in self._rooms:
@@ -139,7 +139,7 @@ class RoomStore:
         self.reap()
         if len(self._rooms) >= self.max_rooms:
             raise CapacityError("Server đã đạt số phòng tối đa, thử lại sau")
-        code = code.upper() if code else self._new_code()
+        code = code.upper() if code else self.new_code()
         if code in self._rooms:
             raise RoomError(f"Mã phòng {code} đã có người dùng, hãy chọn mã khác")
         names = bot_seat_names(total - 1, username, bot_names)
@@ -175,14 +175,14 @@ class RoomStore:
             self._orphans.extend(r for r in room.records if not r.saved)
 
     # ---- reaper / persistence ----
-    def _is_expired(self, room: Room, now: float) -> bool:
+    def is_expired(self, room: Room, now: float) -> bool:
         limit = FINISHED_ROOM_SECONDS if room.finished else IDLE_ROOM_SECONDS
         return now - room.last_active >= limit and not self.is_connected(room.code)
 
     def reap(self) -> list[str]:
         """Delete idle/finished rooms nobody is connected to; returns the removed codes."""
         now = self.clock()
-        expired = [c for c, r in self._rooms.items() if self._is_expired(r, now)]
+        expired = [c for c, r in self._rooms.items() if self.is_expired(r, now)]
         for code in expired:
             self.delete(code)
         return expired

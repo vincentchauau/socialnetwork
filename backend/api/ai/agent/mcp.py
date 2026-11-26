@@ -45,7 +45,7 @@ def allowed_tools() -> set[str]:
     return {t.strip() for t in os.environ.get("MCP_TOOL_ALLOWED", "").split(",") if t.strip()}
 
 
-def _hosts(urls: dict[str, str]) -> set[str]:
+def hosts(urls: dict[str, str]) -> set[str]:
     return {(urlsplit(url).hostname or "").lower().rstrip(".") for url in urls.values()} - {""}
 
 
@@ -68,7 +68,7 @@ def call(server: str, tool: str, arguments: dict[str, Any]) -> McpResult:
     if len(payload) > MAX_ARGUMENT_BYTES:
         raise McpError("The arguments are too large")
     try:
-        fetched = netguard.post_json(configured[server], payload, _hosts(configured))
+        fetched = netguard.post_json(configured[server], payload, hosts(configured))
     except netguard.FetchError as error:
         raise McpError(str(error)) from None
     if fetched.status >= 400:

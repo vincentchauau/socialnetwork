@@ -20,7 +20,7 @@ PUBLIC = "public"
 DELETED_USERNAME = "Người dùng đã xóa"  # who a row of a person that is gone is said to belong to
 
 
-class _Base(DeclarativeBase):
+class Base(DeclarativeBase):
     """Only to read `users`: this metadata is never used to make tables of the platform (center makes `users`)."""
 
 
@@ -37,7 +37,7 @@ class PersonView(NamedTuple):
     interests: list[str]
 
 
-class Person(_Base):
+class Person(Base):
     __tablename__ = "users"
 
     user_id: Mapped[int] = mapped_column("id", Integer, primary_key=True, autoincrement=False)
@@ -122,4 +122,4 @@ def ensure_table_for_sqlite(engine: Engine) -> None:
     """A SQLite database (development, tests) has no center beside it: an empty `users` is made so that the queries still run.
     In PostgreSQL the table is center's and is never touched here."""
     if engine.dialect.name == "sqlite":
-        _Base.metadata.create_all(engine)
+        Base.metadata.create_all(engine)

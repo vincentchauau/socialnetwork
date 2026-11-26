@@ -28,7 +28,7 @@ NOT_ENABLED = "Two-step verification is not enabled"
 router = APIRouter(prefix="/auth", tags=["totp"], dependencies=[Depends(check_origin)])
 
 
-def _cipher(request: Request):
+def cipher(request: Request):
     return request.app.state.totp_cipher
 
 
@@ -84,7 +84,7 @@ def totp_setup(
     result = db.execute(
         update(User)
         .where(User.id == user.id, User.totp_enabled.is_(False))
-        .values(totp_pending_secret=totp.seal(_cipher(request), secret))
+        .values(totp_pending_secret=totp.seal(cipher(request), secret))
         .execution_options(synchronize_session=False)
     )
     if result.rowcount != 1:
@@ -114,7 +114,7 @@ def totp_enable(
         raise HTTPException(status.HTTP_409_CONFLICT, ALREADY_ENABLED)
     keys = manage_keys(request, user)
     pending = user.totp_pending_secret
-    step = totp.matching_step(totp.unseal(_cipher(request), pending), body.code)
+    step = totp.matching_step(totp.unseal(cipher(request), pending), body.code)
     if step is None:
         raise reject_code(request, db, user, keys)
     result = db.execute(
@@ -152,7 +152,7 @@ def totp_disable(
     if not user.totp_enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_ENABLED)
     keys = manage_keys(request, user)
-    if not (totp.check_totp(db, _cipher(request), user, body.code) or totp.consume_recovery_code(db, user.id, body.code)):
+    if not (totp.check_totp(db, cipher(request), user, body.code) or totp.consume_recovery_code(db, user.id, body.code)):
         raise reject_code(request, db, user, keys)
     clear_totp(db, user)
     settings = settings_of(request)
@@ -178,7 +178,7 @@ def regenerate_recovery_codes(
     if not user.totp_enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_ENABLED)
     keys = manage_keys(request, user)
-    if not totp.check_totp(db, _cipher(request), user, body.code):
+    if not totp.check_totp(db, cipher(request), user, body.code):
         raise reject_code(request, db, user, keys)
     codes = totp.replace_recovery_codes(db, user.id)
     db.commit()
@@ -209,7 +209,7 @@ def login_code_ok(request: Request, db: Session, user: User | None, body: TotpLo
     if user is None:
         totp.matching_step(None, body.code or "")
         return False
-    return totp.check_totp(db, _cipher(request), user, body.code or "")
+    return totp.check_totp(db, cipher(request), user, body.code or "")
 
 
 @router.post("/login/totp", response_model=SessionOut)

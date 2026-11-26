@@ -55,7 +55,7 @@ def password_problem(password: str) -> str | None:
     return None
 
 
-def _scrypt(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
+def scrypt_passwords(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
     normalized = unicodedata.normalize("NFKC", password)
     return hashlib.scrypt(normalized.encode(), salt=salt, n=n, r=r, p=p, maxmem=SCRYPT_MAXMEM, dklen=DIGEST_BYTES)
 
@@ -63,7 +63,7 @@ def _scrypt(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
 def hash_password(password: str) -> str:
     """Self-describing 'scrypt$n$r$p$salt$hash' so the cost can be raised later."""
     salt = os.urandom(SALT_BYTES)
-    digest = _scrypt(password, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P)
+    digest = scrypt_passwords(password, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P)
     return "$".join(
         ["scrypt", str(SCRYPT_N), str(SCRYPT_R), str(SCRYPT_P),
          base64.b64encode(salt).decode(), base64.b64encode(digest).decode()]
@@ -89,7 +89,7 @@ def verify_password(password: str, stored: str | None) -> bool:
         if scheme != "scrypt":
             return False
         expected = base64.b64decode(digest_b64)
-        actual = _scrypt(password, base64.b64decode(salt_b64), int(n), int(r), int(p))
+        actual = scrypt_passwords(password, base64.b64decode(salt_b64), int(n), int(r), int(p))
     except (ValueError, TypeError):
         return False
     return hmac.compare_digest(actual, expected)

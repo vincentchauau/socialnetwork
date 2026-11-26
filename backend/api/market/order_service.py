@@ -214,7 +214,7 @@ def role_targets(order: Order, user_id: int) -> frozenset[str]:
     return SELLER_TARGETS  # involved_order already proved the user is a seller on it
 
 
-def _restock(db: Session, order: Order) -> None:
+def restock_order_service(db: Session, order: Order) -> None:
     for item in order.items:  # restock exactly what checkout took
         db.execute(
             update(Product)
@@ -252,7 +252,7 @@ def expire_stale_orders(db: Session, now: datetime, ttl: timedelta) -> int:
             .execution_options(synchronize_session=False)
         )
         if claimed.rowcount == 1:  # lost races mean someone else paid or cancelled it
-            _restock(db, order)
+            restock_order_service(db, order)
             expired += 1
     if stale:
         db.commit()
@@ -286,11 +286,11 @@ def change_status(
     if changed.rowcount != 1:
         raise conflict("Order was changed by someone else, please reload")
     if target == STATUS_CANCELLED:
-        _restock(db, order)
+        restock_order_service(db, order)
         if current == STATUS_PAID:
             refund_or_rollback(db, order, provider)
     if target == STATUS_RETURNED:  # the seller accepted the return: the money goes back and the goods return to the stock
-        _restock(db, order)
+        restock_order_service(db, order)
         refund_or_rollback(db, order, provider)
     db.commit()
     db.refresh(order)

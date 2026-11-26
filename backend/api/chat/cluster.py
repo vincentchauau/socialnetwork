@@ -38,7 +38,7 @@ def enabled() -> bool:
 
 class Cluster:
     def __init__(self, client: Any, replica: str | None = None) -> None:
-        self._client = client
+        self.client_revocation = client
         self.replica = replica or secrets.token_hex(6)
         self._handler: Handler | None = None
         self._snapshot: Callable[[], dict[str, Any]] = lambda: {"rooms": {}, "online": []}
@@ -48,14 +48,14 @@ class Cluster:
     async def publish(self, event: dict[str, Any]) -> None:
         """Tell the other copies. Never raises: Redis being away must not stop a chat."""
         try:
-            await self._client.publish(CHANNEL, json.dumps({**event, "from": self.replica}, ensure_ascii=False, separators=(",", ":")))
+            await self.client_revocation.publish(CHANNEL, json.dumps({**event, "from": self.replica}, ensure_ascii=False, separators=(",", ":")))
         except Exception:  # noqa: BLE001
             log.warning("cluster: could not publish")
 
     async def write_presence(self) -> None:
         """Write the picture of this copy (who is where, who is online) for the others, and for a while."""
         try:
-            await self._client.set(PRESENCE_KEY + self.replica, json.dumps(self._snapshot(), separators=(",", ":")), ex=PRESENCE_TTL_SECONDS)
+            await self.client_revocation.set(PRESENCE_KEY + self.replica, json.dumps(self._snapshot(), separators=(",", ":")), ex=PRESENCE_TTL_SECONDS)
         except Exception:  # noqa: BLE001
             log.warning("cluster: could not write presence")
 
@@ -64,11 +64,11 @@ class Cluster:
         rooms: dict[str, dict[int, str]] = {}
         online: set[int] = set()
         try:
-            async for key in self._client.scan_iter(match=PRESENCE_KEY + "*"):
+            async for key in self.client_revocation.scan_iter(match=PRESENCE_KEY + "*"):
                 name = key.decode() if isinstance(key, bytes) else key
                 if name == PRESENCE_KEY + self.replica:
                     continue
-                raw = await self._client.get(key)
+                raw = await self.client_revocation.get(key)
                 if raw is None:
                     continue
                 picture = json.loads(raw)
@@ -80,10 +80,10 @@ class Cluster:
         return rooms, online
 
     # ---- receiving ----
-    async def _listen(self) -> None:
+    async def listen_cluster(self) -> None:
         while True:
             try:
-                pubsub = self._client.pubsub()
+                pubsub = self.client_revocation.pubsub()
                 await pubsub.subscribe(CHANNEL)
                 async for message in pubsub.listen():
                     if message.get("type") != "message":
@@ -111,7 +111,7 @@ class Cluster:
 
     async def start(self, handler: Handler, snapshot: Callable[[], dict[str, Any]], refresh: Callable[[], Awaitable[None]]) -> None:
         self._handler, self._snapshot = handler, snapshot
-        self._tasks = [asyncio.create_task(self._listen()), asyncio.create_task(self.heartbeat(refresh))]
+        self._tasks = [asyncio.create_task(self.listen_cluster()), asyncio.create_task(self.heartbeat(refresh))]
         await asyncio.sleep(0)
 
     async def stop(self) -> None:
@@ -120,6 +120,6 @@ class Cluster:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks = []
         try:
-            await self._client.delete(PRESENCE_KEY + self.replica)
+            await self.client_revocation.delete(PRESENCE_KEY + self.replica)
         except Exception:  # noqa: BLE001
             pass

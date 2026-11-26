@@ -59,11 +59,11 @@ class ChallengeStore:
 
     def __init__(self, kv: Kv, now=time.time) -> None:
         self._kv = kv
-        self._now = now
+        self.now_totp = now
 
     def consume(self, jti: str, expires_at: float) -> bool:
         """True the first time `jti` is seen. Fails closed (False) when the token is expired or the store is full."""
-        ttl = expires_at - self._now()
+        ttl = expires_at - self.now_totp()
         return ttl > 0 and self._kv.set_if_absent(f"{CONSUMED_PREFIX}{jti}", ttl)
 
 

@@ -40,32 +40,32 @@ class Limiter:
     """At most `limit` calls per caller per window."""
 
     def __init__(self, limit: int, window: float = HOUR_SECONDS) -> None:
-        self._limit, self._window = limit, window
+        self.limit_routes, self._window = limit, window
         self._seen: dict[int, deque[float]] = defaultdict(deque)
-        self._lock = threading.Lock()
+        self.guard = threading.Lock()
 
     def allow(self, key: int, now: float | None = None) -> bool:
         moment = now if now is not None else time.monotonic()
-        with self._lock:
+        with self.guard:
             seen = self._seen[key]
             while seen and moment - seen[0] > self._window:
                 seen.popleft()
-            if len(seen) >= self._limit:
+            if len(seen) >= self.limit_routes:
                 return False
             seen.append(moment)
             return True
 
 
-_limiter = Limiter(int(os.environ.get("AGENT_REPLIES_PER_HOUR", REPLIES_PER_CALLER_PER_HOUR)))
-_provider: Provider | None = None
+limiter_service = Limiter(int(os.environ.get("AGENT_REPLIES_PER_HOUR", REPLIES_PER_CALLER_PER_HOUR)))
+provider_seed_other: Provider | None = None
 
 
 def provider() -> Provider:
     """The model, chosen by `AI_PROVIDER` (dummy by default); built once."""
-    global _provider
-    if _provider is None:
-        _provider = get_provider()
-    return _provider
+    global provider_seed_other
+    if provider_seed_other is None:
+        provider_seed_other = get_provider()
+    return provider_seed_other
 
 
 def reply(db: Session, virtual_id: int, caller_id: int, caller: str, history: list[Line]) -> Reply | None:
@@ -73,7 +73,7 @@ def reply(db: Session, virtual_id: int, caller_id: int, caller: str, history: li
     person = db.get(Person, virtual_id)
     if person is None or not person.is_virtual or not history:
         return None
-    if not _limiter.allow(caller_id):
+    if not limiter_service.allow(caller_id):
         log.info("agent: replies limited for one caller")
         return None
     try:
@@ -86,9 +86,9 @@ def reply(db: Session, virtual_id: int, caller_id: int, caller: str, history: li
     return Reply(text=text, usage=usage, ms=ms)
 
 
-def run_tool(tool: str, args: dict[str, Any], caller_id: int, token: str, confirmed: bool, http: tools.Http = tools._call) -> dict[str, Any] | None:
+def run_tool(tool: str, args: dict[str, Any], caller_id: int, token: str, confirmed: bool, http: tools.Http = tools.send_request) -> dict[str, Any] | None:
     """The card of a tool run for the person (reads run; writes only when `confirmed`); None when it cannot run."""
-    if not _limiter.allow(caller_id):
+    if not limiter_service.allow(caller_id):
         return None
     try:
         card = tools.run_tool(tool, args, token, confirmed, http)

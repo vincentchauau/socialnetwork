@@ -318,9 +318,9 @@ class Room:
         self.require_host(user_id)
         if self.game is not None:
             raise RoomError("Game đã bắt đầu")
-        self._begin()
+        self.begin()
 
-    def _begin(self) -> None:
+    def begin(self) -> None:
         if len(self.seats) < MIN_PLAYERS:
             raise RoomError(f"Cần ít nhất {MIN_PLAYERS} người (hiện có {len(self.seats)})")
         if not self.humans():
@@ -374,7 +374,7 @@ class Room:
         for seat in self.seats:
             seat.faction = seat.ability = None
         self.game = None
-        self._begin()
+        self.begin()
 
     def reset(self, user_id: int) -> None:
         self.require_host(user_id)

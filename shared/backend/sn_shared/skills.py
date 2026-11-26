@@ -36,11 +36,11 @@ ALIASES = {
 }
 
 
-class _Base(DeclarativeBase):
+class Base(DeclarativeBase):
     pass
 
 
-class Skill(_Base):
+class Skill(Base):
     __tablename__ = "skills"
 
     key: Mapped[str] = mapped_column(String(NAME_MAX), primary_key=True)
@@ -50,7 +50,7 @@ class Skill(_Base):
 
 
 def ensure_tables(engine: Engine) -> None:
-    _Base.metadata.create_all(engine)
+    Base.metadata.create_all(engine)
 
 
 def skill_key(name: str) -> str:
@@ -66,7 +66,7 @@ def keys_of(names: Iterable[str]) -> list[str]:
     return sorted({skill_key(name) for name in names if name and name.strip()})
 
 
-def _distinct(names: Iterable[str]) -> dict[str, str]:
+def distinct(names: Iterable[str]) -> dict[str, str]:
     """key -> the first spelling, for the names that are not empty."""
     found: dict[str, str] = {}
     for name in names:
@@ -81,7 +81,7 @@ def _distinct(names: Iterable[str]) -> dict[str, str]:
 
 def register(db: Session, names: Iterable[str]) -> list[str]:
     """Add the skills to the catalog (one that is there stays as it is); returns their keys. The caller commits."""
-    found = _distinct(names)
+    found = distinct(names)
     if not found:
         return []
     known = set(db.scalars(select(Skill.key).where(Skill.key.in_(list(found)))))
@@ -120,7 +120,7 @@ class Match:
     missing_preferred: list[str] = field(default_factory=list)  # only liked, and the person lacks it
 
 
-def _credit(wanted: Mapping[str, Any], have: Mapping[str, Mapping[str, Any]]) -> float:
+def credit_skills(wanted: Mapping[str, Any], have: Mapping[str, Mapping[str, Any]]) -> float:
     """1 for a skill that is there as asked, PARTIAL_CREDIT when it is there below the level or the years asked, 0 when it is not."""
     mine = have.get(skill_key(str(wanted.get("name") or "")))
     if mine is None:
@@ -142,12 +142,12 @@ def match(required: Iterable[Mapping[str, Any]], preferred: Iterable[Mapping[str
     matched, partial, missing, missing_preferred = [], [], [], []
     required_total = 0.0
     for item in wanted_required:
-        credit = _credit(item, people)
+        credit = credit_skills(item, people)
         required_total += credit
         (matched if credit == 1.0 else partial if credit else missing).append(str(item["name"]).strip())
     preferred_total = 0.0
     for item in wanted_preferred:
-        credit = _credit(item, people)
+        credit = credit_skills(item, people)
         preferred_total += credit
         if not credit:
             missing_preferred.append(str(item["name"]).strip())

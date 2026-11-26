@@ -102,7 +102,7 @@ class Limits:
         self._spent: dict[int, list[float]] = {}
 
     @staticmethod
-    def _take(book: dict[int, list[float]], user_id: int, limit: int) -> bool:
+    def take_service(book: dict[int, list[float]], user_id: int, limit: int) -> bool:
         now = time.monotonic()
         times = [t for t in book.get(user_id, []) if now - t < HOUR_SECONDS]
         if len(times) >= limit:
@@ -112,14 +112,14 @@ class Limits:
         return True
 
     def ask(self, user_id: int) -> None:
-        if not self._take(self._asked, user_id, self.questions):
+        if not self.take_service(self._asked, user_id, self.questions):
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many questions this hour; try again later")
 
     def spend(self, user_id: int) -> Callable[[], None]:
         """What the toolbox calls before llm_tool and web_tool use the model."""
 
         def take() -> None:
-            if not self._take(self._spent, user_id, self.model_calls):
+            if not self.take_service(self._spent, user_id, self.model_calls):
                 raise ToolError("Too many model sub-calls this hour; answer without it")
 
         return take

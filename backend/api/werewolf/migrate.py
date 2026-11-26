@@ -112,7 +112,7 @@ def merge_legacy_tables(engine: Engine) -> int:
         finished = [
             {
                 "room_code": r["room_id"], "status": FINISHED, "winner": r["winner"], "days": r["days"], "size": r.get("size", 0) or 0,
-                "finished_at": _aware(r.get("finished_at")),
+                "finished_at": aware(r.get("finished_at")),
                 "players": of_game.get(r["id"], []), "player_ids": ids_text(p["user_id"] for p in of_game.get(r["id"], [])),
             }
             for r in results
@@ -127,7 +127,7 @@ def merge_legacy_tables(engine: Engine) -> int:
     return len(finished) + len(live)
 
 
-def _aware(value) -> datetime | None:
+def aware(value) -> datetime | None:
     """A moment read back as text (SQLite) or as a datetime, with its time zone."""
     if isinstance(value, str):
         value = datetime.fromisoformat(value)

@@ -63,7 +63,7 @@ router = APIRouter(prefix="/auth", tags=["email"], dependencies=[Depends(ensure_
 # --- shared helpers -------------------------------------------------------------------------------
 
 
-def _fail(code: int, detail: str) -> HTTPException:
+def fail(code: int, detail: str) -> HTTPException:
     return HTTPException(code, detail)
 
 
@@ -186,14 +186,14 @@ def verify_email(
         if failure_key:
             count_code_failure(request, failure_key)
         audit.warning("email verification failed ip=%s", client_ip(request))
-        raise _fail(status.HTTP_400_BAD_REQUEST, bad)
+        raise fail(status.HTTP_400_BAD_REQUEST, bad)
     owner = verified_owner_id(db, row.target)
     if owner is not None and owner != row.user_id:
-        raise _fail(status.HTTP_409_CONFLICT, EMAIL_TAKEN)  # verified elsewhere in the meantime
+        raise fail(status.HTTP_409_CONFLICT, EMAIL_TAKEN)  # verified elsewhere in the meantime
     user = db.get(User, row.user_id)
     if user is None or not et.consume(db, row.id):
         db.rollback()
-        raise _fail(status.HTTP_400_BAD_REQUEST, bad)
+        raise fail(status.HTTP_400_BAD_REQUEST, bad)
     previous = user.email if has_verified_email(user) else None
     address = row.target
     if address != user.email:
@@ -203,7 +203,7 @@ def verify_email(
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise _fail(status.HTTP_409_CONFLICT, EMAIL_TAKEN) from None
+        raise fail(status.HTTP_409_CONFLICT, EMAIL_TAKEN) from None
     audit.info("email verified user=%r email=%s ip=%s", user.username, mask_email(address), client_ip(request))
     if previous and previous != address:
         notify(request, background, user, "email_changed", to=previous, new_email=mask_email(address))
@@ -218,7 +218,7 @@ def remove_email(
     user = session.user
     ensure_reauth(request, user, body.password if body else None)
     if has_verified_email(user) and usable_methods(user, without="email") == 0:
-        raise _fail(status.HTTP_409_CONFLICT, KEEP_ONE)
+        raise fail(status.HTTP_409_CONFLICT, KEEP_ONE)
     previous = user.email if has_verified_email(user) else None
     user.email, user.email_verified, user.email_from_google = None, False, False
     drop_tokens(db, user.id, et.VERIFY)
@@ -266,7 +266,7 @@ def login_with_code(
         db.rollback()
         count_code_failure(request, failure_key)
         audit.warning("email code login failed ip=%s", client_ip(request))
-        raise _fail(status.HTTP_401_UNAUTHORIZED, BAD_CODE)
+        raise fail(status.HTTP_401_UNAUTHORIZED, BAD_CODE)
     db.commit()
     return login_result(request, response, db, user)
 
@@ -282,7 +282,7 @@ def login_with_link(
     if row is None or not still_theirs or not et.consume(db, row.id):
         db.rollback()
         audit.warning("email link login failed ip=%s", client_ip(request))
-        raise _fail(status.HTTP_401_UNAUTHORIZED, BAD_LINK)
+        raise fail(status.HTTP_401_UNAUTHORIZED, BAD_LINK)
     db.commit()
     return login_result(request, response, db, user)
 
@@ -307,13 +307,13 @@ def reset_password(
     user = db.get(User, row.user_id) if row else None
     if row is None or user is None or not has_verified_email(user) or user.email != row.target:
         audit.warning("password reset failed ip=%s", client_ip(request))
-        raise _fail(status.HTTP_400_BAD_REQUEST, BAD_LINK)
+        raise fail(status.HTTP_400_BAD_REQUEST, BAD_LINK)
     problem = password_problem(body.new_password)
     if problem:  # the token stays valid so the user can try again
-        raise _fail(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
+        raise fail(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
     if not et.consume(db, row.id):
         db.rollback()
-        raise _fail(status.HTTP_400_BAD_REQUEST, BAD_LINK)
+        raise fail(status.HTTP_400_BAD_REQUEST, BAD_LINK)
     user.password_hash = hash_password(body.new_password)
     bump_token_version(db, user)
     drop_tokens(db, user.id, et.RESET)

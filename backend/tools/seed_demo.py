@@ -74,7 +74,7 @@ def create_tables(module: str, engine: Engine) -> None:
         importlib.import_module(f"api.{module}.db").Base.metadata.create_all(engine)
 
 
-def _tables(db: Session, models: tuple) -> dict[str, int]:
+def tables_seed_demo(db: Session, models: tuple) -> dict[str, int]:
     return {m.__tablename__: db.scalar(select(func.count()).select_from(m)) or 0 for m in models}
 
 
@@ -101,14 +101,14 @@ def seed(url: str | None = None, dry_run: bool = False, embedder: str = "env", n
             continue
         try:
             with Session(engines[module]) as db:
-                before = _tables(db, groups.WATCHED[name])
+                before = tables_seed_demo(db, groups.WATCHED[name])
                 reason = run(env, db)
                 if reason:
                     db.rollback()
                     result.skipped[name] = reason
                     continue
                 db.flush()
-                after = _tables(db, groups.WATCHED[name])
+                after = tables_seed_demo(db, groups.WATCHED[name])
                 result.counts.update({table: after[table] - before[table] for table in after})
                 db.rollback() if dry_run else db.commit()
         except Exception as error:  # a group that cannot run must not hide what the others did

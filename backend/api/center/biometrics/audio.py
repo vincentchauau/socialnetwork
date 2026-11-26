@@ -23,7 +23,7 @@ def build_encoder():
     return VoiceEncoder()
 
 
-def _encoder():
+def encoder_audio():
     with encoder_lock:  # lru_cache does not lock: load the model exactly once
         return build_encoder()
 
@@ -63,7 +63,7 @@ def wav_to_floats(wav_bytes: bytes):
 def embed_audio(raw: bytes, timeout: int) -> bytes:
     import numpy as np
 
-    encoder = _encoder()  # check the library before spending time on ffmpeg
+    encoder = encoder_audio()  # check the library before spending time on ffmpeg
     try:
         from resemblyzer import preprocess_wav
     except ImportError as exc:

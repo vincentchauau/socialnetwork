@@ -21,7 +21,7 @@ TIMEOUT_SECONDS = 5.0
 GAME_OVER_PATH = "/internal/game-over"
 
 
-def _send(path: str, payload: dict) -> None:
+def send(path: str, payload: dict) -> None:
     url, secret = os.environ.get("CHAT_URL", "").rstrip("/"), os.environ.get("WEREWOLF_SECRET", "")
     if not url or len(secret) < servicesig.MIN_SECRET_CHARS:
         return  # not set up: nothing to tell
@@ -35,7 +35,7 @@ def _send(path: str, payload: dict) -> None:
 
 def game_over(app: FastAPI, record) -> bool:
     """Say in the room of the game (if the chat has one) that it is over, with every role and what all of the players saw. Blocking: run it in a thread. True when told."""
-    sender = getattr(app.state, "chat_call", None) or _send
+    sender = getattr(app.state, "chat_call", None) or send
     try:
         sender(GAME_OVER_PATH, {
             "code": record.room_code, "winner": record.winner, "days": record.days, "size": record.size,

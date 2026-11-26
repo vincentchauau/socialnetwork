@@ -46,7 +46,7 @@ MAX_AVATAR = 20000  # a small image kept inline (the browser shrinks it) fits
 INLINE_PICTURE = ("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,")
 
 
-def _picture(value: str | None) -> str | None:
+def picture_schemas(value: str | None) -> str | None:
     """The address of a picture: empty, a path of this site, or http(s)."""
     if value is None or value == "":
         return value
@@ -69,16 +69,16 @@ class RoomFields(BaseModel):
 
     @field_validator("avatar")
     @classmethod
-    def _avatar(cls, value: str) -> str:
-        return _picture(value) or ""
+    def validate_avatar_text(cls, value: str) -> str:
+        return picture_schemas(value) or ""
 
     @field_validator("title", "category", mode="before")
     @classmethod
-    def _strip(cls, value):
+    def strip_schemas(cls, value):
         return value.strip() if isinstance(value, str) else value
 
     @model_validator(mode="after")
-    def _policy(self):
+    def policy(self):
         if self.join_policy == "invite":
             raise ValueError("A room is joined openly or with approval")
         if self.visibility == "private" and self.join_policy == "open":
@@ -112,8 +112,8 @@ class RoomUpdate(BaseModel):
 
     @field_validator("avatar")
     @classmethod
-    def _avatar(cls, value: str | None) -> str | None:
-        return _picture(value)
+    def validate_avatar(cls, value: str | None) -> str | None:
+        return picture_schemas(value)
 
     @field_validator("join_policy")
     @classmethod

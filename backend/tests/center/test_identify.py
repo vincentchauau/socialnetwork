@@ -27,7 +27,7 @@ def clip(face: float, who: str) -> tuple[str, bytes]:
 ALICE, BOB, CAROL = clip(0.0, "alice"), clip(1.0, "bob"), clip(2.0, "carol")
 
 
-def _post(c, video, audio=None, data=None):
+def post_test_identify(c, video, audio=None, data=None):
     files = {**({"video": video} if video else {}), **({"audio": audio} if audio else {})}
     return c.post("/auth/login/webcam", data=data or {}, files=files or None)
 
@@ -53,46 +53,46 @@ def shape(response):
 
 def test_identifies_a_single_account(bio_client):
     enroll(bio_client, "alice", ALICE)
-    response = _post(bio_client, ALICE)
+    response = post_test_identify(bio_client, ALICE)
     assert response.status_code == 200 and response.json()["username"] == "alice"
     assert cookie_names(response) == COOKIES
 
 
 def test_identifies_the_right_account_among_several(three):
     for name, video in (("carol", CAROL), ("alice", ALICE), ("bob", BOB)):
-        response = _post(three, video)
+        response = post_test_identify(three, video)
         assert response.status_code == 200 and response.json()["username"] == name
         three.cookies.clear()
 
 
 def test_near_face_signs_in_whatever_the_audio(three):
     for audio in (None, ("a.webm", b"anything-at-all"), ("a.webm", b"bad-audio")):
-        response = _post(three, ("c.webm", b"f0.30-zzz"), audio=audio)
+        response = post_test_identify(three, ("c.webm", b"f0.30-zzz"), audio=audio)
         assert response.status_code == 200 and response.json()["username"] == "alice"
         three.cookies.clear()
         three.app.state.identify_ip_throttle.reset("testclient")
 
 
 def test_voice_plays_no_part_in_identification(three):
-    same_face_other_voice = _post(three, clip(0.0, "mallory"), audio=("a.webm", b"mallory-voice"))
+    same_face_other_voice = post_test_identify(three, clip(0.0, "mallory"), audio=("a.webm", b"mallory-voice"))
     assert same_face_other_voice.status_code == 200 and same_face_other_voice.json()["username"] == "alice"
     three.cookies.clear()
-    silent = _post(three, ("c.webm", b"f1.00-silent"))
+    silent = post_test_identify(three, ("c.webm", b"f1.00-silent"))
     assert silent.status_code == 200 and silent.json()["username"] == "bob"
 
 
 def test_failures_are_identical_401s(three):
-    wrong_face = _post(three, clip(5.0, "alice"))
-    unusable = _post(three, ("b.webm", b"bad-clip"))
-    no_clip = _post(three, None)
-    unknown_with_audio = _post(three, clip(9.0, "alice"), audio=("a.webm", b"f0.00-alice"))
+    wrong_face = post_test_identify(three, clip(5.0, "alice"))
+    unusable = post_test_identify(three, ("b.webm", b"bad-clip"))
+    no_clip = post_test_identify(three, None)
+    unknown_with_audio = post_test_identify(three, clip(9.0, "alice"), audio=("a.webm", b"f0.00-alice"))
     for response in (wrong_face, unusable, no_clip, unknown_with_audio):
         assert shape(response) == FAILED
         assert "set-cookie" not in response.headers
 
 
 def test_no_candidates_is_the_same_401(bio_client):
-    assert shape(_post(bio_client, ALICE)) == FAILED
+    assert shape(post_test_identify(bio_client, ALICE)) == FAILED
 
 
 def test_no_candidate_still_does_one_dummy_comparison(bio_client, monkeypatch):
@@ -100,7 +100,7 @@ def test_no_candidate_still_does_one_dummy_comparison(bio_client, monkeypatch):
     engine = bio_client.app.state.biometrics
     original = engine.face_distance
     monkeypatch.setattr(engine, "face_distance", lambda a, b: calls.append(1) or original(a, b))
-    assert shape(_post(bio_client, ALICE)) == FAILED
+    assert shape(post_test_identify(bio_client, ALICE)) == FAILED
     assert calls == [1]
 
 
@@ -110,7 +110,7 @@ def test_method_not_enabled_is_the_same_401(bio_client):
         user = db.scalar(select(User).where(func.lower(User.username) == "alice"))
         user.webcam_login = False
         db.commit()
-    assert shape(_post(bio_client, ALICE)) == FAILED
+    assert shape(post_test_identify(bio_client, ALICE)) == FAILED
 
 
 def test_ambiguous_best_match_is_rejected(bio_client):
@@ -124,7 +124,7 @@ def test_ambiguous_best_match_is_rejected(bio_client):
         )  # fmt: skip
         db.add(twin)
         db.commit()
-    assert shape(_post(bio_client, ALICE)) == FAILED
+    assert shape(post_test_identify(bio_client, ALICE)) == FAILED
 
 
 def test_margin_is_configurable(bio_client, monkeypatch):
@@ -138,22 +138,22 @@ def test_margin_is_configurable(bio_client, monkeypatch):
         db.commit()
     settings = bio_client.app.state.settings
     object.__setattr__(settings, "face_identify_margin", 0.01)
-    assert _post(bio_client, ALICE).json()["username"] == "alice"
+    assert post_test_identify(bio_client, ALICE).json()["username"] == "alice"
 
 
 def test_there_is_no_per_account_identification_lock(three):
     assert not hasattr(three.app.state, "webcam_account_throttle")
     for _ in range(4):
-        assert shape(_post(three, clip(9.0, "x"))) == FAILED
+        assert shape(post_test_identify(three, clip(9.0, "x"))) == FAILED
     three.app.state.identify_ip_throttle.reset("testclient")
-    assert _post(three, ALICE).status_code == 200  # failures never lock the account's own face
+    assert post_test_identify(three, ALICE).status_code == 200  # failures never lock the account's own face
     three.cookies.clear()
     assert login_webcam(three, "alice", ALICE).status_code == 200  # nor the username path
 
 
 def test_success_clears_the_ip_counter(three):
-    assert shape(_post(three, clip(9.0, "mallory"))) == FAILED
-    assert _post(three, ALICE).status_code == 200
+    assert shape(post_test_identify(three, clip(9.0, "mallory"))) == FAILED
+    assert post_test_identify(three, ALICE).status_code == 200
     assert not three.app.state.identify_ip_throttle.is_blocked("testclient")
     assert three.app.state.identify_ip_throttle.tracked_keys() == 0
 
@@ -164,7 +164,7 @@ def test_a_candidate_without_a_voice_template_is_identified(bio_client):
         db.add(User(username="faceonly", password_hash="!", webcam_login=True,
                     face_embedding=cipher.encrypt(b"F:f0.00-alice")))  # fmt: skip
         db.commit()
-    assert _post(bio_client, ALICE).json()["username"] == "faceonly"
+    assert post_test_identify(bio_client, ALICE).json()["username"] == "faceonly"
 
 
 # --- throttles and cap ------------------------------------------------------------------------
@@ -172,8 +172,8 @@ def test_a_candidate_without_a_voice_template_is_identified(bio_client):
 
 def test_per_ip_throttle(three):
     for _ in range(5):
-        assert _post(three, clip(9.0, "x")).status_code == 401
-    blocked = _post(three, ALICE)
+        assert post_test_identify(three, clip(9.0, "x")).status_code == 401
+    blocked = post_test_identify(three, ALICE)
     assert blocked.status_code == 429 and "Too many attempts" in blocked.text
 
 
@@ -181,12 +181,12 @@ def test_global_throttle(three):
     glob = three.app.state.identify_global_throttle
     for _ in range(100):
         glob.record("all")
-    assert _post(three, ALICE).status_code == 429
+    assert post_test_identify(three, ALICE).status_code == 429
 
 
 def test_candidate_cap_asks_for_a_username(three, monkeypatch):
     monkeypatch.setattr("api.center.identify.MAX_IDENTIFY_CANDIDATES", 2)
-    response = _post(three, ALICE)
+    response = post_test_identify(three, ALICE)
     assert response.status_code == 422 and response.json()["detail"] == "Enter your username"
     assert login_webcam(three, "alice", ALICE).status_code == 200  # username path unaffected
 
@@ -196,13 +196,13 @@ def test_username_given_path_unchanged(three):
     three.cookies.clear()
     assert shape(login_webcam(three, "alice", BOB)) == FAILED
     assert shape(login_webcam(three, "ghost", ALICE)) == FAILED
-    assert _post(three, ALICE, data={"username": "  "}).status_code == 200  # blank = identification
+    assert post_test_identify(three, ALICE, data={"username": "  "}).status_code == 200  # blank = identification
 
 
 def test_audit_log_has_no_vectors_or_guessed_names(three, caplog):
     caplog.set_level(logging.INFO, logger="auth.audit")
-    _post(three, clip(9.0, "mallory"))
-    _post(three, ALICE)
+    post_test_identify(three, clip(9.0, "mallory"))
+    post_test_identify(three, ALICE)
     text = caplog.text
     assert "webcam identify failed ip=testclient" in text and "login ok (webcam identify)" in text
     assert "F:" not in text and "A:" not in text and "mallory" not in text
@@ -266,7 +266,7 @@ def test_webcam_only_gets_a_generated_handle(bio_client):
     assert name.startswith("user-") and len(name) == 11
     assert row(bio_client, name).email is None
     bio_client.cookies.clear()
-    assert _post(bio_client, ALICE).json()["username"] == name
+    assert post_test_identify(bio_client, ALICE).json()["username"] == name
 
 
 def test_generated_handle_retries_on_collision(bio_client, monkeypatch):

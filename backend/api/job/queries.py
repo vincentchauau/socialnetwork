@@ -51,7 +51,7 @@ def relevance(q: str | None) -> ColumnElement[int]:
     )
 
 
-def _filters(params: SearchParams, now: datetime, score: ColumnElement[int]) -> list:
+def filters(params: SearchParams, now: datetime, score: ColumnElement[int]) -> list:
     conditions = [is_visible(now)]
     if params.q:
         conditions.append(score > 0)
@@ -82,7 +82,7 @@ def search_job_descriptions(
 ) -> tuple[list[JobDescription], str | None]:
     """Open, unexpired jobs ranked by relevance then recency, plus the next cursor."""
     score = relevance(params.q)
-    conditions = _filters(params, now_utc(), score)
+    conditions = filters(params, now_utc(), score)
     if params.cursor:
         conditions.append(after_cursor(params.cursor, score))
     statement = (

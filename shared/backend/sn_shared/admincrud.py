@@ -153,7 +153,7 @@ class TableSpec:
         return found
 
 
-def _kind(column: Any) -> str:
+def kind_admincrud(column: Any) -> str:
     t = column.type
     if isinstance(t, Boolean):
         return "bool"
@@ -172,7 +172,7 @@ def _kind(column: Any) -> str:
     return "string"
 
 
-def _bad(detail: str) -> HTTPException:
+def bad(detail: str) -> HTTPException:
     return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail)
 
 
@@ -205,14 +205,14 @@ def coerce(name: str, kind: str, value: Any) -> Any:
                 return value
         raise ValueError
     except (TypeError, ValueError, OverflowError):
-        raise _bad(f"Column '{name}' expects {kind}") from None
+        raise bad(f"Column '{name}' expects {kind}") from None
 
 
 def escape_like(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-class _Admin:
+class Admin:
     """Introspection and row handling for one TableSpec."""
 
     def __init__(self, spec: TableSpec, *, user_view: bool = False) -> None:
@@ -229,7 +229,7 @@ class _Admin:
         self.refs = {n: r for n, r in spec.resolved_refs().items() if n in self.by_name and not self.is_secret(self.by_name[n])}
 
     def is_secret(self, column: Any) -> bool:
-        return column.name in self.spec.secret_columns or _kind(column) == "bytes"
+        return column.name in self.spec.secret_columns or kind_admincrud(column) == "bytes"
 
     def is_readonly(self, column: Any) -> bool:
         if column.name in self.spec.readonly_columns:
@@ -246,7 +246,7 @@ class _Admin:
             "columns": [
                 {
                     "name": c.name,
-                    "type": _kind(c),
+                    "type": kind_admincrud(c),
                     "nullable": bool(c.nullable),
                     "readonly": self.is_readonly(c),
                     "secret": self.is_secret(c),
@@ -301,10 +301,10 @@ class _Admin:
         """Values (or reference options) for a column to offer while a form field is typed in; `base` limits the rows seen."""
         col = self.by_name.get(name)
         if col is None:
-            raise _bad(f"Unknown column '{name}'")
+            raise bad(f"Unknown column '{name}'")
         is_ref = name in self.refs
-        if self.is_secret(col) or self.is_readonly(col) or (not is_ref and _kind(col) not in ("string", "text")):
-            raise _bad(f"Column '{name}' takes no suggestions")
+        if self.is_secret(col) or self.is_readonly(col) or (not is_ref and kind_admincrud(col) not in ("string", "text")):
+            raise bad(f"Column '{name}' takes no suggestions")
         term = q.strip()
         if not term:
             return {"values": [], "options": []} if is_ref else {"values": []}
@@ -339,9 +339,9 @@ class _Admin:
         """The values a text column holds and how many rows hold each, the most common first: what a board is made of (a status, a kind, a category)."""
         col = self.by_name.get(name)
         if col is None:
-            raise _bad(f"Unknown column '{name}'")
-        if self.is_secret(col) or _kind(col) not in ("string", "text"):
-            raise _bad(f"Column '{name}' cannot be grouped by")
+            raise bad(f"Unknown column '{name}'")
+        if self.is_secret(col) or kind_admincrud(col) not in ("string", "text"):
+            raise bad(f"Column '{name}' cannot be grouped by")
         count = func.count().label("n")
         stmt = select(col, count).where(col.is_not(None), col != "", *base).group_by(col).order_by(count.desc(), col).limit(limit)
         return {"values": [{"value": str(v), "count": n} for v, n in db.execute(stmt)]}
@@ -352,7 +352,7 @@ class _Admin:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
         clause = []
         for column, part in zip(self.pk, parts):
-            kind = _kind(column)
+            kind = kind_admincrud(column)
             try:
                 value = coerce(column.name, kind, int(part) if kind == "int" else part)
             except (HTTPException, ValueError):
@@ -365,21 +365,21 @@ class _Admin:
 
     def clean_values(self, values: Any, *, creating: bool) -> dict[str, Any]:
         if not isinstance(values, dict):
-            raise _bad("'values' must be an object")
+            raise bad("'values' must be an object")
         cleaned: dict[str, Any] = {}
         pk_names = {c.name for c in self.pk}
         for name, raw in values.items():
             column = self.by_name.get(name)
             if column is None:
-                raise _bad(f"Unknown column '{name}'")
+                raise bad(f"Unknown column '{name}'")
             if self.is_readonly(column) or self.is_secret(column) or (not creating and name in pk_names):
-                raise _bad(f"Column '{name}' is not writable")
+                raise bad(f"Column '{name}' is not writable")
             if raw is None:
                 if not column.nullable:
-                    raise _bad(f"Column '{name}' must not be null")
+                    raise bad(f"Column '{name}' must not be null")
                 cleaned[name] = None
             else:
-                cleaned[name] = coerce(name, _kind(column), raw)
+                cleaned[name] = coerce(name, kind_admincrud(column), raw)
         if creating:
             for column in self.columns:
                 if column.name in cleaned or self.is_readonly(column) or self.is_secret(column):
@@ -387,7 +387,7 @@ class _Admin:
                 has_default = column.default is not None or column.server_default is not None
                 auto = self.table._autoincrement_column is column
                 if not column.nullable and not has_default and not auto:
-                    raise _bad(f"Column '{column.name}' is required")
+                    raise bad(f"Column '{column.name}' is required")
         return cleaned
 
 
@@ -399,7 +399,7 @@ def db_error(exc: SQLAlchemyError, db: Session) -> HTTPException:
     if isinstance(exc, IntegrityError):
         return HTTPException(status.HTTP_409_CONFLICT, "Conflicts with an existing row or a constraint")
     if isinstance(exc, DataError):
-        return _bad("A value is not accepted by the database")
+        return bad("A value is not accepted by the database")
     logger.exception("admincrud database error")
     return HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Database error")
 
@@ -408,14 +408,14 @@ def unknown_table() -> HTTPException:
     return HTTPException(status.HTTP_404_NOT_FOUND, "Unknown table")
 
 
-def _not_found() -> HTTPException:
+def not_found() -> HTTPException:
     return HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
 
 
-def fetch_one(db: Session, admin: _Admin, clause: list) -> Any:
+def fetch_one(db: Session, admin: Admin, clause: list) -> Any:
     row = db.execute(select(*admin.table.columns).where(*clause)).mappings().first()
     if row is None:
-        raise _not_found()
+        raise not_found()
     return row
 
 
@@ -427,42 +427,42 @@ def filters_of(request: Request) -> dict[str, str]:
     return {k[len(FILTER_PREFIX):]: v for k, v in request.query_params.items() if k.startswith(FILTER_PREFIX)}
 
 
-def filter_conditions(admin: _Admin, filters: dict[str, str]) -> list:
+def filter_conditions(admin: Admin, filters: dict[str, str]) -> list:
     conditions = []
     for name, raw in filters.items():
         col = admin.by_name.get(name)
-        if col is None or admin.is_secret(col) or _kind(col) in ("json", "bytes"):
-            raise _bad(f"Cannot filter on column '{name}'")
-        conditions.append(col == coerce(name, _kind(col), raw))
+        if col is None or admin.is_secret(col) or kind_admincrud(col) in ("json", "bytes"):
+            raise bad(f"Cannot filter on column '{name}'")
+        conditions.append(col == coerce(name, kind_admincrud(col), raw))
     return conditions
 
 
-def sort_order(admin: _Admin, sort: str | None) -> list:
+def sort_order(admin: Admin, sort: str | None) -> list:
     if not sort:
         return [c.desc() for c in admin.pk]
     name = sort.lstrip("-") if sort.startswith("-") else sort
     col = admin.by_name.get(name)
-    if col is None or admin.is_secret(col) or _kind(col) in ("json", "bytes"):
-        raise _bad(f"Cannot sort by column '{name}'")
+    if col is None or admin.is_secret(col) or kind_admincrud(col) in ("json", "bytes"):
+        raise bad(f"Cannot sort by column '{name}'")
     return [col.desc() if sort.startswith("-") else col.asc(), *admin.pk]
 
 
 SHORT_TERM_LENGTH = 3  # a shorter term, or a number, matches whole words only ("2" finds "Bag 2", not "Bag 29")
 
 
-def _terms(q: str) -> list[str]:
+def terms_admincrud(q: str) -> list[str]:
     """The search terms of `q`: the comma-separated parts (all must match); one part may be `column:value` for a single column."""
     return [part.strip() for part in q.split(",") if part.strip()]
 
 
-def _list_rows(
-    admin: _Admin, db: Session, q: str, offset: int, limit: int, base: list,
+def list_rows_admincrud(
+    admin: Admin, db: Session, q: str, offset: int, limit: int, base: list,
     sort: str | None = None, filters: dict[str, str] | None = None,
 ) -> dict:
     conditions = [*base, *filter_conditions(admin, filters or {})]
     order = sort_order(admin, sort)
-    text_columns = [c for c in admin.columns if _kind(c) in ("string", "text") and not admin.is_secret(c)]
-    for term in _terms(q):
+    text_columns = [c for c in admin.columns if kind_admincrud(c) in ("string", "text") and not admin.is_secret(c)]
+    for term in terms_admincrud(q):
         name, _, value = term.partition(":")
         column = next((c for c in text_columns if c.name == name.strip()), None) if value.strip() else None
         if column is not None:
@@ -479,17 +479,17 @@ def _list_rows(
     return with_labels({"total": total, "rows": out}, admin, db, out)
 
 
-def with_labels(payload: dict, admin: _Admin, db: Session, rows: list[dict]) -> dict:
+def with_labels(payload: dict, admin: Admin, db: Session, rows: list[dict]) -> dict:
     labels = admin.labels_for(db, rows) if admin.refs and rows else {}
     return {**payload, "labels": labels} if labels else payload
 
 
-def row_payload(admin: _Admin, db: Session, row: Any) -> dict:
+def row_payload(admin: Admin, db: Session, row: Any) -> dict:
     out = admin.out(row)
     return with_labels(out, admin, db, [out])
 
 
-def insert_row(admin: _Admin, db: Session, values: dict) -> Any:
+def insert_row(admin: Admin, db: Session, values: dict) -> Any:
     try:
         result = db.execute(insert(admin.table).values(**values))
         clause = [c == v for c, v in zip(admin.pk, result.inserted_primary_key)]
@@ -500,7 +500,7 @@ def insert_row(admin: _Admin, db: Session, values: dict) -> Any:
     return row
 
 
-def _update_row(admin: _Admin, db: Session, clause: list, values: dict) -> Any:
+def update_row_admincrud(admin: Admin, db: Session, clause: list, values: dict) -> Any:
     try:
         if values:
             db.execute(update(admin.table).where(*clause).values(**values))
@@ -510,7 +510,7 @@ def _update_row(admin: _Admin, db: Session, clause: list, values: dict) -> Any:
         raise db_error(exc, db) from None
 
 
-def _delete_row(admin: _Admin, db: Session, request: Request, user: TokenPayload, clause: list, row: Any) -> None:
+def delete_row_admincrud(admin: Admin, db: Session, request: Request, user: TokenPayload, clause: list, row: Any) -> None:
     after_commit = None
     try:
         if admin.spec.on_delete is not None:
@@ -527,7 +527,7 @@ def _delete_row(admin: _Admin, db: Session, request: Request, user: TokenPayload
         after_commit()
 
 
-def update_row(admin: _Admin, db: Session, user: TokenPayload, pk: str, body: dict, *, as_admin: bool) -> dict:
+def update_row(admin: Admin, db: Session, user: TokenPayload, pk: str, body: dict, *, as_admin: bool) -> dict:
     """Changes one row for a person. The rules live here, so the API routes and any other caller get the same answer:
     an admin changes any row; anyone else changes only the rows they own, and only on a table that has an owner column."""
     if as_admin:
@@ -538,12 +538,12 @@ def update_row(admin: _Admin, db: Session, user: TokenPayload, pk: str, body: di
         clause = [*admin.pk_clause(pk), admin.table.c[admin.spec.owner] == user.user_id]
     values = admin.clean_values(body.get("values", {}), creating=False)
     fetch_one(db, admin, clause)
-    row = _update_row(admin, db, clause, values)
+    row = update_row_admincrud(admin, db, clause, values)
     logger.info("%s update user_id=%s table=%s pk=%s", "admin" if as_admin else "data", user.user_id, admin.name, pk)
     return admin.out(row)
 
 
-def _audit(user: TokenPayload, action: str, admin: _Admin, pk: str, *, as_admin: bool) -> None:
+def audit(user: TokenPayload, action: str, admin: Admin, pk: str, *, as_admin: bool) -> None:
     logger.info("%s %s user_id=%s table=%s pk=%s", "admin" if as_admin else "data", action, user.user_id, admin.name, pk)
 
 
@@ -551,10 +551,10 @@ def excel_rows(data: bytes) -> list[dict]:
     try:
         return recordfiles.read_excel(data, BATCH_MAX)
     except recordfiles.FileRefused as exc:
-        raise _bad(str(exc)) from None
+        raise bad(str(exc)) from None
 
 
-def _key_of(admin: _Admin, values: dict) -> Any:
+def key_of(admin: Admin, values: dict) -> Any:
     """The key of a row of the Excel file (its `id`), or None when the file names none."""
     pk_names = [c.name for c in admin.pk]
     if len(pk_names) != 1 or pk_names[0] not in values or values[pk_names[0]] in (None, ""):
@@ -562,40 +562,40 @@ def _key_of(admin: _Admin, values: dict) -> Any:
     return values[pk_names[0]]
 
 
-def _exists(admin: _Admin, db: Session, key: Any) -> bool:
+def exists_admincrud(admin: Admin, db: Session, key: Any) -> bool:
     pk_column = admin.pk[0] if len(admin.pk) == 1 else None
     return key is not None and pk_column is not None and db.execute(select(pk_column).where(pk_column == key)).first() is not None
 
 
-def plan_import(admin: _Admin, data: bytes, db: Session) -> dict:
+def plan_import(admin: Admin, data: bytes, db: Session) -> dict:
     """What an import would do, row by row: whether its id is already in the table (then the person chooses to overwrite it or not)."""
     rows = excel_rows(data)
     plan = []
     for index, values in enumerate(rows):
-        key = _key_of(admin, values)
-        plan.append({"index": index, "id": key, "exists": _exists(admin, db, key)})
+        key = key_of(admin, values)
+        plan.append({"index": index, "id": key, "exists": exists_admincrud(admin, db, key)})
     return {"rows": plan, "new": sum(1 for r in plan if not r["exists"]), "existing": sum(1 for r in plan if r["exists"]), "data": rows}
 
 
-def apply_import(admin: _Admin, rows: list[dict], overwrite: bool, user: TokenPayload, db: Session) -> dict:
+def apply_import(admin: Admin, rows: list[dict], overwrite: bool, user: TokenPayload, db: Session) -> dict:
     """Creates the rows of an import. A row whose id is in the table is overwritten only when `overwrite` is set; otherwise skipped."""
     results = []
     for index, values in enumerate(rows):
         try:
-            key = _key_of(admin, values)
-            exists = _exists(admin, db, key)
+            key = key_of(admin, values)
+            exists = exists_admincrud(admin, db, key)
             if exists and not overwrite:
                 results.append({"index": index, "status": "skipped", "id": key})
                 continue
             if exists:
                 rest = {k: v for k, v in values.items() if k not in {c.name for c in admin.pk}}
                 clause = admin.pk_clause(str(key))
-                _update_row(admin, db, clause, admin.clean_values(rest, creating=False))
-                _audit(user, "update", admin, str(key), as_admin=True)
+                update_row_admincrud(admin, db, clause, admin.clean_values(rest, creating=False))
+                audit(user, "update", admin, str(key), as_admin=True)
                 results.append({"index": index, "status": "updated", "id": key})
             else:
                 row = insert_row(admin, db, admin.clean_values(values, creating=True))
-                _audit(user, "create", admin, admin.pk_text(row), as_admin=True)
+                audit(user, "create", admin, admin.pk_text(row), as_admin=True)
                 results.append({"index": index, "status": "created", "id": key if key is not None else admin.pk_text(row)})
         except HTTPException as exc:
             db.rollback()
@@ -613,29 +613,29 @@ def records_router(
     changes every row; anyone else sees and changes only their own rows (a table with an owner column), or the rows a table's `scope`
     allows. `?scope=all` is the admin's view, `?scope=mine` the person's own; with no `scope` an admin gets `all` and anyone else `mine`.
     Bulk changes, Excel imports and files are for the managers (admin and moderator)."""
-    full = {spec.table.name: _Admin(spec) for spec in models}
-    own = {spec.table.name: _Admin(spec, user_view=True) for spec in models if spec.owner is not None or spec.scope is not None}
+    full = {spec.table.name: Admin(spec) for spec in models}
+    own = {spec.table.name: Admin(spec, user_view=True) for spec in models if spec.owner is not None or spec.scope is not None}
     router = APIRouter(tags=["records"], dependencies=[*access_dependencies(admin=True, moderator=True, user=True), Depends(check_origin)])
 
     def admin_view(user: TokenPayload, scope: str | None) -> bool:
         wanted = scope or ("all" if user.group == GROUP_ADMIN else "mine")
         if wanted not in ("all", "mine"):
-            raise _bad("'scope' must be 'all' or 'mine'")
+            raise bad("'scope' must be 'all' or 'mine'")
         if wanted == "all" and user.group != GROUP_ADMIN:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin may ask for every row")
         return wanted == "all"
 
-    def find(name: str, user: TokenPayload, as_admin: bool) -> _Admin:
+    def find(name: str, user: TokenPayload, as_admin: bool) -> Admin:
         found = (full if as_admin else own).get(name)
         if found is None or user.group not in found.spec.groups:
             raise unknown_table()
         return found
 
-    def require_write(admin: _Admin, as_admin: bool) -> None:
+    def require_write(admin: Admin, as_admin: bool) -> None:
         if not as_admin and admin.spec.owner is None:
             raise HTTPException(status.HTTP_405_METHOD_NOT_ALLOWED, "Table is not editable for people")
 
-    def visible(admin: _Admin, db: Session, user: TokenPayload, as_admin: bool) -> list:
+    def visible(admin: Admin, db: Session, user: TokenPayload, as_admin: bool) -> list:
         if as_admin:
             return []
         if admin.spec.scope is not None:
@@ -693,7 +693,7 @@ def read_routes(router: APIRouter, c: SimpleNamespace) -> None:
     ) -> dict:
         as_admin = admin_view(user, scope)
         admin = find(table, user, as_admin)
-        return _list_rows(admin, db, q, offset, limit, visible(admin, db, user, as_admin), sort, filters_of(request))
+        return list_rows_admincrud(admin, db, q, offset, limit, visible(admin, db, user, as_admin), sort, filters_of(request))
 
     @router.get("/{table}/suggest")
     def suggest(
@@ -743,16 +743,16 @@ def write_routes(router: APIRouter, c: SimpleNamespace) -> None:
         require_write(admin, as_admin)
         raw = body.get("values", {})
         if not isinstance(raw, dict):
-            raise _bad("'values' must be an object")
+            raise bad("'values' must be an object")
         if as_admin:
             row = insert_row(admin, db, admin.clean_values(raw, creating=True))
         else:
             owner = admin.spec.owner
             if owner in raw and raw[owner] is not None and str(raw[owner]) != str(user.user_id):
-                raise _bad(f"Column '{owner}' is not writable")
+                raise bad(f"Column '{owner}' is not writable")
             values = admin.clean_values({k: v for k, v in raw.items() if k != owner}, creating=True)
             row = insert_row(admin, db, {**values, owner: user.user_id})
-        _audit(user, "create", admin, admin.pk_text(row), as_admin=as_admin)
+        audit(user, "create", admin, admin.pk_text(row), as_admin=as_admin)
         return admin.out(row)
 
     @router.post("/{table}/batch-update")
@@ -762,9 +762,9 @@ def write_routes(router: APIRouter, c: SimpleNamespace) -> None:
         admin = find(table, user, True)
         rows = body.get("rows")
         if not isinstance(rows, list) or not rows:
-            raise _bad("'rows' must be a non-empty list")
+            raise bad("'rows' must be a non-empty list")
         if len(rows) > BATCH_MAX:
-            raise _bad(f"At most {BATCH_MAX} rows per request")
+            raise bad(f"At most {BATCH_MAX} rows per request")
         results = []
         for index, item in enumerate(rows):
             try:
@@ -772,8 +772,8 @@ def write_routes(router: APIRouter, c: SimpleNamespace) -> None:
                 values = admin.clean_values(item.get("values", {}), creating=False)
                 clause = admin.pk_clause(pk)
                 fetch_one(db, admin, clause)
-                _update_row(admin, db, clause, values)
-                _audit(user, "update", admin, pk, as_admin=True)
+                update_row_admincrud(admin, db, clause, values)
+                audit(user, "update", admin, pk, as_admin=True)
                 results.append({"index": index, "ok": True})
             except (KeyError, TypeError) as exc:
                 db.rollback()
@@ -804,8 +804,8 @@ def write_routes(router: APIRouter, c: SimpleNamespace) -> None:
         require_write(admin, as_admin)
         clause = admin.pk_clause(pk) if as_admin else [*admin.pk_clause(pk), admin.table.c[admin.spec.owner] == user.user_id]
         row = fetch_one(db, admin, clause)
-        _delete_row(admin, db, request, user, clause, row)
-        _audit(user, "delete", admin, pk, as_admin=as_admin)
+        delete_row_admincrud(admin, db, request, user, clause, row)
+        audit(user, "delete", admin, pk, as_admin=as_admin)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

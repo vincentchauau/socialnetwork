@@ -41,7 +41,7 @@ def read_new_password() -> str:
     return sys.stdin.readline().rstrip("\r\n")
 
 
-def _publish(user: User) -> None:
+def publish(user: User) -> None:
     """Tell the other apps right away (needs the same env as the server: REDIS_URL, ACCESS_TOKEN_MINUTES)."""
     try:
         publish_token_version(user, Settings.from_env())
@@ -49,7 +49,7 @@ def _publish(user: User) -> None:
         log.warning("other apps were not notified: %s", exc)
 
 
-def _open_session() -> Session:
+def open_session_cli() -> Session:
     engine = make_engine(os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     first_with_sessions = sessions_table_is_new(engine)
     Base.metadata.create_all(engine)
@@ -81,7 +81,7 @@ def gen_jwt_key(out_dir: str = "secrets") -> int:
 def main(
     argv: list[str],
     read_password: Callable[[], str] = read_new_password,
-    open_session: Callable[[], Session] = _open_session,
+    open_session: Callable[[], Session] = open_session_cli,
 ) -> int:
     if argv == ["gen-jwt-key"]:
         return gen_jwt_key()
@@ -114,7 +114,7 @@ def main(
             user.password_hash = hash_password(new)
             bump_token_version(db, user)
             db.commit()
-            _publish(user)
+            publish(user)
             print(f"Password reset for {user.username}; all sessions revoked")
             return 0
         new_group = wanted if command == "set-group" else GROUP_COMMANDS[command]
@@ -125,7 +125,7 @@ def main(
             bump_token_version(db, user)  # drop sessions that still carry the higher group claim
         db.commit()
         if revoke:
-            _publish(user)
+            publish(user)
         print(f"Group of {user.username} is now {user.group}")
     return 0
 
