@@ -7,6 +7,7 @@ Portable to SQLite and PostgreSQL.
 
 from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, Engine, Integer, LargeBinary, String, Text, inspect, text
 from sqlalchemy.types import TypeEngine
+from sn_shared.db import add_column_sql
 
 TABLE = "users"
 NEW_CODES = "verification_codes"
@@ -58,15 +59,8 @@ _UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_
 
 
 def _column_ddl(engine: Engine, name: str, type_: TypeEngine, default: tuple[str, str] | None) -> str:
-    sql_type = type_.compile(dialect=engine.dialect)
-    ddl = f"ALTER TABLE {TABLE} ADD COLUMN "
-    if engine.dialect.name == "postgresql":
-        ddl += "IF NOT EXISTS "  # safe when several workers start together
-    ddl += f'"{name}" {sql_type}'  # quoted: "group" is a reserved word in SQL
-    if default is not None:
-        literal = default[1] if engine.dialect.name == "postgresql" else default[0]
-        ddl += f" NOT NULL DEFAULT {literal}"
-    return ddl
+    literal = None if default is None else (default[1] if engine.dialect.name == "postgresql" else default[0])
+    return add_column_sql(engine, TABLE, name, type_, literal)
 
 
 def sessions_table_is_new(engine: Engine) -> bool:

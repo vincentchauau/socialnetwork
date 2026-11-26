@@ -7,6 +7,7 @@ and PostgreSQL; old rows keep working because every new column has a default.
 
 from datetime import datetime, timezone
 
+from sn_shared.db import add_column_sql
 from sqlalchemy import Engine, Integer, String, inspect, text
 from sqlalchemy.types import TypeEngine
 
@@ -23,13 +24,6 @@ _COLUMNS: dict[str, tuple[tuple[str, TypeEngine, str], ...]] = {
 }
 
 
-def _column_ddl(engine: Engine, table: str, name: str, type_: TypeEngine, default: str) -> str:
-    ddl = f"ALTER TABLE {table} ADD COLUMN "
-    if engine.dialect.name == "postgresql":
-        ddl += "IF NOT EXISTS "  # safe when several workers start together
-    return ddl + f"{name} {type_.compile(dialect=engine.dialect)} NOT NULL DEFAULT {default}"
-
-
 def ensure_columns(engine: Engine) -> list[str]:
     """Add the missing columns of existing tables; returns the added `table.column` names."""
     tables = set(inspect(engine).get_table_names())
@@ -41,7 +35,7 @@ def ensure_columns(engine: Engine) -> list[str]:
             existing = {column["name"] for column in inspect(engine).get_columns(table)}
             for name, type_, default in columns:
                 if name not in existing:
-                    conn.execute(text(_column_ddl(engine, table, name, type_, default)))
+                    conn.execute(text(add_column_sql(engine, table, name, type_, default)))
                     added.append(f"{table}.{name}")
         _fold_role_columns(conn, tables)
         _drop_stored_username(conn, tables)

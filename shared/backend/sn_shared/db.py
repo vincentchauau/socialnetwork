@@ -3,6 +3,7 @@
 from typing import Iterator
 
 from fastapi import Request
+from sqlalchemy.types import TypeEngine
 from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -46,6 +47,18 @@ def ensure_foreign_key(engine: Engine, table: str, column: str, ref_table: str, 
     name = f"fk_{table}_{column}"
     with engine.begin() as connection:
         connection.execute(text(f"ALTER TABLE {table} ADD CONSTRAINT {name} FOREIGN KEY ({column}) REFERENCES {ref_table} ({ref_column})"))
+
+
+def add_column_sql(engine: Engine, table: str, name: str, type_: TypeEngine, default: str | None = None) -> str:
+    """The ALTER TABLE that adds one column to an existing table. On PostgreSQL it is `IF NOT EXISTS` (safe when
+    several workers start together); `default` is the SQL literal of the default, when the column has one."""
+    ddl = f"ALTER TABLE {table} ADD COLUMN "
+    if engine.dialect.name == "postgresql":
+        ddl += "IF NOT EXISTS "
+    ddl += f'"{name}" {type_.compile(dialect=engine.dialect)}'
+    if default is not None:
+        ddl += f" NOT NULL DEFAULT {default}"
+    return ddl
 
 
 def ensure_columns(engine: Engine, table: str, columns: dict[str, str]) -> None:

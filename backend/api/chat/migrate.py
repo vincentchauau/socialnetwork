@@ -11,6 +11,7 @@ Safe to run on every start; portable to SQLite and PostgreSQL (SQLite cannot dro
 
 import logging
 
+from sn_shared.db import add_column_sql
 from sqlalchemy import BigInteger, Boolean, DateTime, Engine, String, inspect, select, text, update
 from sqlalchemy.orm import Session
 from sqlalchemy.types import TypeEngine
@@ -51,11 +52,6 @@ _FOREIGN_KEYS = (
 _ROOM_COLUMN_DEFAULTS = {"kind": "chat", "visibility": "public", "join_policy": "open"}
 
 
-def _ddl(engine: Engine, table: str, name: str, type_: TypeEngine, default: str | None) -> str:
-    suffix = f" NOT NULL DEFAULT {default}" if default is not None else ""
-    return f"ALTER TABLE {table} ADD COLUMN {name} {type_.compile(dialect=engine.dialect)}{suffix}"
-
-
 def _columns(engine: Engine, table: str) -> set[str]:
     return {column["name"] for column in inspect(engine).get_columns(table)} if table in inspect(engine).get_table_names() else set()
 
@@ -72,7 +68,7 @@ def ensure_columns(engine: Engine) -> list[str]:
             have = {column["name"] for column in inspector.get_columns(table)}
             for name, type_, default in columns:
                 if name not in have:
-                    connection.execute(text(_ddl(engine, table, name, type_, default)))
+                    connection.execute(text(add_column_sql(engine, table, name, type_, default)))
                     added.append(f"{table}.{name}")
         if "messages" in tables and "room_id" not in {c["name"] for c in inspector.get_columns("messages")}:
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_messages_room_ref ON messages (room_id, id)"))
