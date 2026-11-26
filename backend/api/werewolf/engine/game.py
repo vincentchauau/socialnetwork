@@ -563,22 +563,8 @@ class Game:
                 self._share(p, t, "ability", t.ability, f"{t.name} có chức năng {t.ability.value}")
 
         for pid, p, t in of(Ability.TRANSFORM):
-            if t.faction == Faction.GHOST:
-                self._note([p], f"👻 Biến hình {t.name} thất bại (đã là Ma)",
-                           f"👻 {p.name} biến hình {t.name} thất bại (đã là Ma)")
-            elif t.id in protected and ev != "GHOST_NIGHT":
-                self._note([p], f"👻 Biến hình {t.name} thất bại (được bảo vệ)",
-                           f"👻 {p.name} biến hình {t.name} thất bại (được bảo vệ)")
-            elif t.id in reflected and ev != "GHOST_NIGHT":
-                self._note([p], f"👻 Biến hình {t.name} thất bại (phản đòn)",
-                           f"👻 {p.name} biến hình {t.name} thất bại (phản đòn)")
-            else:
-                t.faction = Faction.GHOST
-                self._note([p], f"👻 {t.name} đã bị biến thành Ma",
-                           f"👻 {p.name} biến {t.name} thành Ma")
-                self._note([t], "👻 Bạn đã bị biến thành Ma! Giờ bạn thuộc phe Ma.", "")
-                if self._check_end():
-                    return
+            if self._transform(p, t, protected, reflected, ev):
+                return
 
         kill_targets: list[Player] = []
         for pid, p, t in of(Ability.KILL):
@@ -592,6 +578,40 @@ class Game:
             else:
                 kill_targets.append(t)
 
+        kill_targets.extend(self._wolf_victims(ev, wolf_acts, blocked, protected, reflected))
+
+        seen: set[int] = set()
+        for t in kill_targets:
+            if t.id not in seen:
+                seen.add(t.id)
+                self._kill(t, "bị giết ban đêm")
+        if len(self.alive()) == alive_before:
+            self._announce("🌅 Đêm qua yên bình, không ai chết.")
+        self.phase = Phase.SETTLE
+        self._next = "day"
+
+    def _transform(self, p: Player, t: Player, protected: set[int], reflected: set[int], ev: str | None) -> bool:
+        """A ghost turns `t` into a ghost unless `t` is protected or reflects it. True when the game ended."""
+        if t.faction == Faction.GHOST:
+            self._note([p], f"👻 Biến hình {t.name} thất bại (đã là Ma)",
+                       f"👻 {p.name} biến hình {t.name} thất bại (đã là Ma)")
+        elif t.id in protected and ev != "GHOST_NIGHT":
+            self._note([p], f"👻 Biến hình {t.name} thất bại (được bảo vệ)",
+                       f"👻 {p.name} biến hình {t.name} thất bại (được bảo vệ)")
+        elif t.id in reflected and ev != "GHOST_NIGHT":
+            self._note([p], f"👻 Biến hình {t.name} thất bại (phản đòn)",
+                       f"👻 {p.name} biến hình {t.name} thất bại (phản đòn)")
+        else:
+            t.faction = Faction.GHOST
+            self._note([p], f"👻 {t.name} đã bị biến thành Ma",
+                       f"👻 {p.name} biến {t.name} thành Ma")
+            self._note([t], "👻 Bạn đã bị biến thành Ma! Giờ bạn thuộc phe Ma.", "")
+            return self._check_end()
+        return False
+
+    def _wolf_victims(self, ev: str | None, wolf_acts: dict, blocked: set[int], protected: set[int],
+                      reflected: set[int]) -> list[Player]:
+        """The wolves' votes of the night: the one the most votes name dies (a tie: none, or a random one under a blood moon)."""
         wolves = [x for x in self.players if x.faction == Faction.WOLF]
         wolf_votes: dict[int, int] = {}
         if ev == "PEACEFUL" and wolf_acts:
@@ -606,31 +626,22 @@ class Game:
             if target_id == p.id:
                 self._note(wolves, f"🐺 Vote của {p.name} vào {t.name} bị phản đòn, phiếu quay về {p.name}")
             wolf_votes[target_id] = wolf_votes.get(target_id, 0) + 1
-        if wolf_votes:
-            ranked = sorted(wolf_votes.items(), key=lambda kv: -kv[1])
-            tally = ", ".join(f"{self.player(tid).name} {v}" for tid, v in ranked)
-            top_votes = ranked[0][1]
-            top = [tid for tid, v in ranked if v == top_votes]
-            if len(top) == 1:
-                victim = self.player(top[0])
-                kill_targets.append(victim)
-                self._note(wolves, f"🐺 Sói vote ({tally}) → giết {victim.name}")
-            elif ev == "BLOOD_MOON":
-                victim = self.player(random.choice(top))
-                kill_targets.append(victim)
-                self._note(wolves, f"🩸 Trăng máu: Sói vote hòa ({tally}), ngẫu nhiên chọn giết {victim.name}")
-            else:
-                self._note(wolves, f"🐺 Sói vote ({tally}) → hòa phiếu, vote Sói không giết ai")
-
-        seen: set[int] = set()
-        for t in kill_targets:
-            if t.id not in seen:
-                seen.add(t.id)
-                self._kill(t, "bị giết ban đêm")
-        if len(self.alive()) == alive_before:
-            self._announce("🌅 Đêm qua yên bình, không ai chết.")
-        self.phase = Phase.SETTLE
-        self._next = "day"
+        if not wolf_votes:
+            return []
+        ranked = sorted(wolf_votes.items(), key=lambda kv: -kv[1])
+        tally = ", ".join(f"{self.player(tid).name} {v}" for tid, v in ranked)
+        top_votes = ranked[0][1]
+        top = [tid for tid, v in ranked if v == top_votes]
+        if len(top) == 1:
+            victim = self.player(top[0])
+            self._note(wolves, f"🐺 Sói vote ({tally}) → giết {victim.name}")
+            return [victim]
+        if ev == "BLOOD_MOON":
+            victim = self.player(random.choice(top))
+            self._note(wolves, f"🩸 Trăng máu: Sói vote hòa ({tally}), ngẫu nhiên chọn giết {victim.name}")
+            return [victim]
+        self._note(wolves, f"🐺 Sói vote ({tally}) → hòa phiếu, vote Sói không giết ai")
+        return []
 
     def _auto_target(self, p: Player, others: list[Player]) -> Player:
         know = self._knowledge_for(p)
