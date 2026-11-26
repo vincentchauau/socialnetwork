@@ -5,6 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.werewolf.engine import MAX_PLAYERS, MAX_TIMER, MIN_PLAYERS, MIN_TIMER
 
+import logging
+logger = logging.getLogger(__name__)
+
 ROOM_PATTERN = r"^[A-Za-z]{5}$"
 HISTORY_DEFAULT_LIMIT = 20
 HISTORY_MAX_LIMIT = 100
@@ -32,9 +35,14 @@ class CreateBody(BaseModel):
     @field_validator("timerSeconds")
     @classmethod
     def timer_schemas(cls, value: int) -> int:
-        if value != 0 and not MIN_TIMER <= value <= MAX_TIMER:
-            raise ValueError(f"must be 0 or {MIN_TIMER}..{MAX_TIMER}")
-        return value
+        try:
+            if value != 0 and not MIN_TIMER <= value <= MAX_TIMER:
+                raise ValueError(f"must be 0 or {MIN_TIMER}..{MAX_TIMER}")
+            return value
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("timer_schemas failed")
+            raise
 
 
 class OptionsBody(BaseModel):
@@ -47,9 +55,14 @@ class OptionsBody(BaseModel):
     @field_validator("timerSeconds")
     @classmethod
     def timer_schemas(cls, value: int | None) -> int | None:
-        if value is not None and value != 0 and not MIN_TIMER <= value <= MAX_TIMER:
-            raise ValueError(f"must be 0 or {MIN_TIMER}..{MAX_TIMER}")
-        return value
+        try:
+            if value is not None and value != 0 and not MIN_TIMER <= value <= MAX_TIMER:
+                raise ValueError(f"must be 0 or {MIN_TIMER}..{MAX_TIMER}")
+            return value
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("timer_schemas failed")
+            raise
 
 
 class RolesBody(BaseModel):

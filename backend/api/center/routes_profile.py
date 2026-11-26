@@ -8,12 +8,20 @@ from api.center.db import get_db
 from api.center.deps import AuthSession, check_origin, csrf_session, current_session
 from api.center.profile import ProfileBody, ProfileOut, apply_profile, profile_out
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth/me/profile", tags=["profile"], dependencies=[Depends(check_origin)])
 
 
 @router.get("", response_model=ProfileOut)
 def read_profile(session: AuthSession = Depends(current_session)) -> ProfileOut:
-    return profile_out(session.user)
+    try:
+        return profile_out(session.user)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("read_profile failed")
+        raise
 
 
 @router.put("", response_model=ProfileOut)
@@ -23,9 +31,14 @@ def change_profile(
     db: Session = Depends(get_db),
 ) -> ProfileOut:
     """Partial update: only the fields sent change. The profile holds no credential, so no re-authentication."""
-    apply_profile(session.user, body)
-    if body.skills:  # the skills of a person are in the vocabulary that jobs and courses share (`sn_shared.skills`)
-        skills.register(db, [item.name for item in body.skills])
-    db.commit()
-    db.refresh(session.user)
-    return profile_out(session.user)
+    try:
+        apply_profile(session.user, body)
+        if body.skills:  # the skills of a person are in the vocabulary that jobs and courses share (`sn_shared.skills`)
+            skills.register(db, [item.name for item in body.skills])
+        db.commit()
+        db.refresh(session.user)
+        return profile_out(session.user)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("change_profile failed")
+        raise

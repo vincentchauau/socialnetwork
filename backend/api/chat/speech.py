@@ -13,6 +13,8 @@ import urllib.error
 import urllib.request
 import wave
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -29,30 +31,50 @@ VOICES = ("Kore", "Puck", "Zephyr", "Charon", "Leda", "Aoede", "Fenrir", "Orus")
 
 
 def api_key() -> str:
-    return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
+    try:
+        return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("api_key failed")
+        raise
 
 
 def enabled() -> bool:
-    return bool(api_key())
+    try:
+        return bool(api_key())
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("enabled failed")
+        raise
 
 
 def post_speech(model: str, body: dict) -> dict:
-    request = urllib.request.Request(
-        f"{BASE_URL}/models/{model}:generateContent", data=json.dumps(body).encode(), method="POST",
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key()},
-    )
-    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310 - the model of the platform
-        return json.loads(response.read())
+    try:
+        request = urllib.request.Request(
+            f"{BASE_URL}/models/{model}:generateContent", data=json.dumps(body).encode(), method="POST",
+            headers={"Content-Type": "application/json", "x-goog-api-key": api_key()},
+        )
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310 - the model of the platform
+            return json.loads(response.read())
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("post_speech failed")
+        raise
 
 
 def wav_speech(pcm: bytes, rate: int) -> bytes:
-    out = io.BytesIO()
-    with wave.open(out, "wb") as file:
-        file.setnchannels(1)
-        file.setsampwidth(2)
-        file.setframerate(rate)
-        file.writeframes(pcm)
-    return out.getvalue()
+    try:
+        out = io.BytesIO()
+        with wave.open(out, "wb") as file:
+            file.setnchannels(1)
+            file.setsampwidth(2)
+            file.setframerate(rate)
+            file.writeframes(pcm)
+        return out.getvalue()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("wav_speech failed")
+        raise
 
 
 def transcribe(pcm: bytes, rate: int) -> str:
@@ -69,7 +91,12 @@ def transcribe(pcm: bytes, rate: int) -> str:
 
 
 def voice_of(username: str) -> str:
-    return VOICES[sum(username.encode()) % len(VOICES)]
+    try:
+        return VOICES[sum(username.encode()) % len(VOICES)]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("voice_of failed")
+        raise
 
 
 def synthesize(text: str, voice: str) -> tuple[bytes, int] | None:

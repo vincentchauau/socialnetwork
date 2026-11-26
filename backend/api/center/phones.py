@@ -23,6 +23,9 @@ from api.center.smsproviders import SmsProvider, make_provider
 from api.center.throttle import AttemptThrottle
 from sn_shared.security import get_jwt_secret
 
+import logging
+logger = logging.getLogger(__name__)
+
 VERIFY = "verify"
 LOGIN = "login"
 TTL = {VERIFY: timedelta(minutes=10), LOGIN: timedelta(minutes=5)}
@@ -55,67 +58,112 @@ TEXTS = {
 
 def install_phone(app: FastAPI, settings: Settings, kv) -> None:
     """Build the provider (refuses unsafe config) and the throttles; routes read them from `app.state`."""
-    state = app.state
-    state.sms = make_provider(settings, state.mailer)
-    t = lambda n, m, w: AttemptThrottle(m, w, name=n, kv=kv)  # noqa: E731
-    state.sms_ip_throttle = t("sms_ip", REQUEST_MAX_PER_IP, WINDOW)
-    state.sms_ip_phone_throttle = t("sms_ip_phone", REQUEST_MAX_PER_IP_PHONE, WINDOW)
-    state.sms_phone_throttle = t("sms_phone", REQUEST_MAX_PER_PHONE, WINDOW)
-    state.sms_user_throttle = t("sms_user", CHANGE_MAX_PER_USER_HOUR, 3600.0)
-    state.sms_submit_throttle = t("sms_submit", SUBMIT_MAX_PER_IP, WINDOW)
-    state.sms_fail_throttle = t("sms_fail", CODE_FAIL_MAX_PER_IP_PHONE, CODE_FAIL_WINDOW)
-    state.sms_fail_phone_throttle = t("sms_fail_phone", CODE_FAIL_MAX_PER_PHONE_ALL_IPS, CODE_FAIL_WINDOW)
-    state.sms_user_day_throttle = t("sms_user_day", USER_MAX_PER_DAY, DAY)
-    state.sms_phone_day_throttle = t("sms_phone_day", PHONE_MAX_PER_DAY, DAY)
-    login_cap = max(1, int(settings.sms_daily_cap * LOGIN_SHARE))
-    state.sms_daily_throttle = {
-        LOGIN: t("sms_daily_login", login_cap, DAY),
-        VERIFY: t("sms_daily_verify", max(1, settings.sms_daily_cap - login_cap), DAY),
-    }
-    state.sms_daily_warn_at = max(1, int(settings.sms_daily_cap * WARN_SHARE))
+    try:
+        state = app.state
+        state.sms = make_provider(settings, state.mailer)
+        t = lambda n, m, w: AttemptThrottle(m, w, name=n, kv=kv)  # noqa: E731
+        state.sms_ip_throttle = t("sms_ip", REQUEST_MAX_PER_IP, WINDOW)
+        state.sms_ip_phone_throttle = t("sms_ip_phone", REQUEST_MAX_PER_IP_PHONE, WINDOW)
+        state.sms_phone_throttle = t("sms_phone", REQUEST_MAX_PER_PHONE, WINDOW)
+        state.sms_user_throttle = t("sms_user", CHANGE_MAX_PER_USER_HOUR, 3600.0)
+        state.sms_submit_throttle = t("sms_submit", SUBMIT_MAX_PER_IP, WINDOW)
+        state.sms_fail_throttle = t("sms_fail", CODE_FAIL_MAX_PER_IP_PHONE, CODE_FAIL_WINDOW)
+        state.sms_fail_phone_throttle = t("sms_fail_phone", CODE_FAIL_MAX_PER_PHONE_ALL_IPS, CODE_FAIL_WINDOW)
+        state.sms_user_day_throttle = t("sms_user_day", USER_MAX_PER_DAY, DAY)
+        state.sms_phone_day_throttle = t("sms_phone_day", PHONE_MAX_PER_DAY, DAY)
+        login_cap = max(1, int(settings.sms_daily_cap * LOGIN_SHARE))
+        state.sms_daily_throttle = {
+            LOGIN: t("sms_daily_login", login_cap, DAY),
+            VERIFY: t("sms_daily_verify", max(1, settings.sms_daily_cap - login_cap), DAY),
+        }
+        state.sms_daily_warn_at = max(1, int(settings.sms_daily_cap * WARN_SHARE))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("install_phone failed")
+        raise
 
 
 def code_key() -> bytes:
-    return hmac.new(get_jwt_secret().encode(), b"phone-code-subkey", hashlib.sha256).digest()
+    try:
+        return hmac.new(get_jwt_secret().encode(), b"phone-code-subkey", hashlib.sha256).digest()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("code_key failed")
+        raise
 
 
 def code_mac(row_id: int, code: str) -> str:
-    return hmac.new(code_key(), f"{row_id}:{code}".encode(), hashlib.sha256).hexdigest()
+    try:
+        return hmac.new(code_key(), f"{row_id}:{code}".encode(), hashlib.sha256).hexdigest()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("code_mac failed")
+        raise
 
 
 def new_code() -> str:
-    return f"{secrets.randbelow(10**CODE_DIGITS):0{CODE_DIGITS}d}"
+    try:
+        return f"{secrets.randbelow(10**CODE_DIGITS):0{CODE_DIGITS}d}"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("new_code failed")
+        raise
 
 
 def store_phones(db: Session, user_id: int, purpose: str, phone: str, code: str) -> None:
-    codes.insert(db, user_id, codes.PHONE, purpose, phone, TTL[purpose], code=code, mac=code_mac)
-    codes.trim_live(db, user_id, codes.PHONE, purpose, MAX_LIVE_CODES)
+    try:
+        codes.insert(db, user_id, codes.PHONE, purpose, phone, TTL[purpose], code=code, mac=code_mac)
+        codes.trim_live(db, user_id, codes.PHONE, purpose, MAX_LIVE_CODES)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("store_phones failed")
+        raise
 
 
 def issue(db: Session, user: User | None, purpose: str, phone: str) -> str:
     """Create a code for `user`; with `user=None` do the same database work under a savepoint and store nothing."""
-    purge(db)
-    code = new_code()
-    if user is None:
-        codes.rehearse(db, lambda owner: store_phones(db, owner, purpose, phone, code))
-    else:
-        store_phones(db, user.id, purpose, phone, code)
-    db.commit()
-    return code
+    try:
+        purge(db)
+        code = new_code()
+        if user is None:
+            codes.rehearse(db, lambda owner: store_phones(db, owner, purpose, phone, code))
+        else:
+            store_phones(db, user.id, purpose, phone, code)
+        db.commit()
+        return code
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("issue failed")
+        raise
 
 
 def find_for_user(db: Session, user_id: int, purpose: str, phone: str | None = None) -> VerificationCode | None:
-    return codes.find_for_user(db, user_id, codes.PHONE, purpose, phone)
+    try:
+        return codes.find_for_user(db, user_id, codes.PHONE, purpose, phone)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("find_for_user failed")
+        raise
 
 
 def check_code(db: Session, row: VerificationCode | None, code: str) -> bool:
     """Count one attempt (persisted) and compare in constant time; a missing row costs the same MAC."""
-    return codes.check_code(db, row, code, code_mac)
+    try:
+        return codes.check_code(db, row, code, code_mac)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("check_code failed")
+        raise
 
 
 def drop_codes(db: Session, user_id: int, purpose: str) -> None:
-    db.execute(_no_sync(delete(VerificationCode).where(
-        VerificationCode.user_id == user_id, VerificationCode.channel == codes.PHONE, VerificationCode.purpose == purpose)))
+    try:
+        db.execute(_no_sync(delete(VerificationCode).where(
+            VerificationCode.user_id == user_id, VerificationCode.channel == codes.PHONE, VerificationCode.purpose == purpose)))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("drop_codes failed")
+        raise
 
 
 def deliver(provider: SmsProvider, phone: str, text: str) -> None:
@@ -129,16 +177,26 @@ def deliver(provider: SmsProvider, phone: str, text: str) -> None:
 
 def spend_daily(request: Request, purpose: str) -> bool:
     """Count one REAL send against this flow's share of the daily cap; False when the share is spent."""
-    state = request.app.state
-    if not state.sms_daily_throttle[purpose].check_and_record(DAILY_KEY):
-        audit.warning("sms daily cap reached purpose=%s", purpose)
-        return False
-    total = sum(t.count(DAILY_KEY) for t in state.sms_daily_throttle.values())
-    if total == state.sms_daily_warn_at:
-        audit.warning("sms daily cap at %d%% (%d sends)", int(WARN_SHARE * 100), total)
-    return True
+    try:
+        state = request.app.state
+        if not state.sms_daily_throttle[purpose].check_and_record(DAILY_KEY):
+            audit.warning("sms daily cap reached purpose=%s", purpose)
+            return False
+        total = sum(t.count(DAILY_KEY) for t in state.sms_daily_throttle.values())
+        if total == state.sms_daily_warn_at:
+            audit.warning("sms daily cap at %d%% (%d sends)", int(WARN_SHARE * 100), total)
+        return True
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("spend_daily failed")
+        raise
 
 
 def queue_sms(request: Request, background: BackgroundTasks, purpose: str, phone: str, code: str) -> None:
     """Queue one REAL send (the caller has already counted it against the daily cap)."""
-    background.add_task(deliver, request.app.state.sms, phone, TEXTS[purpose].format(code=code))
+    try:
+        background.add_task(deliver, request.app.state.sms, phone, TEXTS[purpose].format(code=code))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("queue_sms failed")
+        raise

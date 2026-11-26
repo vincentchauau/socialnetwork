@@ -22,6 +22,9 @@ from api.center.tokens import create_fresh_token, decode_claims
 from sn_shared import COOKIE_NAME
 from sn_shared.security import AuthError, decode_token
 
+import logging
+logger = logging.getLogger(__name__)
+
 FRESH_TTL_SECONDS = 5 * 60
 PASSWORD, PASSKEY, GOOGLE, EMAIL = "password", "passkey", "google", "email"
 REAUTH_REQUIRED = "Re-authentication required"
@@ -32,27 +35,42 @@ class ReauthRequired(Exception):
     """A sensitive call came without proof; rendered as 401 {detail, reauth: [methods]} (see `reauth_response`)."""
 
     def __init__(self, methods: list[str]) -> None:
-        super().__init__(REAUTH_REQUIRED)
-        self.methods = methods
+        try:
+            super().__init__(REAUTH_REQUIRED)
+            self.methods = methods
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
 
 def reauth_response(_: Request, exc: ReauthRequired) -> JSONResponse:
-    return JSONResponse({"detail": REAUTH_REQUIRED, "reauth": exc.methods}, status_code=401)
+    try:
+        return JSONResponse({"detail": REAUTH_REQUIRED, "reauth": exc.methods}, status_code=401)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("reauth_response failed")
+        raise
 
 
 def available_methods(request: Request, user: User) -> list[str]:
     """What this user can use right now, in display order (a method the server cannot run is not offered)."""
-    state = request.app.state
-    methods = []
-    if user.has_password:
-        methods.append(PASSWORD)
-    if user.passkeys:
-        methods.append(PASSKEY)
-    if user.google_linked and state.google_verifier is not None:
-        methods.append(GOOGLE)
-    if has_verified_email(user) and state.settings.email_enabled:
-        methods.append(EMAIL)
-    return methods
+    try:
+        state = request.app.state
+        methods = []
+        if user.has_password:
+            methods.append(PASSWORD)
+        if user.passkeys:
+            methods.append(PASSKEY)
+        if user.google_linked and state.google_verifier is not None:
+            methods.append(GOOGLE)
+        if has_verified_email(user) and state.settings.email_enabled:
+            methods.append(EMAIL)
+        return methods
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("available_methods failed")
+        raise
 
 
 def current_sid(request: Request) -> str | None:
@@ -80,6 +98,11 @@ def has_fresh_proof(request: Request, user: User) -> bool:
 
 
 def set_fresh(response: Response, request: Request, user: User, settings: Settings) -> FreshOut:
-    token = create_fresh_token(user.id, user.token_version, FRESH_TTL_SECONDS, current_sid(request))
-    response.set_cookie(FRESH_COOKIE, token, max_age=FRESH_TTL_SECONDS, **cookie_options(settings, REFRESH_PATH))
-    return FreshOut(fresh_until=datetime.now(timezone.utc) + timedelta(seconds=FRESH_TTL_SECONDS))
+    try:
+        token = create_fresh_token(user.id, user.token_version, FRESH_TTL_SECONDS, current_sid(request))
+        response.set_cookie(FRESH_COOKIE, token, max_age=FRESH_TTL_SECONDS, **cookie_options(settings, REFRESH_PATH))
+        return FreshOut(fresh_until=datetime.now(timezone.utc) + timedelta(seconds=FRESH_TTL_SECONDS))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("set_fresh failed")
+        raise

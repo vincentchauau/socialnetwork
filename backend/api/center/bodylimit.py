@@ -5,6 +5,9 @@ from typing import Callable
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+import logging
+logger = logging.getLogger(__name__)
+
 DEFAULT_MAX_BYTES = 64 * 1024
 BIOMETRIC_MAX_BYTES = 16 * 1024 * 1024
 BIOMETRIC_PATHS = (
@@ -24,15 +27,25 @@ class BodyTooLarge(Exception):
 
 
 def limit_for(path: str, biometrics_enabled: bool) -> int:
-    if biometrics_enabled and path in BIOMETRIC_PATHS:
-        return BIOMETRIC_MAX_BYTES
-    return DEFAULT_MAX_BYTES
+    try:
+        if biometrics_enabled and path in BIOMETRIC_PATHS:
+            return BIOMETRIC_MAX_BYTES
+        return DEFAULT_MAX_BYTES
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("limit_for failed")
+        raise
 
 
 class BodyLimitMiddleware:
     def __init__(self, app: ASGIApp, limit: Callable[[str], int] = lambda path: DEFAULT_MAX_BYTES) -> None:
-        self.app = app
-        self.limit = limit
+        try:
+            self.app = app
+            self.limit = limit
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -48,21 +61,31 @@ class BodyLimitMiddleware:
         started = False
 
         async def counting_receive() -> Message:
-            nonlocal received, exceeded
-            message = await receive()
-            if message["type"] == "http.request":
-                received += len(message.get("body", b""))
-                if received > max_bytes:
-                    exceeded = True
-                    raise BodyTooLarge
-            return message
+            try:
+                nonlocal received, exceeded
+                message = await receive()
+                if message["type"] == "http.request":
+                    received += len(message.get("body", b""))
+                    if received > max_bytes:
+                        exceeded = True
+                        raise BodyTooLarge
+                return message
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("counting_receive failed")
+                raise
 
         async def tracking_send(message: Message) -> None:
-            nonlocal started
-            if exceeded:
-                return  # the app turned the error into 400/500; a 413 replaces it below
-            started = started or message["type"] == "http.response.start"
-            await send(message)
+            try:
+                nonlocal started
+                if exceeded:
+                    return  # the app turned the error into 400/500; a 413 replaces it below
+                started = started or message["type"] == "http.response.start"
+                await send(message)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("tracking_send failed")
+                raise
 
         try:
             await self.app(scope, counting_receive, tracking_send)
@@ -72,4 +95,9 @@ class BodyLimitMiddleware:
             await self.reject(scope, receive, send)
 
     async def reject(self, scope: Scope, receive: Receive, send: Send) -> None:
-        await JSONResponse({"detail": "Request too large"}, status_code=413)(scope, receive, send)
+        try:
+            await JSONResponse({"detail": "Request too large"}, status_code=413)(scope, receive, send)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("reject failed")
+            raise

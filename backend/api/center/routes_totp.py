@@ -21,6 +21,9 @@ from api.center.usersessions import checked_method
 from api.center.tokenversion import bump_token_version, publish_token_version
 from sn_shared.security import AuthError
 
+import logging
+logger = logging.getLogger(__name__)
+
 INVALID_CODE = "Invalid code"
 ALREADY_ENABLED = "Two-step verification is already enabled"
 NOT_ENABLED = "Two-step verification is not enabled"
@@ -29,18 +32,28 @@ router = APIRouter(prefix="/auth", tags=["totp"], dependencies=[Depends(check_or
 
 
 def cipher(request: Request):
-    return request.app.state.totp_cipher
+    try:
+        return request.app.state.totp_cipher
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("cipher failed")
+        raise
 
 
 def clear_totp(db: Session, user: User) -> None:
     """Straight UPDATE/DELETE: the instance may be stale after the atomic UPDATEs of this request."""
-    db.execute(
-        update(User)
-        .where(User.id == user.id)
-        .values(totp_enabled=False, totp_secret=None, totp_pending_secret=None, totp_last_step=None)
-        .execution_options(synchronize_session=False)
-    )
-    db.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id).execution_options(synchronize_session=False))
+    try:
+        db.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(totp_enabled=False, totp_secret=None, totp_pending_secret=None, totp_last_step=None)
+            .execution_options(synchronize_session=False)
+        )
+        db.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id).execution_options(synchronize_session=False))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("clear_totp failed")
+        raise
 
 
 # --- managing (signed in) --------------------------------------------------------------------------------
@@ -48,24 +61,39 @@ def clear_totp(db: Session, user: User) -> None:
 
 def manage_keys(request: Request, user: User) -> list[str]:
     """Wrong codes while managing TOTP are throttled per (address, user) and per user; 429 when locked."""
-    keys = [f"{client_ip(request)}|{user.id}", str(user.id)]
-    if any(request.app.state.totp_manage_throttle.is_blocked(k) for k in keys):
-        audit.warning("totp manage locked user=%r ip=%s", user.username, client_ip(request))
-        raise too_many()
-    return keys
+    try:
+        keys = [f"{client_ip(request)}|{user.id}", str(user.id)]
+        if any(request.app.state.totp_manage_throttle.is_blocked(k) for k in keys):
+            audit.warning("totp manage locked user=%r ip=%s", user.username, client_ip(request))
+            raise too_many()
+        return keys
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("manage_keys failed")
+        raise
 
 
 def reject_code(request: Request, db: Session, user: User, keys: list[str]) -> HTTPException:
-    for key in keys:
-        request.app.state.totp_manage_throttle.record(key)
-    db.rollback()
-    audit.warning("totp code rejected user=%r ip=%s", user.username, client_ip(request))
-    return HTTPException(status.HTTP_400_BAD_REQUEST, INVALID_CODE)
+    try:
+        for key in keys:
+            request.app.state.totp_manage_throttle.record(key)
+        db.rollback()
+        audit.warning("totp code rejected user=%r ip=%s", user.username, client_ip(request))
+        return HTTPException(status.HTTP_400_BAD_REQUEST, INVALID_CODE)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("reject_code failed")
+        raise
 
 
 def forgive(request: Request, keys: list[str]) -> None:
-    for key in keys:
-        request.app.state.totp_manage_throttle.reset(key)
+    try:
+        for key in keys:
+            request.app.state.totp_manage_throttle.reset(key)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("forgive failed")
+        raise
 
 
 @router.post("/totp/setup", response_model=TotpSetupOut)
@@ -76,22 +104,27 @@ def totp_setup(
     db: Session = Depends(get_db),
 ) -> TotpSetupOut:
     """Start (or restart) enrolment: a new pending secret replaces any earlier one. Body: {password} for re-auth."""
-    user = session.user
-    ensure_reauth(request, user, body.password if body else None)
-    if user.totp_enabled:
-        raise HTTPException(status.HTTP_409_CONFLICT, ALREADY_ENABLED)
-    secret = totp.new_secret()
-    result = db.execute(
-        update(User)
-        .where(User.id == user.id, User.totp_enabled.is_(False))
-        .values(totp_pending_secret=totp.seal(cipher(request), secret))
-        .execution_options(synchronize_session=False)
-    )
-    if result.rowcount != 1:
-        raise HTTPException(status.HTTP_409_CONFLICT, ALREADY_ENABLED)
-    db.commit()
-    audit.info("totp setup started user=%r ip=%s", user.username, client_ip(request))
-    return TotpSetupOut(secret=secret, otpauth_uri=totp.provisioning_uri(secret, user.username))
+    try:
+        user = session.user
+        ensure_reauth(request, user, body.password if body else None)
+        if user.totp_enabled:
+            raise HTTPException(status.HTTP_409_CONFLICT, ALREADY_ENABLED)
+        secret = totp.new_secret()
+        result = db.execute(
+            update(User)
+            .where(User.id == user.id, User.totp_enabled.is_(False))
+            .values(totp_pending_secret=totp.seal(cipher(request), secret))
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            raise HTTPException(status.HTTP_409_CONFLICT, ALREADY_ENABLED)
+        db.commit()
+        audit.info("totp setup started user=%r ip=%s", user.username, client_ip(request))
+        return TotpSetupOut(secret=secret, otpauth_uri=totp.provisioning_uri(secret, user.username))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("totp_setup failed")
+        raise
 
 
 @router.post("/totp/enable", response_model=RecoveryCodesOut)
@@ -108,33 +141,38 @@ def totp_enable(
     Other sessions and refresh tokens are revoked (token_version bump) and this session is re-issued; the new
     `csrf_token` is in the body. An account without a password needs a fresh proof first (see app.reauth).
     """
-    user = session.user
-    ensure_reauth(request, user, body.password)
-    if user.totp_enabled:
-        raise HTTPException(status.HTTP_409_CONFLICT, ALREADY_ENABLED)
-    keys = manage_keys(request, user)
-    pending = user.totp_pending_secret
-    step = totp.matching_step(totp.unseal(cipher(request), pending), body.code)
-    if step is None:
-        raise reject_code(request, db, user, keys)
-    result = db.execute(
-        update(User)
-        .where(User.id == user.id, User.totp_enabled.is_(False), User.totp_pending_secret == pending)
-        .values(totp_enabled=True, totp_secret=pending, totp_pending_secret=None, totp_last_step=step)
-        .execution_options(synchronize_session=False)
-    )
-    if result.rowcount != 1:
-        raise reject_code(request, db, user, keys)
-    codes = totp.replace_recovery_codes(db, user.id)
-    settings = settings_of(request)
-    bump_token_version(db, user, keep_sid=session.sid)
-    db.commit()
-    publish_token_version(user, settings)
-    forgive(request, keys)
-    fresh = reissue_session(response, request, db, user, settings, session.sid)
-    audit.info("totp enabled user=%r ip=%s", user.username, client_ip(request))
-    notify(request, background, user, "totp_enabled")
-    return RecoveryCodesOut(recovery_codes=codes, csrf_token=fresh.csrf_token)
+    try:
+        user = session.user
+        ensure_reauth(request, user, body.password)
+        if user.totp_enabled:
+            raise HTTPException(status.HTTP_409_CONFLICT, ALREADY_ENABLED)
+        keys = manage_keys(request, user)
+        pending = user.totp_pending_secret
+        step = totp.matching_step(totp.unseal(cipher(request), pending), body.code)
+        if step is None:
+            raise reject_code(request, db, user, keys)
+        result = db.execute(
+            update(User)
+            .where(User.id == user.id, User.totp_enabled.is_(False), User.totp_pending_secret == pending)
+            .values(totp_enabled=True, totp_secret=pending, totp_pending_secret=None, totp_last_step=step)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            raise reject_code(request, db, user, keys)
+        codes = totp.replace_recovery_codes(db, user.id)
+        settings = settings_of(request)
+        bump_token_version(db, user, keep_sid=session.sid)
+        db.commit()
+        publish_token_version(user, settings)
+        forgive(request, keys)
+        fresh = reissue_session(response, request, db, user, settings, session.sid)
+        audit.info("totp enabled user=%r ip=%s", user.username, client_ip(request))
+        notify(request, background, user, "totp_enabled")
+        return RecoveryCodesOut(recovery_codes=codes, csrf_token=fresh.csrf_token)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("totp_enable failed")
+        raise
 
 
 @router.delete("/totp", status_code=status.HTTP_204_NO_CONTENT)
@@ -147,22 +185,27 @@ def totp_disable(
     db: Session = Depends(get_db),
 ) -> None:
     """Needs a current TOTP code or a recovery code. Other sessions die; this one is re-issued (use GET /auth/me)."""
-    user = session.user
-    ensure_reauth(request, user, body.password)
-    if not user.totp_enabled:
-        raise HTTPException(status.HTTP_409_CONFLICT, NOT_ENABLED)
-    keys = manage_keys(request, user)
-    if not (totp.check_totp(db, cipher(request), user, body.code) or totp.consume_recovery_code(db, user.id, body.code)):
-        raise reject_code(request, db, user, keys)
-    clear_totp(db, user)
-    settings = settings_of(request)
-    bump_token_version(db, user, keep_sid=session.sid)
-    db.commit()
-    publish_token_version(user, settings)
-    forgive(request, keys)
-    reissue_session(response, request, db, user, settings, session.sid)
-    audit.info("totp disabled user=%r ip=%s", user.username, client_ip(request))
-    notify(request, background, user, "totp_disabled")
+    try:
+        user = session.user
+        ensure_reauth(request, user, body.password)
+        if not user.totp_enabled:
+            raise HTTPException(status.HTTP_409_CONFLICT, NOT_ENABLED)
+        keys = manage_keys(request, user)
+        if not (totp.check_totp(db, cipher(request), user, body.code) or totp.consume_recovery_code(db, user.id, body.code)):
+            raise reject_code(request, db, user, keys)
+        clear_totp(db, user)
+        settings = settings_of(request)
+        bump_token_version(db, user, keep_sid=session.sid)
+        db.commit()
+        publish_token_version(user, settings)
+        forgive(request, keys)
+        reissue_session(response, request, db, user, settings, session.sid)
+        audit.info("totp disabled user=%r ip=%s", user.username, client_ip(request))
+        notify(request, background, user, "totp_disabled")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("totp_disable failed")
+        raise
 
 
 @router.post("/totp/recovery-codes", response_model=RecoveryCodesOut)
@@ -173,19 +216,24 @@ def regenerate_recovery_codes(
     session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> RecoveryCodesOut:
-    user = session.user
-    ensure_reauth(request, user, body.password)
-    if not user.totp_enabled:
-        raise HTTPException(status.HTTP_409_CONFLICT, NOT_ENABLED)
-    keys = manage_keys(request, user)
-    if not totp.check_totp(db, cipher(request), user, body.code):
-        raise reject_code(request, db, user, keys)
-    codes = totp.replace_recovery_codes(db, user.id)
-    db.commit()
-    forgive(request, keys)
-    audit.info("recovery codes regenerated user=%r ip=%s", user.username, client_ip(request))
-    notify(request, background, user, "recovery_codes_regenerated")
-    return RecoveryCodesOut(recovery_codes=codes)
+    try:
+        user = session.user
+        ensure_reauth(request, user, body.password)
+        if not user.totp_enabled:
+            raise HTTPException(status.HTTP_409_CONFLICT, NOT_ENABLED)
+        keys = manage_keys(request, user)
+        if not totp.check_totp(db, cipher(request), user, body.code):
+            raise reject_code(request, db, user, keys)
+        codes = totp.replace_recovery_codes(db, user.id)
+        db.commit()
+        forgive(request, keys)
+        audit.info("recovery codes regenerated user=%r ip=%s", user.username, client_ip(request))
+        notify(request, background, user, "recovery_codes_regenerated")
+        return RecoveryCodesOut(recovery_codes=codes)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("regenerate_recovery_codes failed")
+        raise
 
 
 # --- login (second step) ---------------------------------------------------------------------------------
@@ -204,12 +252,17 @@ def login_user(db: Session, mfa_token: str) -> tuple[User | None, str]:
 
 def login_code_ok(request: Request, db: Session, user: User | None, body: TotpLoginBody) -> bool:
     """TOTP code or recovery code; failures cost about the same whether or not there is a real user behind them."""
-    if body.recovery_code is not None:
-        return totp.consume_recovery_code(db, user.id if user else 0, body.recovery_code) and user is not None
-    if user is None:
-        totp.matching_step(None, body.code or "")
-        return False
-    return totp.check_totp(db, cipher(request), user, body.code or "")
+    try:
+        if body.recovery_code is not None:
+            return totp.consume_recovery_code(db, user.id if user else 0, body.recovery_code) and user is not None
+        if user is None:
+            totp.matching_step(None, body.code or "")
+            return False
+        return totp.check_totp(db, cipher(request), user, body.code or "")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("login_code_ok failed")
+        raise
 
 
 @router.post("/login/totp", response_model=SessionOut)
@@ -221,26 +274,31 @@ def login_totp(
     db: Session = Depends(get_db),
 ) -> SessionOut:
     """Second factor with an authenticator code or a recovery code; any one listed factor completes the login."""
-    ip, state = client_ip(request), request.app.state
-    # check and count in one atomic step, up front, so parallel guesses cannot all slip through
-    if not state.totp_login_ip_throttle.check_and_record(ip):
-        audit.warning("totp login locked ip=%s", ip)
-        raise too_many()
-    user, method = login_user(db, body.mfa_token)
-    account = str(user.id) if user else None
-    if account is not None and not state.totp_login_account_throttle.check_and_record(account):
-        audit.warning("totp login locked user=%r ip=%s", user.username, ip)
-        raise too_many()
-    if not login_code_ok(request, db, user, body):
-        db.rollback()
-        audit.warning("mfa totp failed user=%r ip=%s", user.username if user else None, ip)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, INVALID_CODE)
-    db.commit()
-    state.totp_login_ip_throttle.reset(ip)
-    state.totp_login_account_throttle.reset(account)
-    if body.recovery_code is not None:
-        audit.warning("login ok (recovery code used) user=%r ip=%s", user.username, ip)
-        notify(request, background, user, "recovery_code_used")
-    else:
-        audit.info("login ok (totp 2nd factor) user=%r ip=%s", user.username, ip)
-    return begin_session(response, request, db, user, settings_of(request), method)
+    try:
+        ip, state = client_ip(request), request.app.state
+        # check and count in one atomic step, up front, so parallel guesses cannot all slip through
+        if not state.totp_login_ip_throttle.check_and_record(ip):
+            audit.warning("totp login locked ip=%s", ip)
+            raise too_many()
+        user, method = login_user(db, body.mfa_token)
+        account = str(user.id) if user else None
+        if account is not None and not state.totp_login_account_throttle.check_and_record(account):
+            audit.warning("totp login locked user=%r ip=%s", user.username, ip)
+            raise too_many()
+        if not login_code_ok(request, db, user, body):
+            db.rollback()
+            audit.warning("mfa totp failed user=%r ip=%s", user.username if user else None, ip)
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, INVALID_CODE)
+        db.commit()
+        state.totp_login_ip_throttle.reset(ip)
+        state.totp_login_account_throttle.reset(account)
+        if body.recovery_code is not None:
+            audit.warning("login ok (recovery code used) user=%r ip=%s", user.username, ip)
+            notify(request, background, user, "recovery_code_used")
+        else:
+            audit.info("login ok (totp 2nd factor) user=%r ip=%s", user.username, ip)
+        return begin_session(response, request, db, user, settings_of(request), method)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("login_totp failed")
+        raise

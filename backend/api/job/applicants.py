@@ -16,6 +16,9 @@ from sn_shared.deps import get_current_user
 from sn_shared.states import Transitions
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 # Employer-driven steps; hired and rejected are terminal. An application starts at `submitted`.
@@ -31,14 +34,24 @@ APPLICATION_FLOW = Transitions({
 
 
 def step(status_name: str, by: str) -> dict:
-    return {"status": status_name, "at": utcnow().isoformat(), "by": by}
+    try:
+        return {"status": status_name, "at": utcnow().isoformat(), "by": by}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("step failed")
+        raise
 
 
 def get_application(db: Session, application_id: int) -> JobApplicant:
-    row = db.get(JobApplicant, application_id)
-    if row is None or row.status is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
-    return row
+    try:
+        row = db.get(JobApplicant, application_id)
+        if row is None or row.status is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
+        return row
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("get_application failed")
+        raise
 
 
 @router.post("/jobs/{job_id}/apply", response_model=ApplicationOut, status_code=status.HTTP_201_CREATED)
@@ -79,14 +92,19 @@ def apply(
 def my_applications(
     user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[ApplicationOut]:
-    rows = db.execute(
-        select(JobApplicant, JobDescription)
-        .join(JobDescription, JobDescription.id == JobApplicant.job_description_id)
-        .where(JobApplicant.user_id == user.user_id, JobApplicant.status.is_not(None))
-        .order_by(JobApplicant.id.desc())
-        .limit(MAX_LIST_ITEMS)
-    ).all()
-    return [application_out(row, job) for row, job in rows]
+    try:
+        rows = db.execute(
+            select(JobApplicant, JobDescription)
+            .join(JobDescription, JobDescription.id == JobApplicant.job_description_id)
+            .where(JobApplicant.user_id == user.user_id, JobApplicant.status.is_not(None))
+            .order_by(JobApplicant.id.desc())
+            .limit(MAX_LIST_ITEMS)
+        ).all()
+        return [application_out(row, job) for row, job in rows]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("my_applications failed")
+        raise
 
 
 @router.patch("/applications/{application_id}/mine", response_model=ApplicationOut)
@@ -97,18 +115,23 @@ def edit_my_application(
     db: Session = Depends(get_db),
 ) -> ApplicationOut:
     """The applicant changes their own application while the employer has not reviewed it yet (status "submitted")."""
-    row = get_application(db, application_id)
-    if row.user_id != user.user_id:  # someone else's application looks like none
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
-    if row.status != "submitted":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Only an application that has not been reviewed can be changed")
-    if body.cover_letter is not None:
-        row.cover_letter = body.cover_letter
-    if body.contact_email is not None:
-        row.contact_email = body.contact_email
-    db.commit()
-    job = get_job_description(db, row.job_description_id)
-    return application_out(row, job)
+    try:
+        row = get_application(db, application_id)
+        if row.user_id != user.user_id:  # someone else's application looks like none
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
+        if row.status != "submitted":
+            raise HTTPException(status.HTTP_409_CONFLICT, "Only an application that has not been reviewed can be changed")
+        if body.cover_letter is not None:
+            row.cover_letter = body.cover_letter
+        if body.contact_email is not None:
+            row.contact_email = body.contact_email
+        db.commit()
+        job = get_job_description(db, row.job_description_id)
+        return application_out(row, job)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("edit_my_application failed")
+        raise
 
 
 @router.delete("/applications/{application_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -117,14 +140,19 @@ def withdraw_application(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Response:
-    row = get_application(db, application_id)
-    if row.user_id != user.user_id:  # 404, not 403: do not reveal other users' ids
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
-    if row.status == "hired":
-        raise HTTPException(status.HTTP_409_CONFLICT, "A hired application cannot be withdrawn")
-    db.delete(row)
-    db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        row = get_application(db, application_id)
+        if row.user_id != user.user_id:  # 404, not 403: do not reveal other users' ids
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
+        if row.status == "hired":
+            raise HTTPException(status.HTTP_409_CONFLICT, "A hired application cannot be withdrawn")
+        db.delete(row)
+        db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("withdraw_application failed")
+        raise
 
 
 @router.get("/jobs/{job_id}/applications", response_model=list[ApplicantOut])
@@ -133,15 +161,20 @@ def list_applicants(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[ApplicantOut]:
-    job = ensure_owner(get_job_description(db, job_id), user)
-    rows = db.scalars(
-        select(JobApplicant)
-        .where(JobApplicant.job_description_id == job.id, JobApplicant.status.is_not(None))
-        .order_by(JobApplicant.id.desc())
-        .limit(MAX_LIST_ITEMS)
-    ).all()
-    found = directory.names(db, [row.user_id for row in rows])
-    return [applicant_out(row, job, found[row.user_id]) for row in rows]
+    try:
+        job = ensure_owner(get_job_description(db, job_id), user)
+        rows = db.scalars(
+            select(JobApplicant)
+            .where(JobApplicant.job_description_id == job.id, JobApplicant.status.is_not(None))
+            .order_by(JobApplicant.id.desc())
+            .limit(MAX_LIST_ITEMS)
+        ).all()
+        found = directory.names(db, [row.user_id for row in rows])
+        return [applicant_out(row, job, found[row.user_id]) for row in rows]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("list_applicants failed")
+        raise
 
 
 @router.patch("/applications/{application_id}", response_model=ApplicantOut)
@@ -151,13 +184,18 @@ def update_application(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ApplicantOut:
-    row = get_application(db, application_id)
-    job = ensure_owner(get_job_description(db, row.job_description_id), user)
-    if body.status != row.status:
-        APPLICATION_FLOW.check(row.status, body.status, "an application")
-        row.history = [*(row.history or []), step(body.status, "employer")]
-        row.status = body.status
-    if body.note is not None:
-        row.employer_note = body.note
-    db.commit()
-    return applicant_out(row, job, directory.name_of(db, row.user_id))
+    try:
+        row = get_application(db, application_id)
+        job = ensure_owner(get_job_description(db, row.job_description_id), user)
+        if body.status != row.status:
+            APPLICATION_FLOW.check(row.status, body.status, "an application")
+            row.history = [*(row.history or []), step(body.status, "employer")]
+            row.status = body.status
+        if body.note is not None:
+            row.employer_note = body.note
+        db.commit()
+        return applicant_out(row, job, directory.name_of(db, row.user_id))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("update_application failed")
+        raise

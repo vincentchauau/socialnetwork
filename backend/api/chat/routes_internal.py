@@ -18,6 +18,9 @@ from api.chat import service, speech, voice_stream
 from api.chat.schemas import MessageOut
 from sn_shared import directory, servicesig
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/internal", include_in_schema=False)
 
 MAX_BODY_BYTES = 32 * 1024
@@ -42,36 +45,46 @@ class GameOver(BaseModel):
 
 def card_routes_internal(body: GameOver) -> dict:
     """The roles of everybody, then what happened that all of them saw, as the lines of a card that fits in a message."""
-    lines: list[str] = []
-    used = 0
-    for heading, rows in (("Vai của mọi người", body.roles), ("Diễn biến", body.seen)):
-        if not rows:
-            continue
-        lines.append(heading)
-        used += len(heading)
-        for row in rows:
-            text = row.strip()[:MAX_LINE_CHARS]
-            if used + len(text) > CARD_BUDGET:
-                break
-            lines.append(text)
-            used += len(text)
-    return {"type": "detail", "title": CARD_TITLE, "lines": lines, "actions": []}
+    try:
+        lines: list[str] = []
+        used = 0
+        for heading, rows in (("Vai của mọi người", body.roles), ("Diễn biến", body.seen)):
+            if not rows:
+                continue
+            lines.append(heading)
+            used += len(heading)
+            for row in rows:
+                text = row.strip()[:MAX_LINE_CHARS]
+                if used + len(text) > CARD_BUDGET:
+                    break
+                lines.append(text)
+                used += len(text)
+        return {"type": "detail", "title": CARD_TITLE, "lines": lines, "actions": []}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("card_routes_internal failed")
+        raise
 
 
 def say(request: Request, body: GameOver) -> tuple[str, list[dict]] | None:
     """The lines saved in the room whose game is `body.code`, with the frames to send; None when the chat has no such room."""
-    with request.app.state.session_factory() as db:
-        room = service.room_by_game_code(db, body.code)
-        if room is None:
-            return None
-        winner = body.winner if body.winner in WINNERS else "DRAW"
-        lines = [service.say_text(db, room, f"game_over:{winner}:{body.days}")]
-        if body.roles or body.seen:
-            lines.append(service.say_card(db, room, card_routes_internal(body)))
-        db.commit()
-        for line in lines:
-            db.refresh(line)
-        return room.slug, [MessageOut.model_validate(line).frame() for line in lines]
+    try:
+        with request.app.state.session_factory() as db:
+            room = service.room_by_game_code(db, body.code)
+            if room is None:
+                return None
+            winner = body.winner if body.winner in WINNERS else "DRAW"
+            lines = [service.say_text(db, room, f"game_over:{winner}:{body.days}")]
+            if body.roles or body.seen:
+                lines.append(service.say_card(db, room, card_routes_internal(body)))
+            db.commit()
+            for line in lines:
+                db.refresh(line)
+            return room.slug, [MessageOut.model_validate(line).frame() for line in lines]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("say failed")
+        raise
 
 
 @router.post("/game-over", status_code=status.HTTP_204_NO_CONTENT)

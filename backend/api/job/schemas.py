@@ -11,6 +11,9 @@ from pydantic import (
     model_validator,
 )
 
+import logging
+logger = logging.getLogger(__name__)
+
 TITLE_MAX = 120
 COMPANY_MAX = 120
 DEPARTMENT_MAX = 120
@@ -60,18 +63,28 @@ NON_NULLABLE_UPDATE_FIELDS = (
 
 def as_utc(value: datetime) -> datetime:
     """Naive datetimes (SQLite, or clients that omit an offset) are taken as UTC."""
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+    try:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("as_utc failed")
+        raise
 
 
 def require_future(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    normalised = as_utc(value)
-    if normalised <= datetime.now(timezone.utc):
-        raise ValueError("expires_at must be in the future")
-    return normalised
+    try:
+        if value is None:
+            return None
+        normalised = as_utc(value)
+        if normalised <= datetime.now(timezone.utc):
+            raise ValueError("expires_at must be in the future")
+        return normalised
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("require_future failed")
+        raise
 
 
 UtcDatetime = Annotated[datetime, AfterValidator(as_utc)]
@@ -83,7 +96,12 @@ Line = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max
 
 
 def unique_tags(tags: list[str]) -> list[str]:
-    return list(dict.fromkeys(tags))  # (the order given, no repeats)
+    try:
+        return list(dict.fromkeys(tags))  # (the order given, no repeats)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("unique_tags failed")
+        raise
 
 
 class SkillItem(BaseModel):
@@ -138,13 +156,23 @@ class JobDescriptionCreate(BaseModel):
 
     @model_validator(mode="after")
     def salary_range(self) -> "JobDescriptionCreate":
-        check_salary_range(self.salary_min, self.salary_max)
-        return self
+        try:
+            check_salary_range(self.salary_min, self.salary_max)
+            return self
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("salary_range failed")
+            raise
 
 
 def check_salary_range(minimum: int | None, maximum: int | None) -> None:
-    if minimum is not None and maximum is not None and minimum > maximum:
-        raise ValueError("salary_min must not exceed salary_max")
+    try:
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ValueError("salary_min must not exceed salary_max")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("check_salary_range failed")
+        raise
 
 
 class JobDescriptionUpdate(BaseModel):
@@ -189,14 +217,24 @@ class JobDescriptionUpdate(BaseModel):
     @field_validator("tags")
     @classmethod
     def dedupe_tags(cls, tags: list[str] | None) -> list[str] | None:
-        return None if tags is None else unique_tags(tags)
+        try:
+            return None if tags is None else unique_tags(tags)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("dedupe_tags failed")
+            raise
 
     @model_validator(mode="after")
     def no_null_for_required(self) -> "JobDescriptionUpdate":
-        for name in NON_NULLABLE_UPDATE_FIELDS:
-            if name in self.model_fields_set and getattr(self, name) is None:
-                raise ValueError(f"{name} cannot be null")
-        return self
+        try:
+            for name in NON_NULLABLE_UPDATE_FIELDS:
+                if name in self.model_fields_set and getattr(self, name) is None:
+                    raise ValueError(f"{name} cannot be null")
+            return self
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("no_null_for_required failed")
+            raise
 
 
 class JobDescriptionSummary(BaseModel):

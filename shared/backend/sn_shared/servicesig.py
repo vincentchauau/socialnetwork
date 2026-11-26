@@ -10,6 +10,9 @@ import hashlib
 import hmac
 import time
 
+import logging
+logger = logging.getLogger(__name__)
+
 TIMESTAMP_HEADER = "X-Service-Timestamp"
 SIGNATURE_HEADER = "X-Service-Signature"
 MAX_SKEW_SECONDS = 60
@@ -17,15 +20,25 @@ MIN_SECRET_CHARS = 16
 
 
 def digest(secret: str, timestamp: str, scope: str, body: bytes) -> str:
-    return hmac.new(secret.encode(), timestamp.encode() + b"." + scope.encode() + b"." + body, hashlib.sha256).hexdigest()
+    try:
+        return hmac.new(secret.encode(), timestamp.encode() + b"." + scope.encode() + b"." + body, hashlib.sha256).hexdigest()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("digest failed")
+        raise
 
 
 def sign(secret: str, body: bytes, scope: str, *, now: float | None = None) -> dict[str, str]:
     """The two headers to send with `body`."""
-    if len(secret) < MIN_SECRET_CHARS:
-        raise ValueError("The service secret is missing or too short")
-    timestamp = str(int(now if now is not None else time.time()))
-    return {TIMESTAMP_HEADER: timestamp, SIGNATURE_HEADER: digest(secret, timestamp, scope, body)}
+    try:
+        if len(secret) < MIN_SECRET_CHARS:
+            raise ValueError("The service secret is missing or too short")
+        timestamp = str(int(now if now is not None else time.time()))
+        return {TIMESTAMP_HEADER: timestamp, SIGNATURE_HEADER: digest(secret, timestamp, scope, body)}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("sign failed")
+        raise
 
 
 def verify(secret: str, body: bytes, scope: str, timestamp: str | None, signature: str | None, *, now: float | None = None) -> bool:

@@ -4,6 +4,9 @@ from typing import Literal
 from api.chat.models import CARD_PREFIX
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+import logging
+logger = logging.getLogger(__name__)
+
 ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,32}$"  # every slug, also the ones of rooms made before they had titles
 NEW_SLUG_PATTERN = r"^[A-Za-z0-9_-]{3,32}$"  # a slug someone chooses
 MAX_MESSAGE_LENGTH = 2000
@@ -35,11 +38,21 @@ class MessageOut(BaseModel):
     @classmethod
     def without_the_card_mark(cls, value: str) -> str:
         """A card is kept with a mark in front (`CARD_PREFIX`) that nobody outside the chat needs: what is sent is the card itself."""
-        return value[len(CARD_PREFIX):] if value.startswith(CARD_PREFIX) else value
+        try:
+            return value[len(CARD_PREFIX):] if value.startswith(CARD_PREFIX) else value
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("without_the_card_mark failed")
+            raise
 
     def frame(self) -> dict:
         """What the sockets of the room are told when this message is written or changed."""
-        return {"type": "message", **self.model_dump(mode="json")}
+        try:
+            return {"type": "message", **self.model_dump(mode="json")}
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("frame failed")
+            raise
 
 
 MAX_AVATAR = 20000  # a small image kept inline (the browser shrinks it) fits
@@ -48,13 +61,18 @@ INLINE_PICTURE = ("data:image/jpeg;base64,", "data:image/png;base64,", "data:ima
 
 def picture_schemas(value: str | None) -> str | None:
     """The address of a picture: empty, a path of this site, or http(s)."""
-    if value is None or value == "":
+    try:
+        if value is None or value == "":
+            return value
+        if value.startswith(INLINE_PICTURE):
+            return value
+        if not (value.startswith("/") and not value.startswith("//")) and not value.startswith(("https://", "http://")):
+            raise ValueError("The picture is an address that starts with / or https://, or a small image")
         return value
-    if value.startswith(INLINE_PICTURE):
-        return value
-    if not (value.startswith("/") and not value.startswith("//")) and not value.startswith(("https://", "http://")):
-        raise ValueError("The picture is an address that starts with / or https://, or a small image")
-    return value
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("picture_schemas failed")
+        raise
 
 
 class RoomFields(BaseModel):
@@ -70,20 +88,35 @@ class RoomFields(BaseModel):
     @field_validator("avatar")
     @classmethod
     def validate_avatar_text(cls, value: str) -> str:
-        return picture_schemas(value) or ""
+        try:
+            return picture_schemas(value) or ""
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("validate_avatar_text failed")
+            raise
 
     @field_validator("title", "category", mode="before")
     @classmethod
     def strip_schemas(cls, value):
-        return value.strip() if isinstance(value, str) else value
+        try:
+            return value.strip() if isinstance(value, str) else value
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("strip_schemas failed")
+            raise
 
     @model_validator(mode="after")
     def policy(self):
-        if self.join_policy == "invite":
-            raise ValueError("A room is joined openly or with approval")
-        if self.visibility == "private" and self.join_policy == "open":
-            raise ValueError("A private room is joined with an invitation or approval, not openly")
-        return self
+        try:
+            if self.join_policy == "invite":
+                raise ValueError("A room is joined openly or with approval")
+            if self.visibility == "private" and self.join_policy == "open":
+                raise ValueError("A private room is joined with an invitation or approval, not openly")
+            return self
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("policy failed")
+            raise
 
 
 class RoomCreate(RoomFields):
@@ -92,9 +125,14 @@ class RoomCreate(RoomFields):
     @field_validator("slug")
     @classmethod
     def not_a_chat_of_two(cls, value):
-        if value is not None and value.startswith("dm-"):
-            raise ValueError("An address that starts with dm- is for a chat of two")
-        return value
+        try:
+            if value is not None and value.startswith("dm-"):
+                raise ValueError("An address that starts with dm- is for a chat of two")
+            return value
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("not_a_chat_of_two failed")
+            raise
 
 
 class RoomUpdate(BaseModel):
@@ -113,14 +151,24 @@ class RoomUpdate(BaseModel):
     @field_validator("avatar")
     @classmethod
     def validate_avatar(cls, value: str | None) -> str | None:
-        return picture_schemas(value)
+        try:
+            return picture_schemas(value)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("validate_avatar failed")
+            raise
 
     @field_validator("join_policy")
     @classmethod
     def not_by_invitation(cls, value):
-        if value == "invite":
-            raise ValueError("A room is joined openly or with approval")
-        return value
+        try:
+            if value == "invite":
+                raise ValueError("A room is joined openly or with approval")
+            return value
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("not_by_invitation failed")
+            raise
 
 
 class DmCreate(BaseModel):

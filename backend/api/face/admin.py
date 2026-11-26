@@ -6,8 +6,16 @@ from fastapi import FastAPI
 from api.face.models import Measurement
 from sn_shared.admincrud import TableSpec, mount_crud
 
+import logging
+logger = logging.getLogger(__name__)
+
 SPECS = [TableSpec(Measurement, owner="user_id")]
 
 
 def mount(app: FastAPI) -> None:
-    mount_crud(app, SPECS, database="face")
+    try:
+        mount_crud(app, SPECS, database="face")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("mount failed")
+        raise

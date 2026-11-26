@@ -5,6 +5,9 @@ import time
 import unicodedata
 from dataclasses import dataclass, field
 
+import logging
+logger = logging.getLogger(__name__)
+
 MAX_LEN = 140
 MIN_INTERVAL = 0.8  # seconds between two messages of the same person (anti-spam)
 KEEP = 400  # maximum number of messages kept in one game
@@ -36,13 +39,18 @@ def clean(text: str) -> str:
 
     Nội dung luôn là văn bản thuần: server không escape HTML, client phải hiển thị như text (không innerHTML).
     """
-    text = "".join(c for c in text if c.isspace() or (unicodedata.category(c) != "Cc" and ord(c) not in STRIPPED))
-    text = " ".join(text.split())
-    if not text:
-        raise ChatError("Tin nhắn không được để trống")
-    if len(text) > MAX_LEN:
-        raise ChatError(f"Tin nhắn tối đa {MAX_LEN} ký tự")
-    return text
+    try:
+        text = "".join(c for c in text if c.isspace() or (unicodedata.category(c) != "Cc" and ord(c) not in STRIPPED))
+        text = " ".join(text.split())
+        if not text:
+            raise ChatError("Tin nhắn không được để trống")
+        if len(text) > MAX_LEN:
+            raise ChatError(f"Tin nhắn tối đa {MAX_LEN} ký tự")
+        return text
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("clean failed")
+        raise
 
 
 @dataclass
@@ -54,17 +62,22 @@ class Chat:
     def add(self, author: int, channel: str, text: str, round_label: str, target: int = 0,
             now: float | None = None, throttle: bool = True, dead: bool = False) -> ChatMessage:
         """Thêm một tin. `throttle=False` dành cho bot (không bị giới hạn tốc độ)."""
-        if channel not in CHANNELS:
-            raise ChatError("Kênh chat không hợp lệ")
-        text = clean(text)
-        now = time.monotonic() if now is None else now
-        if throttle and now - self._last.get(author, -1e9) < MIN_INTERVAL:
-            raise ChatError("Bạn gửi quá nhanh, chờ một chút")
-        if throttle:
-            self._last[author] = now
-        message = ChatMessage(self._seq, round_label, author, channel, text, dead, target)
-        self._seq += 1
-        self.messages.append(message)
-        if len(self.messages) > KEEP:
-            del self.messages[: len(self.messages) - KEEP]
-        return message
+        try:
+            if channel not in CHANNELS:
+                raise ChatError("Kênh chat không hợp lệ")
+            text = clean(text)
+            now = time.monotonic() if now is None else now
+            if throttle and now - self._last.get(author, -1e9) < MIN_INTERVAL:
+                raise ChatError("Bạn gửi quá nhanh, chờ một chút")
+            if throttle:
+                self._last[author] = now
+            message = ChatMessage(self._seq, round_label, author, channel, text, dead, target)
+            self._seq += 1
+            self.messages.append(message)
+            if len(self.messages) > KEEP:
+                del self.messages[: len(self.messages) - KEEP]
+            return message
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("add failed")
+            raise

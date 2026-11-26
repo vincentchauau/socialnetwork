@@ -16,6 +16,9 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
+import logging
+logger = logging.getLogger(__name__)
+
 CONNECT_TIMEOUT_SECONDS = 1.5
 PUBLISH_TIMEOUT_SECONDS = 2.0
 SEND_TIMEOUT_SECONDS = 3.0
@@ -30,20 +33,30 @@ class Unavailable(Exception):
     """A broker is not configured, not reachable, or did not answer in time."""
 
     def __init__(self, what: str) -> None:
-        super().__init__(f"{what} is unavailable")
-        self.what = what
+        try:
+            super().__init__(f"{what} is unavailable")
+            self.what = what
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
 
 # ---- RabbitMQ ----------------------------------------------------------------------------------------------------------------------
 
 
 def rabbitmq_settings() -> dict:
-    return {
-        "host": os.environ.get("RABBITMQ_HOST", "rabbitmq"),
-        "port": int(os.environ.get("RABBITMQ_PORT", "5672")),
-        "login": os.environ.get("RABBITMQ_USER", "guest"),
-        "password": os.environ.get("RABBITMQ_PASSWORD", ""),
-    }
+    try:
+        return {
+            "host": os.environ.get("RABBITMQ_HOST", "rabbitmq"),
+            "port": int(os.environ.get("RABBITMQ_PORT", "5672")),
+            "login": os.environ.get("RABBITMQ_USER", "guest"),
+            "password": os.environ.get("RABBITMQ_PASSWORD", ""),
+        }
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("rabbitmq_settings failed")
+        raise
 
 
 @dataclass(frozen=True)
@@ -55,56 +68,86 @@ class QueueSpec:
 
     @property
     def dead_exchange(self) -> str:
-        return f"{self.name}.dlx"
+        try:
+            return f"{self.name}.dlx"
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("dead_exchange failed")
+            raise
 
     @property
     def dead_queue(self) -> str:
-        return f"{self.name}.dlq"
+        try:
+            return f"{self.name}.dlq"
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("dead_queue failed")
+            raise
 
 
 async def declare_messaging(channel, spec: QueueSpec):
-    import aio_pika
+    try:
+        import aio_pika
 
-    dlx = await channel.declare_exchange(spec.dead_exchange, aio_pika.ExchangeType.DIRECT, durable=True)
-    dlq = await channel.declare_queue(spec.dead_queue, durable=True)
-    await dlq.bind(dlx, routing_key=DEAD_ROUTING_KEY)
-    return await channel.declare_queue(
-        spec.name,
-        durable=True,
-        arguments={"x-max-length": spec.max_length, "x-dead-letter-exchange": spec.dead_exchange, "x-dead-letter-routing-key": DEAD_ROUTING_KEY},
-    )
+        dlx = await channel.declare_exchange(spec.dead_exchange, aio_pika.ExchangeType.DIRECT, durable=True)
+        dlq = await channel.declare_queue(spec.dead_queue, durable=True)
+        await dlq.bind(dlx, routing_key=DEAD_ROUTING_KEY)
+        return await channel.declare_queue(
+            spec.name,
+            durable=True,
+            arguments={"x-max-length": spec.max_length, "x-dead-letter-exchange": spec.dead_exchange, "x-dead-letter-routing-key": DEAD_ROUTING_KEY},
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("declare_messaging failed")
+        raise
 
 
 class WorkQueue:
     """The publishing side of one queue. Make one per process and `close` it at shutdown."""
 
     def __init__(self, spec: QueueSpec) -> None:
-        self.spec = spec
-        self._connection = None
-        self._channel = None
-        self.guard = asyncio.Lock()
+        try:
+            self.spec = spec
+            self._connection = None
+            self._channel = None
+            self.guard = asyncio.Lock()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
     async def ensure(self):
-        import aio_pika
+        try:
+            import aio_pika
 
-        async with self.guard:
-            if self._channel is not None and not self._channel.is_closed:
-                return self._channel
-            await self.drop()
-            try:
-                self._connection = await aio_pika.connect(timeout=CONNECT_TIMEOUT_SECONDS, **rabbitmq_settings())
-                self._channel = await self._connection.channel(publisher_confirms=True)
-                await declare_messaging(self._channel, self.spec)
-            except BaseException:
+            async with self.guard:
+                if self._channel is not None and not self._channel.is_closed:
+                    return self._channel
                 await self.drop()
-                raise
-            return self._channel
+                try:
+                    self._connection = await aio_pika.connect(timeout=CONNECT_TIMEOUT_SECONDS, **rabbitmq_settings())
+                    self._channel = await self._connection.channel(publisher_confirms=True)
+                    await declare_messaging(self._channel, self.spec)
+                except BaseException:
+                    await self.drop()
+                    raise
+                return self._channel
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("ensure failed")
+            raise
 
     async def drop(self) -> None:
-        connection, self._connection, self._channel = self._connection, None, None
-        if connection is not None:
-            with contextlib.suppress(Exception):
-                await connection.close()
+        try:
+            connection, self._connection, self._channel = self._connection, None, None
+            if connection is not None:
+                with contextlib.suppress(Exception):
+                    await connection.close()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("drop failed")
+            raise
 
     async def publish(self, payload: bytes, content_type: str = "application/json") -> None:
         import aio_pika
@@ -127,7 +170,12 @@ class WorkQueue:
         return True
 
     async def close(self) -> None:
-        await self.drop()
+        try:
+            await self.drop()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("close failed")
+            raise
 
 
 Handler = Callable[[bytes], Awaitable[str]]
@@ -171,12 +219,22 @@ async def consume(spec: QueueSpec, handler: Handler, stop: asyncio.Event) -> Non
 
 
 def kafka_bootstrap() -> str:
-    return os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
+    try:
+        return os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("kafka_bootstrap failed")
+        raise
 
 
 async def quiet_stop(client) -> None:
-    with contextlib.suppress(BaseException):
-        await client.stop()
+    try:
+        with contextlib.suppress(BaseException):
+            await client.stop()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("quiet_stop failed")
+        raise
 
 
 async def ensure_topic(topic: str) -> None:
@@ -206,30 +264,45 @@ class EventLog:
     """One Kafka topic: `publish` appends, `replay` reads the records of a key from the start (no consumer group, nothing is committed)."""
 
     def __init__(self, topic: str) -> None:
-        self.topic = topic
-        self._producer = None
-        self.guard = asyncio.Lock()
+        try:
+            self.topic = topic
+            self._producer = None
+            self.guard = asyncio.Lock()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
     async def ensure(self):
-        from aiokafka import AIOKafkaProducer
+        try:
+            from aiokafka import AIOKafkaProducer
 
-        async with self.guard:
-            if self._producer is not None:
-                return self._producer
-            producer = AIOKafkaProducer(bootstrap_servers=kafka_bootstrap(), acks="all", request_timeout_ms=3000)
-            try:
-                await asyncio.wait_for(producer.start(), CONNECT_TIMEOUT_SECONDS + 0.5)
-                await asyncio.wait_for(ensure_topic(self.topic), CONNECT_TIMEOUT_SECONDS + 1)
-            except BaseException:
-                await quiet_stop(producer)
-                raise
-            self._producer = producer
-            return producer
+            async with self.guard:
+                if self._producer is not None:
+                    return self._producer
+                producer = AIOKafkaProducer(bootstrap_servers=kafka_bootstrap(), acks="all", request_timeout_ms=3000)
+                try:
+                    await asyncio.wait_for(producer.start(), CONNECT_TIMEOUT_SECONDS + 0.5)
+                    await asyncio.wait_for(ensure_topic(self.topic), CONNECT_TIMEOUT_SECONDS + 1)
+                except BaseException:
+                    await quiet_stop(producer)
+                    raise
+                self._producer = producer
+                return producer
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("ensure failed")
+            raise
 
     async def reset_channel(self) -> None:
-        producer, self._producer = self._producer, None
-        if producer is not None:
-            await quiet_stop(producer)
+        try:
+            producer, self._producer = self._producer, None
+            if producer is not None:
+                await quiet_stop(producer)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("reset_channel failed")
+            raise
 
     async def publish(self, key: str, value: bytes) -> tuple[int, int]:
         try:
@@ -270,4 +343,9 @@ class EventLog:
             await quiet_stop(consumer)
 
     async def close(self) -> None:
-        await self.reset_channel()
+        try:
+            await self.reset_channel()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("close failed")
+            raise

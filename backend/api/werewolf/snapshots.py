@@ -24,6 +24,8 @@ from sqlalchemy.orm import sessionmaker
 from api.werewolf.models import LIVE, Game
 from api.werewolf.rooms import Room
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 ALLOWED_MODULES = ("api.werewolf.",)
@@ -42,13 +44,18 @@ ALLOWED_NAMES = {
 
 class GameUnpickler(pickle.Unpickler):
     def find_class(self, module: str, name: str) -> Any:
-        if module.startswith("app.werewolf."):  # a room saved before the modules were put in one package
-            module = "api." + module[len("app."):]
-        if module.startswith("api.chat.werewolf."):  # a room saved while the game was a part of the chat
-            module = "api.werewolf." + module[len("api.chat.werewolf."):]
-        if module.startswith(ALLOWED_MODULES) or (module, name) in ALLOWED_NAMES:
-            return super().find_class(module, name)
-        raise pickle.UnpicklingError(f"{module}.{name} is not part of a game")
+        try:
+            if module.startswith("app.werewolf."):  # a room saved before the modules were put in one package
+                module = "api." + module[len("app."):]
+            if module.startswith("api.chat.werewolf."):  # a room saved while the game was a part of the chat
+                module = "api.werewolf." + module[len("api.chat.werewolf."):]
+            if module.startswith(ALLOWED_MODULES) or (module, name) in ALLOWED_NAMES:
+                return super().find_class(module, name)
+            raise pickle.UnpicklingError(f"{module}.{name} is not part of a game")
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("find_class failed")
+            raise
 
 
 SEALED = b"gAAAA"  # how a Fernet token begins
@@ -57,12 +64,17 @@ SEALED = b"gAAAA"  # how a Fernet token begins
 def fernet_snapshots():
     """The key that seals the rows (`WEREWOLF_SNAPSHOT_KEY`, a Fernet key), or None: a saved room holds every role and every secret
     action of a game that is still running, so with a key nobody who reads the database reads them."""
-    key = os.environ.get("WEREWOLF_SNAPSHOT_KEY", "").strip()
-    if not key:
-        return None
-    from cryptography.fernet import Fernet
+    try:
+        key = os.environ.get("WEREWOLF_SNAPSHOT_KEY", "").strip()
+        if not key:
+            return None
+        from cryptography.fernet import Fernet
 
-    return Fernet(key.encode())
+        return Fernet(key.encode())
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("fernet_snapshots failed")
+        raise
 
 
 def dump(room: Room) -> bytes:
@@ -84,33 +96,43 @@ def dump(room: Room) -> bytes:
 
 def load(data: bytes, clock: Callable[[], float]) -> Room:
     """A room from its bytes, on the clock of this boot. Raises when the bytes are not a room (or are sealed and there is no key)."""
-    if data.startswith(SEALED):
-        sealer = fernet_snapshots()
-        if sealer is None:
-            raise pickle.UnpicklingError("the room is sealed and there is no key")
-        data = sealer.decrypt(data)  # raises when the key is not the one that sealed it
-    room = GameUnpickler(io.BytesIO(data)).load()
-    if not isinstance(room, Room):
-        raise pickle.UnpicklingError("not a room")
-    room.clock = clock
-    if room.game is not None:
-        room.game._clock = clock
-        room.game._timer_key = None  # the turn that was running starts its time again
-    room.last_active = clock()
-    return room
+    try:
+        if data.startswith(SEALED):
+            sealer = fernet_snapshots()
+            if sealer is None:
+                raise pickle.UnpicklingError("the room is sealed and there is no key")
+            data = sealer.decrypt(data)  # raises when the key is not the one that sealed it
+        room = GameUnpickler(io.BytesIO(data)).load()
+        if not isinstance(room, Room):
+            raise pickle.UnpicklingError("not a room")
+        room.clock = clock
+        if room.game is not None:
+            room.game._clock = clock
+            room.game._timer_key = None  # the turn that was running starts its time again
+        room.last_active = clock()
+        return room
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("load failed")
+        raise
 
 
 def write(factory: sessionmaker, rows: dict[str, bytes], removed: set[str]) -> None:
-    with factory() as db:
-        for code, data in rows.items():
-            live = db.scalar(select(Game).where(Game.room_code == code, Game.status == LIVE))
-            if live is None:
-                db.add(Game(room_code=code, status=LIVE, state=data))
-            else:
-                live.state = data
-        if removed:
-            db.execute(delete(Game).where(Game.room_code.in_(removed), Game.status == LIVE))  # (the results of its games stay)
-        db.commit()
+    try:
+        with factory() as db:
+            for code, data in rows.items():
+                live = db.scalar(select(Game).where(Game.room_code == code, Game.status == LIVE))
+                if live is None:
+                    db.add(Game(room_code=code, status=LIVE, state=data))
+                else:
+                    live.state = data
+            if removed:
+                db.execute(delete(Game).where(Game.room_code.in_(removed), Game.status == LIVE))  # (the results of its games stay)
+            db.commit()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("write failed")
+        raise
 
 
 async def save(app: FastAPI, *rooms: Room) -> None:
@@ -128,24 +150,34 @@ async def save(app: FastAPI, *rooms: Room) -> None:
 
 async def restore(app: FastAPI) -> int:
     """Put back every saved room that is still good; returns how many. A row that cannot be read is dropped."""
-    store = app.state.ww_store
+    try:
+        store = app.state.ww_store
 
-    def read() -> list[tuple[str, bytes]]:
-        with app.state.session_factory() as db:
-            return [(row.room_code, row.state) for row in db.scalars(select(Game).where(Game.status == LIVE, Game.state.is_not(None)))]
+        def read() -> list[tuple[str, bytes]]:
+            try:
+                with app.state.session_factory() as db:
+                    return [(row.room_code, row.state) for row in db.scalars(select(Game).where(Game.status == LIVE, Game.state.is_not(None)))]
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("read failed")
+                raise
 
-    put = 0
-    bad: set[str] = set()
-    for code, data in await run_in_threadpool(read):
-        try:
-            room = load(data, store.clock)
-        except Exception:  # noqa: BLE001 - a row from an older version, or damaged
-            log.warning("a saved werewolf room (%s) could not be read and was dropped", code)
-            bad.add(code)
-            continue
-        if room.code == code and code not in store.codes():
-            store.adopt(room)
-            put += 1
-    if bad:
-        await run_in_threadpool(write, app.state.session_factory, {}, bad)
-    return put
+        put = 0
+        bad: set[str] = set()
+        for code, data in await run_in_threadpool(read):
+            try:
+                room = load(data, store.clock)
+            except Exception:  # noqa: BLE001 - a row from an older version, or damaged
+                log.warning("a saved werewolf room (%s) could not be read and was dropped", code)
+                bad.add(code)
+                continue
+            if room.code == code and code not in store.codes():
+                store.adopt(room)
+                put += 1
+        if bad:
+            await run_in_threadpool(write, app.state.session_factory, {}, bad)
+        return put
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("restore failed")
+        raise

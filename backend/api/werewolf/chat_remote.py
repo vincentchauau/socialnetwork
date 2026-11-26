@@ -15,6 +15,8 @@ from fastapi import FastAPI
 
 from sn_shared import servicesig
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 5.0
@@ -22,15 +24,20 @@ GAME_OVER_PATH = "/internal/game-over"
 
 
 def send(path: str, payload: dict) -> None:
-    url, secret = os.environ.get("CHAT_URL", "").rstrip("/"), os.environ.get("WEREWOLF_SECRET", "")
-    if not url or len(secret) < servicesig.MIN_SECRET_CHARS:
-        return  # not set up: nothing to tell
-    body = json.dumps(payload).encode()
-    request = urllib.request.Request(
-        f"{url}{path}", data=body, headers={"Content-Type": "application/json", **servicesig.sign(secret, body, f"POST {path}")}, method="POST"
-    )
-    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS):  # noqa: S310 - the address of our own chat
-        return
+    try:
+        url, secret = os.environ.get("CHAT_URL", "").rstrip("/"), os.environ.get("WEREWOLF_SECRET", "")
+        if not url or len(secret) < servicesig.MIN_SECRET_CHARS:
+            return  # not set up: nothing to tell
+        body = json.dumps(payload).encode()
+        request = urllib.request.Request(
+            f"{url}{path}", data=body, headers={"Content-Type": "application/json", **servicesig.sign(secret, body, f"POST {path}")}, method="POST"
+        )
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS):  # noqa: S310 - the address of our own chat
+            return
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("send failed")
+        raise
 
 
 def game_over(app: FastAPI, record) -> bool:

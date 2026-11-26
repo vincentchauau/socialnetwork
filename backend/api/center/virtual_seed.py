@@ -15,6 +15,9 @@ from api.center.usernames import unavailable
 from api.center.virtual import create_virtual
 from api.center.virtual_profiles import SEED, profile_for
 
+import logging
+logger = logging.getLogger(__name__)
+
 POOL_SIZE = 300
 
 GIVEN = (
@@ -27,18 +30,28 @@ FAMILY = ("Nguyen", "Tran", "Le", "Pham", "Hoang", "Huynh", "Vu", "Dang", "Bui",
 
 def candidate_names(size: int = POOL_SIZE) -> list[str]:
     """The first `size` names of a fixed shuffle of every given+family pair ("Lan_Nguyen"); the same list on every run."""
-    pairs = sorted(f"{given}_{family}" for given in GIVEN for family in FAMILY)
-    random.Random(SEED).shuffle(pairs)
-    return pairs[:size]
+    try:
+        pairs = sorted(f"{given}_{family}" for given in GIVEN for family in FAMILY)
+        random.Random(SEED).shuffle(pairs)
+        return pairs[:size]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("candidate_names failed")
+        raise
 
 
 def seed_pool(db: Session, size: int = POOL_SIZE) -> int:
     """Create the missing people of the pool and return how many were added (0 when it is already complete). Caller commits."""
-    existing = {key_of(name) for name in db.scalars(select(User.username).where(User.kind == "virtual"))}
-    added = 0
-    for name in candidate_names(size):
-        if key_of(name) in existing or not is_valid_username(name) or unavailable(db, name):
-            continue  # already there, or a person took the name first: the pool simply has one fewer
-        create_virtual(db, name, **profile_for(name))
-        added += 1
-    return added
+    try:
+        existing = {key_of(name) for name in db.scalars(select(User.username).where(User.kind == "virtual"))}
+        added = 0
+        for name in candidate_names(size):
+            if key_of(name) in existing or not is_valid_username(name) or unavailable(db, name):
+                continue  # already there, or a person took the name first: the pool simply has one fewer
+            create_virtual(db, name, **profile_for(name))
+            added += 1
+        return added
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("seed_pool failed")
+        raise

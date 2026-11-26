@@ -10,6 +10,9 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
+import logging
+logger = logging.getLogger(__name__)
+
 MIN_BIRTH_YEAR = 1900
 LIST_LIMITS = {
     "links": 10,
@@ -37,14 +40,19 @@ Text = Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)]
 
 def url_profile(value: str | None, max_length: int) -> str | None:
     """An http(s) address only: anything else (javascript:, data:) is refused."""
-    if value is None or value == "":
-        return None
-    if len(value) > max_length:
-        raise ValueError(f"The address is longer than {max_length} characters")
-    parsed = urlparse(value)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise ValueError("Enter a web address starting with http:// or https://")
-    return value
+    try:
+        if value is None or value == "":
+            return None
+        if len(value) > max_length:
+            raise ValueError(f"The address is longer than {max_length} characters")
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("Enter a web address starting with http:// or https://")
+        return value
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("url_profile failed")
+        raise
 
 
 class Item(BaseModel):
@@ -59,7 +67,12 @@ class LinkItem(Item):
     @field_validator("url")
     @classmethod
     def check_url(cls, value: str) -> str:
-        return url_profile(value, 300) or ""
+        try:
+            return url_profile(value, 300) or ""
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("check_url failed")
+            raise
 
 
 class ExperienceItem(Item):
@@ -102,7 +115,12 @@ class CertificationItem(Item):
     @field_validator("url")
     @classmethod
     def check_url(cls, value: str) -> str:
-        return url_profile(value, 300) or ""
+        try:
+            return url_profile(value, 300) or ""
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("check_url failed")
+            raise
 
 
 class ProjectItem(Item):
@@ -116,7 +134,12 @@ class ProjectItem(Item):
     @field_validator("url")
     @classmethod
     def check_url(cls, value: str) -> str:
-        return url_profile(value, 300) or ""
+        try:
+            return url_profile(value, 300) or ""
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("check_url failed")
+            raise
 
 
 class ProfileBody(BaseModel):
@@ -145,33 +168,53 @@ class ProfileBody(BaseModel):
     @field_validator("birth_date")
     @classmethod
     def birth_date_profile(cls, value: date | None) -> date | None:
-        if value is not None and not MIN_BIRTH_YEAR <= value.year <= date.today().year:
-            raise ValueError("The birth date is not valid")
-        if value is not None and value > date.today():
-            raise ValueError("The birth date cannot be in the future")
-        return value
+        try:
+            if value is not None and not MIN_BIRTH_YEAR <= value.year <= date.today().year:
+                raise ValueError("The birth date is not valid")
+            if value is not None and value > date.today():
+                raise ValueError("The birth date cannot be in the future")
+            return value
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("birth_date_profile failed")
+            raise
 
     @field_validator("avatar_url")
     @classmethod
     def validate_avatar(cls, value: str | None) -> str | None:
-        return url_profile(value, 255)
+        try:
+            return url_profile(value, 255)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("validate_avatar failed")
+            raise
 
     @field_validator("visibility")
     @classmethod
     def visibility_profile(cls, value: dict[str, str] | None) -> dict[str, str] | None:
-        if value is not None:
-            unknown = sorted(set(value) - set(VISIBILITY_PARTS))
-            if unknown:
-                raise ValueError(f"Unknown part of the profile: {unknown[0]}")
-        return value
+        try:
+            if value is not None:
+                unknown = sorted(set(value) - set(VISIBILITY_PARTS))
+                if unknown:
+                    raise ValueError(f"Unknown part of the profile: {unknown[0]}")
+            return value
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("visibility_profile failed")
+            raise
 
     @model_validator(mode="after")
     def clean(self) -> "ProfileBody":
-        for field in self.model_fields_set:
-            value = getattr(self, field)
-            if isinstance(value, str) and value == "":
-                setattr(self, field, None)  # an empty text clears the field
-        return self
+        try:
+            for field in self.model_fields_set:
+                value = getattr(self, field)
+                if isinstance(value, str) and value == "":
+                    setattr(self, field, None)  # an empty text clears the field
+            return self
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("clean failed")
+            raise
 
 
 class ProfileOut(BaseModel):
@@ -201,20 +244,30 @@ LIST_FIELDS = tuple(LIST_LIMITS)
 
 def profile_out(user: object) -> ProfileOut:
     """The profile as stored; a list or visibility never set reads as empty."""
-    values = {field: getattr(user, field) for field in PROFILE_FIELDS}
-    for field in (*LIST_FIELDS, "visibility"):
-        if values[field] is None:
-            values[field] = {} if field == "visibility" else []
-    return ProfileOut(**values)
+    try:
+        values = {field: getattr(user, field) for field in PROFILE_FIELDS}
+        for field in (*LIST_FIELDS, "visibility"):
+            if values[field] is None:
+                values[field] = {} if field == "visibility" else []
+        return ProfileOut(**values)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("profile_out failed")
+        raise
 
 
 def apply_profile(user: object, body: ProfileBody) -> None:
     """Set what the body sent (and only that) on the user row; the caller commits."""
-    for field in body.model_fields_set:
-        value = getattr(body, field)
-        if field in LIST_FIELDS and value is not None:
-            value = [item.model_dump(mode="json") for item in value]
-        setattr(user, field, value)
+    try:
+        for field in body.model_fields_set:
+            value = getattr(body, field)
+            if field in LIST_FIELDS and value is not None:
+                value = [item.model_dump(mode="json") for item in value]
+            setattr(user, field, value)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("apply_profile failed")
+        raise
 
 
 # ---- the CV: the profile as one page, showing only the parts the viewer may read ----
@@ -252,15 +305,20 @@ class CvOut(ProfileOut):
 
 def cv_of(user: object, viewer: str) -> CvOut:
     """The CV of `user` for a viewer ("owner", "employer" or "anyone"). A part never set is private."""
-    values = profile_out(user).model_dump()
-    visibility = dict(getattr(user, "visibility", None) or {})
-    hidden: list[str] = []
-    if viewer != "owner":
-        for part, fields in CV_PART_FIELDS.items():
-            if visibility.get(part, "private") in CV_READABLE[viewer]:
-                continue
-            hidden.append(part)
-            for field in fields:
-                values[field] = [] if field in LIST_FIELDS else None
-        values["visibility"] = {}
-    return CvOut(**values, username=getattr(user, "username", None), hidden=hidden)
+    try:
+        values = profile_out(user).model_dump()
+        visibility = dict(getattr(user, "visibility", None) or {})
+        hidden: list[str] = []
+        if viewer != "owner":
+            for part, fields in CV_PART_FIELDS.items():
+                if visibility.get(part, "private") in CV_READABLE[viewer]:
+                    continue
+                hidden.append(part)
+                for field in fields:
+                    values[field] = [] if field in LIST_FIELDS else None
+            values["visibility"] = {}
+        return CvOut(**values, username=getattr(user, "username", None), hidden=hidden)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("cv_of failed")
+        raise

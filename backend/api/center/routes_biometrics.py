@@ -20,6 +20,9 @@ from api.center.tokens import decode_claims
 from api.center.usersessions import checked_method
 from sn_shared.security import AuthError
 
+import logging
+logger = logging.getLogger(__name__)
+
 UNAVAILABLE = "Biometrics are not available"
 BIOMETRIC_FAILED = "Biometric verification failed"
 BAD_MFA = "Invalid or expired login session"
@@ -34,8 +37,13 @@ BAD_SAMPLE = "Voice or face sample is unusable, record again"
 
 
 def ensure_biometrics(request: Request) -> None:
-    if not biometrics_available(request):
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, UNAVAILABLE)
+    try:
+        if not biometrics_available(request):
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, UNAVAILABLE)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_biometrics failed")
+        raise
 
 
 # 503 first (feature off), then the Origin check.
@@ -45,12 +53,17 @@ router = APIRouter(
 
 
 def read_upload(upload: UploadFile | None, max_bytes: int) -> bytes | None:
-    if upload is None:
-        return None
-    data = upload.file.read(max_bytes + 1)
-    if len(data) > max_bytes:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large")
-    return data or None
+    try:
+        if upload is None:
+            return None
+        data = upload.file.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large")
+        return data or None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("read_upload failed")
+        raise
 
 
 @contextmanager
@@ -72,22 +85,32 @@ def biometric_slot(request: Request):
 
 def read_probes(request: Request, audio: Upload, video: Upload) -> tuple[bytes | None, bytes | None]:
     """(voice, face) embeddings. The voice is the audio file's, or else the clip's own sound track."""
-    audio_raw, video_raw = read_upload(audio, MAX_AUDIO_BYTES), read_upload(video, MAX_VIDEO_BYTES)
-    if not audio_raw and not video_raw:
-        return None, None
-    with biometric_slot(request) as engine:
-        face = engine.face_embedding(video_raw) if video_raw else None
-        voice = engine.audio_embedding(audio_raw) if audio_raw else voice_from_video(engine, video_raw)
-        return voice, face
+    try:
+        audio_raw, video_raw = read_upload(audio, MAX_AUDIO_BYTES), read_upload(video, MAX_VIDEO_BYTES)
+        if not audio_raw and not video_raw:
+            return None, None
+        with biometric_slot(request) as engine:
+            face = engine.face_embedding(video_raw) if video_raw else None
+            voice = engine.audio_embedding(audio_raw) if audio_raw else voice_from_video(engine, video_raw)
+            return voice, face
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("read_probes failed")
+        raise
 
 
 def read_face(request: Request, video: Upload) -> bytes | None:
     """Face embedding of a webcam clip; the clip's sound is never decoded (the webcam method is face only)."""
-    video_raw = read_upload(video, MAX_VIDEO_BYTES)
-    if not video_raw:
-        return None
-    with biometric_slot(request) as engine:
-        return engine.face_embedding(video_raw)
+    try:
+        video_raw = read_upload(video, MAX_VIDEO_BYTES)
+        if not video_raw:
+            return None
+        with biometric_slot(request) as engine:
+            return engine.face_embedding(video_raw)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("read_face failed")
+        raise
 
 
 def voice_from_video(engine, video_raw: bytes | None) -> bytes | None:
@@ -130,16 +153,26 @@ def factors_match(
 
 
 def count_attempts(throttles: list, keys: list[str], user_label: str, ip: str) -> None:
-    if any(t.is_blocked(k) for t, k in zip(throttles, keys)):
-        audit.warning("biometric login locked user=%r ip=%s", user_label, ip)
-        raise too_many()
-    for throttle, key in zip(throttles, keys):
-        throttle.record(key)  # counted up front (the work is expensive); cleared on success
+    try:
+        if any(t.is_blocked(k) for t, k in zip(throttles, keys)):
+            audit.warning("biometric login locked user=%r ip=%s", user_label, ip)
+            raise too_many()
+        for throttle, key in zip(throttles, keys):
+            throttle.record(key)  # counted up front (the work is expensive); cleared on success
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("count_attempts failed")
+        raise
 
 
 def reset_throttles(throttles: list, keys: list[str]) -> None:
-    for throttle, key in zip(throttles, keys):
-        throttle.reset(key)
+    try:
+        for throttle, key in zip(throttles, keys):
+            throttle.reset(key)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("reset_throttles failed")
+        raise
 
 
 @router.post("/login/biometric", response_model=SessionOut)
@@ -180,12 +213,17 @@ def set_biometric_2fa(
     db: Session = Depends(get_db),
 ) -> MethodsStatus:
     """Opt in/out of voice/face after password or Google sign-in. Needs one sample to turn on; off is always allowed."""
-    user = session.user
-    ensure_reauth(request, user, password)
-    if enabled and not user.has_biometrics:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Enroll a voice or face sample first")
-    user.biometric_2fa = enabled
-    db.commit()
-    audit.info("biometric 2fa %s user=%r ip=%s", "enabled" if enabled else "disabled",
-               user.username, client_ip(request))  # fmt: skip
-    return methods_status(user)
+    try:
+        user = session.user
+        ensure_reauth(request, user, password)
+        if enabled and not user.has_biometrics:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Enroll a voice or face sample first")
+        user.biometric_2fa = enabled
+        db.commit()
+        audit.info("biometric 2fa %s user=%r ip=%s", "enabled" if enabled else "disabled",
+                   user.username, client_ip(request))  # fmt: skip
+        return methods_status(user)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("set_biometric_2fa failed")
+        raise

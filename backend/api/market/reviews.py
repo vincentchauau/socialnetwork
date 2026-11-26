@@ -8,24 +8,42 @@ from sqlalchemy.orm import Session
 from api.market.constants import PAGE_DEFAULT_LIMIT, PAGE_MAX_LIMIT, REVIEW_TEXT_MAX, STATUS_DELIVERED
 from api.market.models import Order, Product
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def active_product(db: Session, product_id: int, _user=None) -> Product:
-    product = db.get(Product, product_id)
-    if product is None or not product.is_active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
-    return product
+    try:
+        product = db.get(Product, product_id)
+        if product is None or not product.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+        return product
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("active_product failed")
+        raise
 
 
 def has_delivered_purchase(db: Session, user_id: int, product_id: int) -> bool:
-    delivered = db.scalars(
-        select(Order.items).where(Order.buyer_id == user_id, Order.status == STATUS_DELIVERED)
-    )
-    return any(item["product_id"] == product_id for items in delivered for item in items)
+    try:
+        delivered = db.scalars(
+            select(Order.items).where(Order.buyer_id == user_id, Order.status == STATUS_DELIVERED)
+        )
+        return any(item["product_id"] == product_id for items in delivered for item in items)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("has_delivered_purchase failed")
+        raise
 
 
 def must_have_bought(db: Session, product: Product, user) -> None:
-    if not has_delivered_purchase(db, user.user_id, product.id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only buyers with a delivered order can review")
+    try:
+        if not has_delivered_purchase(db, user.user_id, product.id):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Only buyers with a delivered order can review")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("must_have_bought failed")
+        raise
 
 
 PRODUCT_REVIEWS = comments.CommentKind(

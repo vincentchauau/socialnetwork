@@ -5,6 +5,9 @@ from cryptography.fernet import Fernet, InvalidToken
 from api.center.audit import audit
 from api.center.config import ConfigError
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class TemplateCipher:
     def __init__(self, data_key: str) -> None:
@@ -14,7 +17,12 @@ class TemplateCipher:
             raise ConfigError("DATA_KEY is not a valid Fernet key") from None
 
     def encrypt(self, data: bytes) -> bytes:
-        return self.fernet_snapshots.encrypt(data)
+        try:
+            return self.fernet_snapshots.encrypt(data)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("encrypt failed")
+            raise
 
     def decrypt(self, blob: bytes) -> bytes | None:
         """None when the template is corrupt or the key changed (treated as a non-match)."""

@@ -13,6 +13,9 @@ from fastapi import FastAPI, HTTPException, status
 
 from sn_shared import servicesig
 
+import logging
+logger = logging.getLogger(__name__)
+
 TIMEOUT_SECONDS = 5.0
 UNAVAILABLE = "The game is not available"
 
@@ -38,13 +41,28 @@ def send(method: str, path: str, payload: dict | None) -> None:
 
 def call(app: FastAPI, method: str, path: str, payload: dict | None = None) -> None:
     """Make the call (blocking: run it in a thread). Raises the HTTPException the game answered with."""
-    sender = getattr(app.state, "werewolf_call", None) or send
-    sender(method, path, payload)
+    try:
+        sender = getattr(app.state, "werewolf_call", None) or send
+        sender(method, path, payload)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("call failed")
+        raise
 
 
 def ensure_game(app: FastAPI, user_id: int, username: str, code: str, title: str, seats: int, bot_names: list[tuple[str, str]]) -> None:
-    call(app, "POST", "/internal/ensure", {"code": code, "title": title, "seats": seats, "user_id": user_id, "username": username, "bot_names": [list(pair) for pair in bot_names]})
+    try:
+        call(app, "POST", "/internal/ensure", {"code": code, "title": title, "seats": seats, "user_id": user_id, "username": username, "bot_names": [list(pair) for pair in bot_names]})
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_game failed")
+        raise
 
 
 def drop_game(app: FastAPI, code: str) -> None:
-    call(app, "DELETE", f"/internal/rooms/{code}")
+    try:
+        call(app, "DELETE", f"/internal/rooms/{code}")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("drop_game failed")
+        raise

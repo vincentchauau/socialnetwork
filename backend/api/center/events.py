@@ -24,6 +24,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from api.center.models import AccountEvent, utcnow
 from sn_shared.events import ACCOUNT_STREAM
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger("sn.events")
 
 USER_DELETED = "user.deleted"
@@ -44,32 +46,52 @@ def add_event(
 
     `with_seq` adds `seq` (= the row id, monotonic) to the payload so consumers can drop stale events.
     """
-    event = AccountEvent(type=event_type, user_id=user_id, payload=json.dumps(payload, separators=(",", ":")))
-    db.add(event)
-    if with_seq:
-        db.flush()  # assigns the id
-        event.payload = json.dumps({**payload, "seq": event.id}, separators=(",", ":"))
-    return event
+    try:
+        event = AccountEvent(type=event_type, user_id=user_id, payload=json.dumps(payload, separators=(",", ":")))
+        db.add(event)
+        if with_seq:
+            db.flush()  # assigns the id
+            event.payload = json.dumps({**payload, "seq": event.id}, separators=(",", ":"))
+        return event
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("add_event failed")
+        raise
 
 
 def stream_fields(event: AccountEvent) -> dict[str, str]:
-    return {"event_id": str(event.id), "type": event.type, "user_id": str(event.user_id), "payload": event.payload}
+    try:
+        return {"event_id": str(event.id), "type": event.type, "user_id": str(event.user_id), "payload": event.payload}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("stream_fields failed")
+        raise
 
 
 def redis_client_factory(redis_url: str) -> Callable[[], Any] | None:
     """A lazy factory for the relay's client (None without a URL)."""
-    if not redis_url:
-        return None
+    try:
+        if not redis_url:
+            return None
 
-    def make() -> Any:
-        import redis
+        def make() -> Any:
+            try:
+                import redis
 
-        return redis.Redis.from_url(
-            redis_url, socket_timeout=REDIS_TIMEOUT_SECONDS, socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
-            decode_responses=True,
-        )
+                return redis.Redis.from_url(
+                    redis_url, socket_timeout=REDIS_TIMEOUT_SECONDS, socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
+                    decode_responses=True,
+                )
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("make failed")
+                raise
 
-    return make
+        return make
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("redis_client_factory failed")
+        raise
 
 
 class EventRelay:
@@ -77,93 +99,138 @@ class EventRelay:
         self, session_factory: sessionmaker, client_factory: Callable[[], Any] | None, *,
         interval: float = RELAY_INTERVAL_SECONDS,
     ) -> None:  # fmt: skip
-        self._sessions = session_factory
-        self._client_factory = client_factory
-        self.client_revocation: Any = None
-        self._interval = interval
-        self.guard = threading.Lock()  # one publisher per process at a time
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
-        self._last_warned: float | None = None
-        self.last_purge: float | None = None
+        try:
+            self._sessions = session_factory
+            self._client_factory = client_factory
+            self.client_revocation: Any = None
+            self._interval = interval
+            self.guard = threading.Lock()  # one publisher per process at a time
+            self._stop = threading.Event()
+            self._thread: threading.Thread | None = None
+            self._last_warned: float | None = None
+            self.last_purge: float | None = None
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
     @property
     def enabled(self) -> bool:
-        return self._client_factory is not None
+        try:
+            return self._client_factory is not None
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("enabled failed")
+            raise
 
     def warn(self, exc: Exception) -> None:
-        now = time.monotonic()
-        if self._last_warned is None or now - self._last_warned >= WARN_INTERVAL_SECONDS:
-            self._last_warned = now
-            log.warning("account events not published (%s): will retry", type(exc).__name__)
+        try:
+            now = time.monotonic()
+            if self._last_warned is None or now - self._last_warned >= WARN_INTERVAL_SECONDS:
+                self._last_warned = now
+                log.warning("account events not published (%s): will retry", type(exc).__name__)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("warn failed")
+            raise
 
     def publish_pending(self) -> int:
         """Publish unpublished rows in id order; returns how many. Never raises (failures retry later)."""
-        if self._client_factory is None:
-            return 0
-        with self.guard:
-            try:
-                if self.client_revocation is None:
-                    self.client_revocation = self._client_factory()
-                published = self.publish_batches(self.client_revocation)
-                self.purge_if_due()
-                return published
-            except Exception as exc:  # noqa: BLE001 - Redis or DB trouble must not kill the relay thread
-                self.warn(exc)
+        try:
+            if self._client_factory is None:
                 return 0
+            with self.guard:
+                try:
+                    if self.client_revocation is None:
+                        self.client_revocation = self._client_factory()
+                    published = self.publish_batches(self.client_revocation)
+                    self.purge_if_due()
+                    return published
+                except Exception as exc:  # noqa: BLE001 - Redis or DB trouble must not kill the relay thread
+                    self.warn(exc)
+                    return 0
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("publish_pending failed")
+            raise
 
     def publish_batches(self, client: Any) -> int:
-        total = 0
-        while True:
-            with self._sessions() as db:
-                rows = list(
-                    db.scalars(
-                        select(AccountEvent)
-                        .where(AccountEvent.published_at.is_(None))
-                        .order_by(AccountEvent.id)
-                        .limit(BATCH_SIZE)
-                        .with_for_update()  # replicas wait for each other: no interleaved order
+        try:
+            total = 0
+            while True:
+                with self._sessions() as db:
+                    rows = list(
+                        db.scalars(
+                            select(AccountEvent)
+                            .where(AccountEvent.published_at.is_(None))
+                            .order_by(AccountEvent.id)
+                            .limit(BATCH_SIZE)
+                            .with_for_update()  # replicas wait for each other: no interleaved order
+                        )
                     )
-                )
-                for event in rows:  # a failure stops here: rows already marked are committed below
-                    try:
-                        client.xadd(ACCOUNT_STREAM, stream_fields(event), maxlen=STREAM_MAXLEN, approximate=True)
-                    except Exception:
-                        db.commit()
-                        raise
-                    event.published_at = utcnow()
-                db.commit()
-            total += len(rows)
-            if len(rows) < BATCH_SIZE:
-                return total
+                    for event in rows:  # a failure stops here: rows already marked are committed below
+                        try:
+                            client.xadd(ACCOUNT_STREAM, stream_fields(event), maxlen=STREAM_MAXLEN, approximate=True)
+                        except Exception:
+                            db.commit()
+                            raise
+                        event.published_at = utcnow()
+                    db.commit()
+                total += len(rows)
+                if len(rows) < BATCH_SIZE:
+                    return total
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("publish_batches failed")
+            raise
 
     def purge_if_due(self) -> None:
-        now = time.monotonic()
-        if self.last_purge is not None and now - self.last_purge < PURGE_INTERVAL_SECONDS:
-            return
-        self.last_purge = now
-        with self._sessions() as db:
-            db.execute(
-                delete(AccountEvent)
-                .where(AccountEvent.published_at < utcnow() - PUBLISHED_KEEP)
-                .execution_options(synchronize_session=False)
-            )
-            db.commit()
+        try:
+            now = time.monotonic()
+            if self.last_purge is not None and now - self.last_purge < PURGE_INTERVAL_SECONDS:
+                return
+            self.last_purge = now
+            with self._sessions() as db:
+                db.execute(
+                    delete(AccountEvent)
+                    .where(AccountEvent.published_at < utcnow() - PUBLISHED_KEEP)
+                    .execution_options(synchronize_session=False)
+                )
+                db.commit()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("purge_if_due failed")
+            raise
 
     def start(self) -> None:
-        if not self.enabled or self._thread is not None:
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self.run_events, name="account-event-relay", daemon=True)
-        self._thread.start()
+        try:
+            if not self.enabled or self._thread is not None:
+                return
+            self._stop.clear()
+            self._thread = threading.Thread(target=self.run_events, name="account-event-relay", daemon=True)
+            self._thread.start()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("start failed")
+            raise
 
     def run_events(self) -> None:
-        while not self._stop.is_set():
-            self.publish_pending()
-            self._stop.wait(self._interval)
+        try:
+            while not self._stop.is_set():
+                self.publish_pending()
+                self._stop.wait(self._interval)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("run_events failed")
+            raise
 
     def stop(self) -> None:
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=5)
-            self._thread = None
+        try:
+            self._stop.set()
+            if self._thread is not None:
+                self._thread.join(timeout=5)
+                self._thread = None
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("stop failed")
+            raise

@@ -19,6 +19,9 @@ from sqlalchemy.orm import Session
 
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 MAX_ID = 2**63 - 1
 DEFAULT_MAX_BYTES = 5 * 1024 * 1024
 
@@ -27,9 +30,14 @@ class MediaRejected(Exception):
     """The upload is refused: `status_code` and `detail` go to the caller."""
 
     def __init__(self, status_code: int, detail: str) -> None:
-        super().__init__(detail)
-        self.status_code = status_code
-        self.detail = detail
+        try:
+            super().__init__(detail)
+            self.status_code = status_code
+            self.detail = detail
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
 
 @dataclass(frozen=True)
@@ -62,41 +70,51 @@ def add_replace_route(
     the declared type is not the generic octet-stream; `inspect` is the real check. 413 over `max_bytes`.
     """
 
-    def type_ok(declared: str | None) -> bool:
-        if not allowed_types or not declared or declared == "application/octet-stream":
-            return True
-        return any(declared == t or (t.endswith("/*") and declared.startswith(t[:-1])) for t in allowed_types)
+    try:
+        def type_ok(declared: str | None) -> bool:
+            try:
+                if not allowed_types or not declared or declared == "application/octet-stream":
+                    return True
+                return any(declared == t or (t.endswith("/*") and declared.startswith(t[:-1])) for t in allowed_types)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("type_ok failed")
+                raise
 
-    def replace(
-        file: UploadFile = File(),
-        item_id: int = Path(ge=1, le=MAX_ID),
-        user: TokenPayload = Depends(get_user),
-        db: Session = Depends(get_db),
-    ) -> Any:
-        row = db.get(model, item_id)
-        if row is None or (getattr(row, owner) != user.user_id and user.group != "admin"):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-        if not type_ok(file.content_type):
-            raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "This file type is not accepted")
-        raw = file.file.read(max_bytes + 1)
-        if len(raw) > max_bytes:
-            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"The file is larger than {max_bytes // (1024 * 1024) or 1} MB")
-        try:
-            inspected = inspect(raw, file)
-        except MediaRejected as error:
-            raise HTTPException(error.status_code, error.detail) from None
-        old = {name: getattr(row, name) for name in ref_columns}
-        new = write(row, inspected.data, inspected.updates)
-        try:
-            for name, value in {**inspected.updates, **new}.items():
-                setattr(row, name, value)
-            db.commit()
-        except Exception:
-            db.rollback()
-            delete(new)
-            raise
-        if any(old[name] != new.get(name, old[name]) for name in old):
-            delete(old)
-        return respond(db, row, user)
+        def replace(
+            file: UploadFile = File(),
+            item_id: int = Path(ge=1, le=MAX_ID),
+            user: TokenPayload = Depends(get_user),
+            db: Session = Depends(get_db),
+        ) -> Any:
+            row = db.get(model, item_id)
+            if row is None or (getattr(row, owner) != user.user_id and user.group != "admin"):
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+            if not type_ok(file.content_type):
+                raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "This file type is not accepted")
+            raw = file.file.read(max_bytes + 1)
+            if len(raw) > max_bytes:
+                raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"The file is larger than {max_bytes // (1024 * 1024) or 1} MB")
+            try:
+                inspected = inspect(raw, file)
+            except MediaRejected as error:
+                raise HTTPException(error.status_code, error.detail) from None
+            old = {name: getattr(row, name) for name in ref_columns}
+            new = write(row, inspected.data, inspected.updates)
+            try:
+                for name, value in {**inspected.updates, **new}.items():
+                    setattr(row, name, value)
+                db.commit()
+            except Exception:
+                db.rollback()
+                delete(new)
+                raise
+            if any(old[name] != new.get(name, old[name]) for name in old):
+                delete(old)
+            return respond(db, row, user)
 
-    target.add_api_route(path, replace, methods=["PUT"], response_model=response_model, tags=tags)
+        target.add_api_route(path, replace, methods=["PUT"], response_model=response_model, tags=tags)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("add_replace_route failed")
+        raise

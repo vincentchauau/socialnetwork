@@ -42,6 +42,9 @@ from api.center.routes_totp import router as totp_router
 from api.center.throttle import AttemptThrottle
 from api.center.totp import make_cipher
 
+import logging
+logger = logging.getLogger(__name__)
+
 LOGIN_MAX_FAILURES_PER_IP_USER = 5  # per (client address, username)
 LOGIN_MAX_FAILURES_PER_IP = 20  # across all usernames from one address
 LOGIN_ACCOUNT_FACTOR = 4  # per account, across all addresses
@@ -139,107 +142,132 @@ THROTTLES: dict[str, tuple[int, float]] = {
 
 
 def install_throttles(app: FastAPI, kv: Kv) -> None:
-    state = app.state
-    state.kv = kv
-    for name, (max_attempts, window) in THROTTLES.items():
-        setattr(state, name, AttemptThrottle(max_attempts, window, name=name, kv=kv))
-    state.passkey_challenges = ChallengeStore(kv)  # consumed challenge ids; shared like the throttles
-    state.biometric_slots = threading.BoundedSemaphore(MAX_CONCURRENT_BIOMETRICS)
+    try:
+        state = app.state
+        state.kv = kv
+        for name, (max_attempts, window) in THROTTLES.items():
+            setattr(state, name, AttemptThrottle(max_attempts, window, name=name, kv=kv))
+        state.passkey_challenges = ChallengeStore(kv)  # consumed challenge ids; shared like the throttles
+        state.biometric_slots = threading.BoundedSemaphore(MAX_CONCURRENT_BIOMETRICS)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("install_throttles failed")
+        raise
 
 
 def install_biometrics(app: FastAPI, settings: Settings) -> None:
-    app.state.biometrics = None
-    app.state.cipher = None
-    if settings.biometrics_enabled:
-        from api.center.biometrics import RealBiometrics  # heavy libraries load lazily inside
+    try:
+        app.state.biometrics = None
+        app.state.cipher = None
+        if settings.biometrics_enabled:
+            from api.center.biometrics import RealBiometrics  # heavy libraries load lazily inside
 
-        app.state.cipher = TemplateCipher(settings.data_key)  # fails at startup on a bad key
-        app.state.biometrics = RealBiometrics(settings)
-        warn_if_optional(settings)
+            app.state.cipher = TemplateCipher(settings.data_key)  # fails at startup on a bad key
+            app.state.biometrics = RealBiometrics(settings)
+            warn_if_optional(settings)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("install_biometrics failed")
+        raise
 
 
 def validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
-    first = exc.errors()[0] if exc.errors() else {}
-    field = ".".join(str(part) for part in first.get("loc", ())[1:])
-    message = str(first.get("msg", "Invalid request")).removeprefix("Value error, ")
-    return JSONResponse({"detail": f"{field}: {message}" if field else message}, status_code=422)
+    try:
+        first = exc.errors()[0] if exc.errors() else {}
+        field = ".".join(str(part) for part in first.get("loc", ())[1:])
+        message = str(first.get("msg", "Invalid request")).removeprefix("Value error, ")
+        return JSONResponse({"detail": f"{field}: {message}" if field else message}, status_code=422)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("validation_error failed")
+        raise
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
-    settings = Settings.from_env()  # fail at startup, not on the first request
-    engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
-    first_with_sessions = sessions_table_is_new(engine)
-    Base.metadata.create_all(engine)
-    skills.ensure_tables(engine)  # the vocabulary of skills that profiles, jobs and courses share (`sn_shared.skills`)
-    ensure_columns(engine)  # upgrade a users table created by an older version
-    if first_with_sessions:
-        force_relogin(engine)  # tokens without a sid cannot be revoked: end them all, once
-    if os.environ.get("SYSTEM_USER", "1") != "0":  # SYSTEM_USER=0: no account `system` (the tests of center count the users they make)
-        with sessionmaker(engine, expire_on_commit=False)() as setup:
-            ensure_system_user(setup)  # the voice of the chat's lines about its rooms
+    try:
+        settings = Settings.from_env()  # fail at startup, not on the first request
+        engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
+        first_with_sessions = sessions_table_is_new(engine)
+        Base.metadata.create_all(engine)
+        skills.ensure_tables(engine)  # the vocabulary of skills that profiles, jobs and courses share (`sn_shared.skills`)
+        ensure_columns(engine)  # upgrade a users table created by an older version
+        if first_with_sessions:
+            force_relogin(engine)  # tokens without a sid cannot be revoked: end them all, once
+        if os.environ.get("SYSTEM_USER", "1") != "0":  # SYSTEM_USER=0: no account `system` (the tests of center count the users they make)
+            with sessionmaker(engine, expire_on_commit=False)() as setup:
+                ensure_system_user(setup)  # the voice of the chat's lines about its rooms
 
-    docs = None if settings.production else "/docs"
-    relay_holder: list[EventRelay] = []
+        docs = None if settings.production else "/docs"
+        relay_holder: list[EventRelay] = []
 
-    @asynccontextmanager
-    async def lifespan(_: FastAPI):
-        relay_holder[0].start()  # a no-op without REDIS_URL: outbox rows then stay until Redis is configured
-        try:
-            yield
-        finally:
-            relay_holder[0].stop()
+        @asynccontextmanager
+        async def lifespan(_: FastAPI):
+            relay_holder[0].start()  # a no-op without REDIS_URL: outbox rows then stay until Redis is configured
+            try:
+                yield
+            finally:
+                relay_holder[0].stop()
 
-    app = FastAPI(
-        lifespan=lifespan,
-        title="socialnetwork center",
-        docs_url=docs,
-        redoc_url=None if settings.production else "/redoc",
-        openapi_url=None if settings.production else "/openapi.json",
-    )
-    app.state.settings = settings
-    app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
-    app.state.event_relay = EventRelay(app.state.session_factory, redis_client_factory(settings.redis_url))
-    relay_holder.append(app.state.event_relay)
-    install_throttles(app, make_kv(settings.redis_url))
-    install_biometrics(app, settings)
-    app.state.totp_cipher = make_cipher(settings)  # fails at startup on a bad DATA_KEY
-    app.state.google_verifier = (
-        make_google_verifier(settings.google_client_id) if settings.google_client_id else None
-    )
-    app.state.mailer = (
-        SmtpMailer(
-            settings.smtp_host, settings.smtp_port, settings.smtp_user, settings.smtp_password, settings.smtp_from,
-            starttls=settings.smtp_starttls, use_ssl=settings.smtp_ssl,
+        app = FastAPI(
+            lifespan=lifespan,
+            title="socialnetwork center",
+            docs_url=docs,
+            redoc_url=None if settings.production else "/redoc",
+            openapi_url=None if settings.production else "/openapi.json",
         )
-        if settings.email_enabled
-        else None
-    )
-    install_phone(app, settings, app.state.kv)  # SMS provider + throttles (refuses SMS_PROVIDER=mailbox in production)
-    app.add_exception_handler(RequestValidationError, validation_error)
-    app.add_exception_handler(ReauthRequired, reauth_response)
-    app.include_router(auth_router, dependencies=access_dependencies(public=True))
-    app.include_router(account_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(profile_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(cv_router, dependencies=access_dependencies(public=True))
-    app.include_router(email_router, dependencies=access_dependencies(public=True))
-    app.include_router(phone_router, dependencies=access_dependencies(public=True))
-    app.include_router(biometrics_router, dependencies=access_dependencies(public=True))
-    app.include_router(methods_router, dependencies=access_dependencies(public=True))
-    app.include_router(liveness_router, dependencies=access_dependencies(public=True))
-    app.include_router(combined_router, dependencies=access_dependencies(public=True))
-    app.include_router(passkeys_router, dependencies=access_dependencies(public=True))
-    app.include_router(totp_router, dependencies=access_dependencies(public=True))
-    app.include_router(sessions_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(reauth_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(qr_router, dependencies=access_dependencies(public=True))
-    app.include_router(records_router(), prefix="/records")
+        app.state.settings = settings
+        app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
+        app.state.event_relay = EventRelay(app.state.session_factory, redis_client_factory(settings.redis_url))
+        relay_holder.append(app.state.event_relay)
+        install_throttles(app, make_kv(settings.redis_url))
+        install_biometrics(app, settings)
+        app.state.totp_cipher = make_cipher(settings)  # fails at startup on a bad DATA_KEY
+        app.state.google_verifier = (
+            make_google_verifier(settings.google_client_id) if settings.google_client_id else None
+        )
+        app.state.mailer = (
+            SmtpMailer(
+                settings.smtp_host, settings.smtp_port, settings.smtp_user, settings.smtp_password, settings.smtp_from,
+                starttls=settings.smtp_starttls, use_ssl=settings.smtp_ssl,
+            )
+            if settings.email_enabled
+            else None
+        )
+        install_phone(app, settings, app.state.kv)  # SMS provider + throttles (refuses SMS_PROVIDER=mailbox in production)
+        app.add_exception_handler(RequestValidationError, validation_error)
+        app.add_exception_handler(ReauthRequired, reauth_response)
+        app.include_router(auth_router, dependencies=access_dependencies(public=True))
+        app.include_router(account_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(profile_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(cv_router, dependencies=access_dependencies(public=True))
+        app.include_router(email_router, dependencies=access_dependencies(public=True))
+        app.include_router(phone_router, dependencies=access_dependencies(public=True))
+        app.include_router(biometrics_router, dependencies=access_dependencies(public=True))
+        app.include_router(methods_router, dependencies=access_dependencies(public=True))
+        app.include_router(liveness_router, dependencies=access_dependencies(public=True))
+        app.include_router(combined_router, dependencies=access_dependencies(public=True))
+        app.include_router(passkeys_router, dependencies=access_dependencies(public=True))
+        app.include_router(totp_router, dependencies=access_dependencies(public=True))
+        app.include_router(sessions_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(reauth_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(qr_router, dependencies=access_dependencies(public=True))
+        app.include_router(records_router(), prefix="/records")
 
-    @app.get("/health", dependencies=access_dependencies(public=True))
-    def health() -> dict[str, str]:
-        return {"status": "ok", "redis": app.state.kv.probe()}
+        @app.get("/health", dependencies=access_dependencies(public=True))
+        def health() -> dict[str, str]:
+            try:
+                return {"status": "ok", "redis": app.state.kv.probe()}
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("health failed")
+                raise
 
-    enabled = settings.biometrics_enabled
-    app.add_middleware(BodyLimitMiddleware, limit=lambda path: limit_for(path, enabled))
-    app.add_middleware(SecurityHeadersMiddleware)
-    return app
+        enabled = settings.biometrics_enabled
+        app.add_middleware(BodyLimitMiddleware, limit=lambda path: limit_for(path, enabled))
+        app.add_middleware(SecurityHeadersMiddleware)
+        return app
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("create_app failed")
+        raise
 

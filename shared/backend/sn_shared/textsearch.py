@@ -13,6 +13,8 @@ import unicodedata
 from sqlalchemy import Engine, event, func, text
 from sqlalchemy.sql.elements import ColumnElement
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 DB_FOLDS = {"on": False}  # set once at start: does the database have `fold_text`?
@@ -20,31 +22,56 @@ DB_FOLDS = {"on": False}  # set once at start: does the database have `fold_text
 
 def fold(value: str) -> str:
     """Lower case, without accents (`đ` is `d`)."""
-    plain = unicodedata.normalize("NFKD", value.replace("đ", "d").replace("Đ", "D"))
-    return "".join(c for c in plain if not unicodedata.combining(c)).lower()
+    try:
+        plain = unicodedata.normalize("NFKD", value.replace("đ", "d").replace("Đ", "D"))
+        return "".join(c for c in plain if not unicodedata.combining(c)).lower()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("fold failed")
+        raise
 
 
 def folded(column: ColumnElement) -> ColumnElement:
     """The column as the search sees it: folded in the database when it can, else only lower-cased."""
-    return func.fold_text(column) if DB_FOLDS["on"] else func.lower(column)
+    try:
+        return func.fold_text(column) if DB_FOLDS["on"] else func.lower(column)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("folded failed")
+        raise
 
 
 def pattern(words: str) -> str:
     """`%words%` for a LIKE (escape `\\`), folded, the words taken literally: a % or _ typed is not a wildcard."""
-    escaped = fold(words.strip()).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
+    try:
+        escaped = fold(words.strip()).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("pattern failed")
+        raise
 
 
 def register_sqlite(engine: Engine) -> None:
     """Give SQLite the `fold_text` function (a connection made later has it too)."""
-    if engine.dialect.name != "sqlite":
-        return
+    try:
+        if engine.dialect.name != "sqlite":
+            return
 
-    @event.listens_for(engine, "connect")
-    def add(connection, _record) -> None:  # noqa: ANN001 - the DBAPI connection
-        connection.create_function("fold_text", 1, lambda value: None if value is None else fold(value), deterministic=True)
+        @event.listens_for(engine, "connect")
+        def add(connection, _record) -> None:  # noqa: ANN001 - the DBAPI connection
+            try:
+                connection.create_function("fold_text", 1, lambda value: None if value is None else fold(value), deterministic=True)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("add failed")
+                raise
 
-    DB_FOLDS["on"] = True
+        DB_FOLDS["on"] = True
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("register_sqlite failed")
+        raise
 
 
 POSTGRES_SETUP = (

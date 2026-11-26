@@ -9,6 +9,9 @@ from api.center.deps import check_origin, current_session
 from api.center.models import User
 from api.center.profile import CvOut, cv_of
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth/cv", tags=["cv"], dependencies=[Depends(check_origin)])
 
 
@@ -23,7 +26,12 @@ def viewer(request: Request, db: Session, owner_id: int) -> str:
 
 @router.get("/{username}", response_model=CvOut)
 def read_cv(username: str, request: Request, db: Session = Depends(get_db)) -> CvOut:
-    person = db.scalar(select(User).where(func.lower(User.username) == username.strip().lower()))
-    if person is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such person")
-    return cv_of(person, viewer(request, db, person.id))
+    try:
+        person = db.scalar(select(User).where(func.lower(User.username) == username.strip().lower()))
+        if person is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "No such person")
+        return cv_of(person, viewer(request, db, person.id))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("read_cv failed")
+        raise

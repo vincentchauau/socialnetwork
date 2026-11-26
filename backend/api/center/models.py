@@ -7,6 +7,9 @@ from api.center.db import Base
 from api.center.passwords import NO_PASSWORD
 from sn_shared.clock import utcnow
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class User(Base):
     __tablename__ = "users"
@@ -86,15 +89,30 @@ class User(Base):
 
     @property
     def has_password(self) -> bool:
-        return self.password_hash != NO_PASSWORD
+        try:
+            return self.password_hash != NO_PASSWORD
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("has_password failed")
+            raise
 
     @property
     def google_linked(self) -> bool:
-        return self.google_sub is not None
+        try:
+            return self.google_sub is not None
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("google_linked failed")
+            raise
 
     @property
     def has_biometrics(self) -> bool:
-        return bool(self.audio_embedding or self.face_embedding)
+        try:
+            return bool(self.audio_embedding or self.face_embedding)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("has_biometrics failed")
+            raise
 
 
 class Passkey(Base):

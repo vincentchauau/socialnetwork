@@ -9,6 +9,9 @@ from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, Engine, Intege
 from sqlalchemy.types import TypeEngine
 from sn_shared.db import add_column_sql
 
+import logging
+logger = logging.getLogger(__name__)
+
 TABLE = "users"
 NEW_CODES = "verification_codes"
 
@@ -59,64 +62,84 @@ UNIQUE_INDEXES = (("uq_users_email", "email"), ("uq_users_google_sub", "google_s
 
 
 def column_ddl(engine: Engine, name: str, type_: TypeEngine, default: tuple[str, str] | None) -> str:
-    literal = None if default is None else (default[1] if engine.dialect.name == "postgresql" else default[0])
-    return add_column_sql(engine, TABLE, name, type_, literal)
+    try:
+        literal = None if default is None else (default[1] if engine.dialect.name == "postgresql" else default[0])
+        return add_column_sql(engine, TABLE, name, type_, literal)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("column_ddl failed")
+        raise
 
 
 def sessions_table_is_new(engine: Engine) -> bool:
     """True when `users` exists but `user_sessions` does not yet (call BEFORE create_all): the first start of
     the release that introduced sessions, whose old tokens carry no sid and could never be revoked."""
-    tables = set(inspect(engine).get_table_names())
-    return TABLE in tables and "user_sessions" not in tables
+    try:
+        tables = set(inspect(engine).get_table_names())
+        return TABLE in tables and "user_sessions" not in tables
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("sessions_table_is_new failed")
+        raise
 
 
 def force_relogin(engine: Engine) -> None:
     """One-time: bump every token_version so every pre-sessions token dies (a single forced re-login)."""
-    with engine.begin() as conn:
-        conn.execute(text(f"UPDATE {TABLE} SET token_version = token_version + 1"))
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(f"UPDATE {TABLE} SET token_version = token_version + 1"))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("force_relogin failed")
+        raise
 
 
 def ensure_columns(engine: Engine) -> list[str]:
     """Add missing columns/indexes to `users`; returns the names of added columns."""
-    if TABLE not in inspect(engine).get_table_names():
-        return []
-    existing = {column["name"] for column in inspect(engine).get_columns(TABLE)}
-    added: list[str] = []
-    with engine.begin() as conn:
-        for name, type_, default in _COLUMNS:
-            if name not in existing:
-                conn.execute(text(column_ddl(engine, name, type_, default)))
-                added.append(name)
-        if "group" in added and "role" in existing:
-            # users.role became users.group: copy the values once, then drop the old column.
-            conn.execute(text(f'UPDATE {TABLE} SET "group" = role'))
-            conn.execute(text(f"ALTER TABLE {TABLE} DROP COLUMN role"))
-        if "email_verified" in added:
-            # Google verified those addresses itself. Runs once, when the column is created: re-running it
-            # would re-verify an address the user later replaced or removed.
-            true = "TRUE" if engine.dialect.name == "postgresql" else "1"
-            conn.execute(
-                text(f"UPDATE {TABLE} SET email_verified = {true} WHERE google_sub IS NOT NULL AND email IS NOT NULL")
-            )
-        if "email_from_google" in added:
-            # Before this column, a Google account's address was assumed to come from Google. Runs once, when
-            # the column is created: re-running it would re-flag an address the user verified themselves.
-            true = "TRUE" if engine.dialect.name == "postgresql" else "1"
-            conn.execute(
-                text(f"UPDATE {TABLE} SET email_from_google = {true} WHERE google_sub IS NOT NULL AND email IS NOT NULL")
-            )
-        if "username_key" in existing:
-            # Legacy column: PostgreSQL keeps it (dropped by hand later) but new rows, which no longer set it, must be allowed;
-            # a SQLite (development) database loses it with its unique index.
-            if engine.dialect.name == "postgresql":
-                conn.execute(text(f"ALTER TABLE {TABLE} ALTER COLUMN username_key DROP NOT NULL"))
-            else:
-                conn.execute(text("DROP INDEX IF EXISTS uq_users_username_key"))
-                conn.execute(text(f"ALTER TABLE {TABLE} DROP COLUMN username_key"))
-        for index_name, column in UNIQUE_INDEXES:
-            conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {TABLE} ({column})"))
-    merge_legacy_codes(engine)
-    return added
+    try:
+        if TABLE not in inspect(engine).get_table_names():
+            return []
+        existing = {column["name"] for column in inspect(engine).get_columns(TABLE)}
+        added: list[str] = []
+        with engine.begin() as conn:
+            for name, type_, default in _COLUMNS:
+                if name not in existing:
+                    conn.execute(text(column_ddl(engine, name, type_, default)))
+                    added.append(name)
+            if "group" in added and "role" in existing:
+                # users.role became users.group: copy the values once, then drop the old column.
+                conn.execute(text(f'UPDATE {TABLE} SET "group" = role'))
+                conn.execute(text(f"ALTER TABLE {TABLE} DROP COLUMN role"))
+            if "email_verified" in added:
+                # Google verified those addresses itself. Runs once, when the column is created: re-running it
+                # would re-verify an address the user later replaced or removed.
+                true = "TRUE" if engine.dialect.name == "postgresql" else "1"
+                conn.execute(
+                    text(f"UPDATE {TABLE} SET email_verified = {true} WHERE google_sub IS NOT NULL AND email IS NOT NULL")
+                )
+            if "email_from_google" in added:
+                # Before this column, a Google account's address was assumed to come from Google. Runs once, when
+                # the column is created: re-running it would re-flag an address the user verified themselves.
+                true = "TRUE" if engine.dialect.name == "postgresql" else "1"
+                conn.execute(
+                    text(f"UPDATE {TABLE} SET email_from_google = {true} WHERE google_sub IS NOT NULL AND email IS NOT NULL")
+                )
+            if "username_key" in existing:
+                # Legacy column: PostgreSQL keeps it (dropped by hand later) but new rows, which no longer set it, must be allowed;
+                # a SQLite (development) database loses it with its unique index.
+                if engine.dialect.name == "postgresql":
+                    conn.execute(text(f"ALTER TABLE {TABLE} ALTER COLUMN username_key DROP NOT NULL"))
+                else:
+                    conn.execute(text("DROP INDEX IF EXISTS uq_users_username_key"))
+                    conn.execute(text(f"ALTER TABLE {TABLE} DROP COLUMN username_key"))
+            for index_name, column in UNIQUE_INDEXES:
+                conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {TABLE} ({column})"))
+        merge_legacy_codes(engine)
+        return added
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_columns failed")
+        raise
 
 
 def merge_legacy_codes(engine: Engine) -> int:
@@ -126,25 +149,30 @@ def merge_legacy_codes(engine: Engine) -> int:
     pending codes and links still work; phone rows get fresh ids and no code (their MAC cannot be re-bound, and a
     code lives 10 minutes anyway). Returns the number of rows copied.
     """
-    tables = set(inspect(engine).get_table_names())
-    if NEW_CODES not in tables:
-        return 0
-    copied = 0
-    with engine.begin() as conn:
-        if conn.execute(text(f"SELECT 1 FROM {NEW_CODES} LIMIT 1")).first() is not None:
+    try:
+        tables = set(inspect(engine).get_table_names())
+        if NEW_CODES not in tables:
             return 0
-        if "email_tokens" in tables:
-            copied += conn.execute(text(
-                f"INSERT INTO {NEW_CODES} (id, user_id, purpose, channel, target, token_hash, code_hash, attempts, expires_at, used_at) "
-                "SELECT id, user_id, purpose, 'email', email, token_hash, code_hash, attempts, expires_at, used_at FROM email_tokens"
-            )).rowcount
-            if engine.dialect.name == "postgresql":  # explicit ids do not advance the sequence
-                conn.execute(text(
-                    f"SELECT setval(pg_get_serial_sequence('{NEW_CODES}', 'id'), COALESCE((SELECT MAX(id) FROM {NEW_CODES}), 1))"
-                ))
-        if "phone_codes" in tables:
-            copied += conn.execute(text(
-                f"INSERT INTO {NEW_CODES} (user_id, purpose, channel, target, token_hash, code_hash, attempts, expires_at, used_at) "
-                "SELECT user_id, purpose, 'phone', phone, NULL, NULL, attempts, expires_at, used_at FROM phone_codes"
-            )).rowcount
-    return copied
+        copied = 0
+        with engine.begin() as conn:
+            if conn.execute(text(f"SELECT 1 FROM {NEW_CODES} LIMIT 1")).first() is not None:
+                return 0
+            if "email_tokens" in tables:
+                copied += conn.execute(text(
+                    f"INSERT INTO {NEW_CODES} (id, user_id, purpose, channel, target, token_hash, code_hash, attempts, expires_at, used_at) "
+                    "SELECT id, user_id, purpose, 'email', email, token_hash, code_hash, attempts, expires_at, used_at FROM email_tokens"
+                )).rowcount
+                if engine.dialect.name == "postgresql":  # explicit ids do not advance the sequence
+                    conn.execute(text(
+                        f"SELECT setval(pg_get_serial_sequence('{NEW_CODES}', 'id'), COALESCE((SELECT MAX(id) FROM {NEW_CODES}), 1))"
+                    ))
+            if "phone_codes" in tables:
+                copied += conn.execute(text(
+                    f"INSERT INTO {NEW_CODES} (user_id, purpose, channel, target, token_hash, code_hash, attempts, expires_at, used_at) "
+                    "SELECT user_id, purpose, 'phone', phone, NULL, NULL, attempts, expires_at, used_at FROM phone_codes"
+                )).rowcount
+        return copied
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("merge_legacy_codes failed")
+        raise

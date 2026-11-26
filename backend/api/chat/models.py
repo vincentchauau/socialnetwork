@@ -7,6 +7,9 @@ from datetime import datetime
 from api.chat.db import Base
 from sn_shared.clock import utcnow
 
+import logging
+logger = logging.getLogger(__name__)
+
 SYSTEM_USER_ID = -1  # the account `system` of center: it says what happens in a room, and nobody signs in as it
 CARD_PREFIX = "\x1ecard:"  # a message whose content starts with this holds a card (JSON) said by a virtual person or by `system`
 
@@ -47,7 +50,12 @@ class RoomMember(Base):
 
     @property
     def muted(self) -> bool:
-        return self.status == "joined" and self.status_reason == MUTED_REASON
+        try:
+            return self.status == "joined" and self.status_reason == MUTED_REASON
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("muted failed")
+            raise
 
 
 MUTED_REASON = "muted"
@@ -70,13 +78,23 @@ class Message(Base):
     @hybrid_property
     def kind(self) -> str:  # type: ignore[override]
         """`system` (said by the account `system`), `card` (starts with CARD_PREFIX) or `text`: worked out, not stored."""
-        if (self.content or "").startswith(CARD_PREFIX):
-            return "card"
-        return "system" if self.user_id == SYSTEM_USER_ID else "text"
+        try:
+            if (self.content or "").startswith(CARD_PREFIX):
+                return "card"
+            return "system" if self.user_id == SYSTEM_USER_ID else "text"
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("kind failed")
+            raise
 
     @kind.expression
     def kind(cls):  # noqa: N805
-        return case((cls.content.startswith(CARD_PREFIX, autoescape=True), "card"), (cls.user_id == SYSTEM_USER_ID, "system"), else_="text")
+        try:
+            return case((cls.content.startswith(CARD_PREFIX, autoescape=True), "card"), (cls.user_id == SYSTEM_USER_ID, "system"), else_="text")
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("kind failed")
+            raise
 
 
 class Meeting(Base):

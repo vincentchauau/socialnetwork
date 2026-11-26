@@ -21,6 +21,9 @@ from api.job.main import create_app as create_job
 from api.werewolf.main import create_app as create_werewolf
 from api.file.main import create_app as create_file
 
+import logging
+logger = logging.getLogger(__name__)
+
 MODULES: dict[str, Callable[..., FastAPI]] = {
     "center": create_center,
     "chat": create_chat,
@@ -56,7 +59,12 @@ LEGACY_COLUMNS: dict[str, list[str]] = {
 
 
 def create_app(database_urls: dict[str, str] | None = None) -> FastAPI:
-    return host("socialnetwork", MODULES, database_urls, legacy_columns=LEGACY_COLUMNS)
+    try:
+        return host("socialnetwork", MODULES, database_urls, legacy_columns=LEGACY_COLUMNS)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("create_app failed")
+        raise
 
 
 app = create_app() if os.environ.get("DATABASE_URL") else None  # type: ignore[assignment]

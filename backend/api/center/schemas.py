@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.center.handles import ALLOWED_SPECIALS, is_valid_username
 
+import logging
+logger = logging.getLogger(__name__)
+
 MAX_INPUT = 1024  # hard cap on any submitted secret; the policy limit is passwords.MAX_PASSWORD
 USERNAME_HINT = (
     f"Username must be 3-32 characters: A-Z, a-z, 0-9 or {' '.join(ALLOWED_SPECIALS)} "
@@ -14,15 +17,25 @@ USERNAME_HINT = (
 
 
 def normalize_username(value: str) -> str:
-    return value.strip()  # capitalisation is kept; identity is key_of(name)
+    try:
+        return value.strip()  # capitalisation is kept; identity is key_of(name)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("normalize_username failed")
+        raise
 
 
 def checked_username(value: str) -> str:
     """Normalise and validate a username (raises ValueError with the user-facing hint)."""
-    value = normalize_username(value)
-    if not is_valid_username(value):
-        raise ValueError(USERNAME_HINT)
-    return value
+    try:
+        value = normalize_username(value)
+        if not is_valid_username(value):
+            raise ValueError(USERNAME_HINT)
+        return value
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("checked_username failed")
+        raise
 
 
 MAX_EMAIL = 254
@@ -47,7 +60,12 @@ class Credentials(BaseModel):
     @field_validator("username")
     @classmethod
     def valid_username(cls, value: str) -> str:
-        return checked_username(value)
+        try:
+            return checked_username(value)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("valid_username failed")
+            raise
 
 
 class LoginBody(BaseModel):
@@ -57,7 +75,12 @@ class LoginBody(BaseModel):
     @field_validator("username")
     @classmethod
     def normalize(cls, value: str) -> str:
-        return normalize_username(value)
+        try:
+            return normalize_username(value)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("normalize failed")
+            raise
 
 
 class GoogleBody(BaseModel):
@@ -175,7 +198,12 @@ class EmailBody(BaseModel):
     @field_validator("email")
     @classmethod
     def valid_email(cls, value: str) -> str:
-        return normalized_email(value)
+        try:
+            return normalized_email(value)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("valid_email failed")
+            raise
 
 
 class SetEmailBody(EmailBody):
@@ -188,9 +216,14 @@ class EmailVerifyBody(BaseModel):
 
     @model_validator(mode="after")
     def exactly_one(self) -> "EmailVerifyBody":
-        if bool(self.token) == bool(self.code):
-            raise ValueError("Send a token or a code")
-        return self
+        try:
+            if bool(self.token) == bool(self.code):
+                raise ValueError("Send a token or a code")
+            return self
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("exactly_one failed")
+            raise
 
 
 class EmailCodeBody(EmailBody):
@@ -262,9 +295,14 @@ class TotpLoginBody(BaseModel):
 
     @model_validator(mode="after")
     def exactly_one_schemas(self):
-        if (self.code is None) == (self.recovery_code is None):
-            raise ValueError("Send either code or recovery_code")
-        return self
+        try:
+            if (self.code is None) == (self.recovery_code is None):
+                raise ValueError("Send either code or recovery_code")
+            return self
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("exactly_one_schemas failed")
+            raise
 
 
 class QrStartOut(BaseModel):

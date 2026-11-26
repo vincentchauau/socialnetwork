@@ -4,6 +4,9 @@ import secrets
 from dataclasses import dataclass
 from typing import Protocol
 
+import logging
+logger = logging.getLogger(__name__)
+
 REFERENCE_PREFIX = "fake_"
 REFERENCE_BYTES = 12
 
@@ -31,7 +34,17 @@ class FakePaymentProvider:
     """Always succeeds and returns a random reference. For development only."""
 
     def charge(self, order_id: int, amount_cents: int, currency: str) -> PaymentResult:
-        return PaymentResult(reference=REFERENCE_PREFIX + secrets.token_hex(REFERENCE_BYTES))
+        try:
+            return PaymentResult(reference=REFERENCE_PREFIX + secrets.token_hex(REFERENCE_BYTES))
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("charge failed")
+            raise
 
     def refund(self, reference: str) -> None:
-        return None
+        try:
+            return None
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("refund failed")
+            raise

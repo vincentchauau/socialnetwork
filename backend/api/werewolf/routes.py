@@ -44,6 +44,9 @@ from sn_shared.origin import check_origin
 from api.werewolf.service import commit, save_pending
 from api.werewolf.store import MAX_ROOMS_PER_USER
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(dependencies=[Depends(check_origin)])
 RoomCode = Annotated[str, Path(pattern=ROOM_PATTERN)]
 TIMER_OPTIONS = [0, 30, 60, 90]
@@ -51,15 +54,20 @@ TIMER_OPTIONS = [0, 30, 60, 90]
 
 def http_error(error: Exception) -> HTTPException:
     """Room/engine errors to HTTP: 404 unknown room, 403 not allowed, 503 server full, 409 wrong state, 400 bad action."""
-    if isinstance(error, RoomNotFound):
-        return HTTPException(status.HTTP_404_NOT_FOUND, "Room not found")
-    if isinstance(error, Forbidden):
-        return HTTPException(status.HTTP_403_FORBIDDEN, str(error))
-    if isinstance(error, CapacityError):
-        return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(error))
-    if isinstance(error, RoomError):
-        return HTTPException(status.HTTP_409_CONFLICT, str(error))
-    return HTTPException(status.HTTP_400_BAD_REQUEST, str(error))
+    try:
+        if isinstance(error, RoomNotFound):
+            return HTTPException(status.HTTP_404_NOT_FOUND, "Room not found")
+        if isinstance(error, Forbidden):
+            return HTTPException(status.HTTP_403_FORBIDDEN, str(error))
+        if isinstance(error, CapacityError):
+            return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(error))
+        if isinstance(error, RoomError):
+            return HTTPException(status.HTTP_409_CONFLICT, str(error))
+        return HTTPException(status.HTTP_400_BAD_REQUEST, str(error))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("http_error failed")
+        raise
 
 
 async def current_user(request: Request, user: Annotated[TokenPayload, Depends(get_current_user)]) -> TokenPayload:
@@ -67,21 +75,36 @@ async def current_user(request: Request, user: Annotated[TokenPayload, Depends(g
 
     `async` on purpose: the store, the hub and the limiter are only ever touched from the event loop.
     """
-    if not request.app.state.ww_limits.allow("rest", user.user_id):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests, slow down")
-    return user
+    try:
+        if not request.app.state.ww_limits.allow("rest", user.user_id):
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests, slow down")
+        return user
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("current_user failed")
+        raise
 
 
 CurrentUser = Annotated[TokenPayload, Depends(current_user)]
 
 
 def limit_routes(request: Request, kind: str, user: TokenPayload) -> None:
-    if not request.app.state.ww_limits.allow(kind, user.user_id):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests, slow down")
+    try:
+        if not request.app.state.ww_limits.allow(kind, user.user_id):
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests, slow down")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("limit_routes failed")
+        raise
 
 
 def envelope(room: Room, user_id: int | None) -> dict[str, Any]:
-    return {"id": room.code, "state": room.state_for(user_id)}
+    try:
+        return {"id": room.code, "state": room.state_for(user_id)}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("envelope failed")
+        raise
 
 
 def parse_roles(body: CreateBody) -> list[tuple[Faction, Ability]] | None:
@@ -117,21 +140,26 @@ async def mutate(request: Request, code: str, user: TokenPayload, change) -> dic
 @router.get("/setup/meta")
 async def setup_meta() -> dict[str, Any]:
     """Factions, abilities (with rules text), defaults, help and limits so the client can build its pickers."""
-    return {
-        "minPlayers": MIN_PLAYERS,
-        "maxPlayers": MAX_PLAYERS,
-        "maxRoomsPerUser": MAX_ROOMS_PER_USER,
-        "defaults": {f.name: labels for f, labels in DEFAULT_ABILITIES.items()},
-        "factions": [{"code": f.name, "label": f.value} for f in Faction],
-        "abilities": [{"code": a.name, "label": a.value, "help": ABILITY_HELP[a],
-                       "allowedFactions": [f.name for f in Faction if a in ALLOWED_ABILITIES[f]]}
-                      for a in Ability],
-        "help": help_payload(),
-        "bannable": [a.name for a in Ability if a not in UNBANNABLE],  # what a random deal can be told to leave out
-        "timerOptions": TIMER_OPTIONS,
-        "timerRange": [MIN_TIMER, MAX_TIMER],
-        "chat": {"maxLength": MAX_LEN, "minIntervalSeconds": MIN_INTERVAL, "keep": KEEP},
-    }
+    try:
+        return {
+            "minPlayers": MIN_PLAYERS,
+            "maxPlayers": MAX_PLAYERS,
+            "maxRoomsPerUser": MAX_ROOMS_PER_USER,
+            "defaults": {f.name: labels for f, labels in DEFAULT_ABILITIES.items()},
+            "factions": [{"code": f.name, "label": f.value} for f in Faction],
+            "abilities": [{"code": a.name, "label": a.value, "help": ABILITY_HELP[a],
+                           "allowedFactions": [f.name for f in Faction if a in ALLOWED_ABILITIES[f]]}
+                          for a in Ability],
+            "help": help_payload(),
+            "bannable": [a.name for a in Ability if a not in UNBANNABLE],  # what a random deal can be told to leave out
+            "timerOptions": TIMER_OPTIONS,
+            "timerRange": [MIN_TIMER, MAX_TIMER],
+            "chat": {"maxLength": MAX_LEN, "minIntervalSeconds": MIN_INTERVAL, "keep": KEEP},
+        }
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("setup_meta failed")
+        raise
 
 
 def ability_routes(name: str) -> Ability:
@@ -168,24 +196,39 @@ async def create_room(request: Request, user: CurrentUser, body: CreateBody = Cr
 @router.get("/rooms", response_model=list[RoomSummary])
 async def list_rooms(request: Request, _user: CurrentUser) -> list[dict[str, Any]]:
     """Open lobbies (listed, not started, with a free bot seat), most recently active first."""
-    return [room.summary() for room in request.app.state.ww_store.open_lobbies()]
+    try:
+        return [room.summary() for room in request.app.state.ww_store.open_lobbies()]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("list_rooms failed")
+        raise
 
 
 @router.get("/rooms/{code}")
 async def get_room(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
-    room = request.app.state.ww_store.get(code)
-    if room is None:
-        raise http_error(RoomNotFound(code))
-    if room.seat_index(user.user_id) is None and room.started:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "This game is already running")
-    return envelope(room, user.user_id)
+    try:
+        room = request.app.state.ww_store.get(code)
+        if room is None:
+            raise http_error(RoomNotFound(code))
+        if room.seat_index(user.user_id) is None and room.started:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "This game is already running")
+        return envelope(room, user.user_id)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("get_room failed")
+        raise
 
 
 @router.post("/rooms/{code}/join")
 async def join_room(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
-    limit_routes(request, "join", user)
-    store = request.app.state.ww_store
-    return await mutate(request, code, user, lambda room: store.join(room.code, user.user_id, user.username))
+    try:
+        limit_routes(request, "join", user)
+        store = request.app.state.ww_store
+        return await mutate(request, code, user, lambda room: store.join(room.code, user.user_id, user.username))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("join_room failed")
+        raise
 
 
 @router.post("/rooms/{code}/leave")
@@ -206,31 +249,56 @@ async def leave_room(code: RoomCode, request: Request, user: CurrentUser) -> dic
 
 @router.post("/rooms/{code}/start")
 async def start_room(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await mutate(request, code, user, lambda room: room.start(user.user_id))
+    try:
+        return await mutate(request, code, user, lambda room: room.start(user.user_id))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("start_room failed")
+        raise
 
 
 @router.post("/rooms/{code}/options")
 async def set_options(code: RoomCode, body: OptionsBody, request: Request, user: CurrentUser) -> dict[str, Any]:
     """The host sets how the game is played (night turn time, event cards, whether the dead chat with the living) before it starts."""
-    return await mutate(request, code, user, lambda room: room.set_options(user.user_id, body.timerSeconds, body.events, body.deadTalk))
+    try:
+        return await mutate(request, code, user, lambda room: room.set_options(user.user_id, body.timerSeconds, body.events, body.deadTalk))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("set_options failed")
+        raise
 
 
 @router.post("/rooms/{code}/roles")
 async def set_roles(code: RoomCode, body: RolesBody, request: Request, user: CurrentUser) -> dict[str, Any]:
     """The host sets (or deals at random) the role of each seat before the game starts."""
-    roles = parse_roles(CreateBody(seats=body.seats)) if body.seats is not None else None
-    banned = tuple(ability_routes(name) for name in body.banned)
-    return await mutate(request, code, user, lambda room: room.set_roles(user.user_id, roles, body.random, banned))
+    try:
+        roles = parse_roles(CreateBody(seats=body.seats)) if body.seats is not None else None
+        banned = tuple(ability_routes(name) for name in body.banned)
+        return await mutate(request, code, user, lambda room: room.set_roles(user.user_id, roles, body.random, banned))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("set_roles failed")
+        raise
 
 
 @router.post("/rooms/{code}/bots")
 async def add_bots(code: RoomCode, body: BotsBody, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await mutate(request, code, user, lambda room: room.add_bots(user.user_id, body.count))
+    try:
+        return await mutate(request, code, user, lambda room: room.add_bots(user.user_id, body.count))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("add_bots failed")
+        raise
 
 
 @router.post("/rooms/{code}/action")
 async def action(code: RoomCode, body: ActionBody, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await mutate(request, code, user, lambda room: room.submit(user.user_id, body.target, body.kind))
+    try:
+        return await mutate(request, code, user, lambda room: room.submit(user.user_id, body.target, body.kind))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("action failed")
+        raise
 
 
 @router.post("/rooms/{code}/chat")
@@ -247,17 +315,32 @@ async def chat(code: RoomCode, body: ChatBody, request: Request, user: CurrentUs
 
 @router.post("/rooms/{code}/force")
 async def force(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await mutate(request, code, user, lambda room: room.force(user.user_id))
+    try:
+        return await mutate(request, code, user, lambda room: room.force(user.user_id))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("force failed")
+        raise
 
 
 @router.post("/rooms/{code}/rematch")
 async def rematch(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await mutate(request, code, user, lambda room: room.rematch(user.user_id))
+    try:
+        return await mutate(request, code, user, lambda room: room.rematch(user.user_id))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("rematch failed")
+        raise
 
 
 @router.post("/rooms/{code}/reset")
 async def reset(code: RoomCode, request: Request, user: CurrentUser) -> dict[str, Any]:
-    return await mutate(request, code, user, lambda room: room.reset(user.user_id))
+    try:
+        return await mutate(request, code, user, lambda room: room.reset(user.user_id))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("reset failed")
+        raise
 
 
 @router.get("/rooms/{code}/perspective/{seat}")
@@ -273,7 +356,12 @@ async def perspective(code: RoomCode, seat: Annotated[int, Path(ge=1, le=MAX_PLA
 @router.get("/leaderboard", response_model=list[LeaderEntry])
 def ranking(user: CurrentUser, season: Literal["month", "all"] = "all", db: Session = Depends(get_db)) -> list[LeaderEntry]:
     """Who won most of the latest games (the first ten): a ranking of the people, as far as the finished games say."""
-    return leaderboard(db, since=season_start() if season == "month" else None)
+    try:
+        return leaderboard(db, since=season_start() if season == "month" else None)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ranking failed")
+        raise
 
 
 @router.get("/me/history", response_model=list[HistoryEntry])
@@ -282,4 +370,9 @@ def my_history(
     limit: Annotated[int, Query(ge=1, le=HISTORY_MAX_LIMIT)] = HISTORY_DEFAULT_LIMIT,
     db: Session = Depends(get_db),
 ) -> list[HistoryEntry]:
-    return list_history(db, user.user_id, limit)
+    try:
+        return list_history(db, user.user_id, limit)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("my_history failed")
+        raise

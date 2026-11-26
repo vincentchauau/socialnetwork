@@ -24,6 +24,8 @@ from api.chat.agent.providers import Line
 from api.chat.models import Message, Room, RoomMember
 from api.chat.schemas import MessageOut
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 MAX_SPEAKERS = 2
@@ -41,87 +43,132 @@ _factory: sessionmaker | None = None
 
 def bind(factory: sessionmaker) -> None:
     """Give the agent the sessions of the chat (set once, when the chat starts)."""
-    global _factory
-    _factory = factory
+    try:
+        global _factory
+        _factory = factory
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("bind failed")
+        raise
 
 
 def agent_ready() -> bool:
     """The agent answers only when the chat has its sessions."""
-    return _factory is not None
+    try:
+        return _factory is not None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("agent_ready failed")
+        raise
 
 
 def speakers(db: Session, slug: str, author_id: int, rng: random.Random | None = None) -> list[tuple[int, str]]:
     """Who may answer: the virtual people who are joined members of this open room (never the author)."""
-    room = service.room_by_slug(db, slug)
-    if room is None or room.state != service.OPEN:
-        return []
-    rows = db.execute(
-        select(RoomMember.user_id, Person.username)
-        .join(Person, Person.user_id == RoomMember.user_id)
-        .where(RoomMember.room_id == room.id, RoomMember.status == service.JOINED, Person.kind == "virtual", RoomMember.user_id != author_id)
-        .order_by(RoomMember.user_id)
-    ).all()
-    chosen = (rng or random.SystemRandom()).sample(rows, min(MAX_SPEAKERS, len(rows)))
-    return [(row.user_id, row.username) for row in chosen]
+    try:
+        room = service.room_by_slug(db, slug)
+        if room is None or room.state != service.OPEN:
+            return []
+        rows = db.execute(
+            select(RoomMember.user_id, Person.username)
+            .join(Person, Person.user_id == RoomMember.user_id)
+            .where(RoomMember.room_id == room.id, RoomMember.status == service.JOINED, Person.kind == "virtual", RoomMember.user_id != author_id)
+            .order_by(RoomMember.user_id)
+        ).all()
+        chosen = (rng or random.SystemRandom()).sample(rows, min(MAX_SPEAKERS, len(rows)))
+        return [(row.user_id, row.username) for row in chosen]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("speakers failed")
+        raise
 
 
 def history(db: Session, slug: str) -> list[dict[str, str]]:
-    room = service.room_by_slug(db, slug)
-    if room is None:
-        return []
-    rows = db.scalars(
-        select(Message).where(Message.room_id == room.id, Message.kind == "text", Message.deleted_at.is_(None)).order_by(Message.id.desc()).limit(HISTORY_LINES)
-    ).all()
-    service.show(db, rows)
-    return [{"username": m.username[:32], "content": m.content[:LINE_CHARS]} for m in reversed(rows)]
+    try:
+        room = service.room_by_slug(db, slug)
+        if room is None:
+            return []
+        rows = db.scalars(
+            select(Message).where(Message.room_id == room.id, Message.kind == "text", Message.deleted_at.is_(None)).order_by(Message.id.desc()).limit(HISTORY_LINES)
+        ).all()
+        service.show(db, rows)
+        return [{"username": m.username[:32], "content": m.content[:LINE_CHARS]} for m in reversed(rows)]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("history failed")
+        raise
 
 
 def ask_agent(virtual_id: int, caller_id: int, caller: str, lines: list[dict[str, str]]) -> str | None:
     """The words, or None when the agent cannot give them (down, limited, not configured): the room just stays quiet."""
-    answer = ask_agent_counted(virtual_id, caller_id, caller, lines)
-    return answer[0] if answer else None
+    try:
+        answer = ask_agent_counted(virtual_id, caller_id, caller, lines)
+        return answer[0] if answer else None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ask_agent failed")
+        raise
 
 
 def usage_line(name: str, tokens_in: int, tokens_out: int, ms: int) -> str:
     """The content of the line of `system` that tells what an answer cost: `ai_usage:<in>:<out>:<ms>:<who answered>` (the interface words it)."""
-    return f"ai_usage:{tokens_in}:{tokens_out}:{ms}:{name}"
+    try:
+        return f"ai_usage:{tokens_in}:{tokens_out}:{ms}:{name}"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("usage_line failed")
+        raise
 
 
 def ask_agent_counted(virtual_id: int, caller_id: int, caller: str, lines: list[dict[str, str]]) -> tuple[str, tuple[int, int, int]] | None:
     """Like `ask_agent`, with (tokens sent, tokens written, milliseconds the whole request took, the call to the agent included)."""
-    started = time.monotonic()
-    if _factory is None or not lines:
-        return None
-    history = [Line(item["username"], item["content"]) for item in lines]
-    with _factory() as db:
-        answer = agent.reply(db, virtual_id, caller_id, caller, history)
-    if answer is None or not answer.text.strip():
-        return None
-    return answer.text.strip(), (answer.usage.tokens_in, answer.usage.tokens_out, round((time.monotonic() - started) * 1000))
+    try:
+        started = time.monotonic()
+        if _factory is None or not lines:
+            return None
+        history = [Line(item["username"], item["content"]) for item in lines]
+        with _factory() as db:
+            answer = agent.reply(db, virtual_id, caller_id, caller, history)
+        if answer is None or not answer.text.strip():
+            return None
+        return answer.text.strip(), (answer.usage.tokens_in, answer.usage.tokens_out, round((time.monotonic() - started) * 1000))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ask_agent_counted failed")
+        raise
 
 
 def tell_usage(factory: sessionmaker, slug: str, name: str, counted: tuple[int, int, int]) -> MessageOut | None:
     """Write the cost of an answer in the room as a line of `system`; None when the room is gone."""
-    with factory() as db:
-        room = service.room_by_slug(db, slug)
-        if room is None:
-            return None
-        line = service.say_text(db, room, usage_line(name, *counted))
-        db.commit()
-        db.refresh(line)
-        return MessageOut.model_validate(line)
+    try:
+        with factory() as db:
+            room = service.room_by_slug(db, slug)
+            if room is None:
+                return None
+            line = service.say_text(db, room, usage_line(name, *counted))
+            db.commit()
+            db.refresh(line)
+            return MessageOut.model_validate(line)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("tell_usage failed")
+        raise
 
 
 def save(factory: sessionmaker, slug: str, virtual_id: int, username: str, text: str) -> MessageOut | None:
     """Save the words as the virtual person, by the rules of the room; None when the room does not take them."""
-    with factory() as db:
-        room = service.room_by_slug(db, slug)
-        if room is None or service.posting_problem(room, service.member_of(db, room.id, virtual_id)) is not None:
-            return None
-        message = Message(room_id=room.id, user_id=virtual_id, content=text[:2000])
-        db.add(message)
-        db.commit()
-        return MessageOut.model_validate(service.show_one(db, message))
+    try:
+        with factory() as db:
+            room = service.room_by_slug(db, slug)
+            if room is None or service.posting_problem(room, service.member_of(db, room.id, virtual_id)) is not None:
+                return None
+            message = Message(room_id=room.id, user_id=virtual_id, content=text[:2000])
+            db.add(message)
+            db.commit()
+            return MessageOut.model_validate(service.show_one(db, message))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("save failed")
+        raise
 
 
 async def reply_in_room(factory: sessionmaker, broadcast: Broadcast, slug: str, author: SimpleNamespace | object) -> None:
@@ -131,13 +178,23 @@ async def reply_in_room(factory: sessionmaker, broadcast: Broadcast, slug: str, 
     _answering.add(slug)
     try:
         def plan() -> list[tuple[int, str]]:
-            with factory() as db:
-                return speakers(db, slug, author.user_id)  # type: ignore[attr-defined]
+            try:
+                with factory() as db:
+                    return speakers(db, slug, author.user_id)  # type: ignore[attr-defined]
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("plan failed")
+                raise
 
         for virtual_id, username in await run_in_threadpool(plan):
             def lines() -> list[dict[str, str]]:
-                with factory() as db:
-                    return history(db, slug)
+                try:
+                    with factory() as db:
+                        return history(db, slug)
+                except Exception as error:
+                    if getattr(error, "status_code", None) is None:
+                        logger.exception("lines failed")
+                    raise
 
             answer = await run_in_threadpool(
                 lambda: ask_agent_counted(virtual_id, author.user_id, author.username, lines())  # type: ignore[attr-defined]
@@ -160,28 +217,43 @@ async def reply_in_room(factory: sessionmaker, broadcast: Broadcast, slug: str, 
 def member_names(db: Session, room: Room) -> list[tuple[str, str]]:
     """(name, kind) of everyone in the room, in the order they came: a virtual person by their display name (kind `virtual`), a person by their
     username (kind `human`)."""
-    rows = db.execute(
-        select(Person.username, Person.name, Person.kind)
-        .select_from(RoomMember)
-        .join(Person, Person.user_id == RoomMember.user_id)
-        .where(RoomMember.room_id == room.id, RoomMember.status == service.JOINED)
-        .order_by(RoomMember.user_id)
-    ).all()
-    return [(((display or username) if kind == "virtual" else username).strip(), "virtual" if kind == "virtual" else "human") for username, display, kind in rows]
+    try:
+        rows = db.execute(
+            select(Person.username, Person.name, Person.kind)
+            .select_from(RoomMember)
+            .join(Person, Person.user_id == RoomMember.user_id)
+            .where(RoomMember.room_id == room.id, RoomMember.status == service.JOINED)
+            .order_by(RoomMember.user_id)
+        ).all()
+        return [(((display or username) if kind == "virtual" else username).strip(), "virtual" if kind == "virtual" else "human") for username, display, kind in rows]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("member_names failed")
+        raise
 
 
 def virtual_count(db: Session, room: Room) -> int:
-    return len(
-        db.scalars(
-            select(RoomMember.user_id)
-            .join(Person, Person.user_id == RoomMember.user_id)
-            .where(RoomMember.room_id == room.id, RoomMember.status == service.JOINED, Person.kind == "virtual")
-        ).all()
-    )
+    try:
+        return len(
+            db.scalars(
+                select(RoomMember.user_id)
+                .join(Person, Person.user_id == RoomMember.user_id)
+                .where(RoomMember.room_id == room.id, RoomMember.status == service.JOINED, Person.kind == "virtual")
+            ).all()
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("virtual_count failed")
+        raise
 
 
 def spawn(tasks: set[asyncio.Task], coroutine: Awaitable[None]) -> None:
     """Run in the background and keep the task alive until it is done."""
-    task = asyncio.ensure_future(coroutine)
-    tasks.add(task)
-    task.add_done_callback(tasks.discard)
+    try:
+        task = asyncio.ensure_future(coroutine)
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("spawn failed")
+        raise

@@ -32,6 +32,9 @@ from api.center.tokens import csrf_token, decode_claims
 from api.center.tokenversion import bump_token_version, publish_token_version
 from sn_shared.security import AuthError
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(check_origin)])
 
 BAD_LOGIN = "Invalid username or password"
@@ -44,30 +47,40 @@ DUMMY_HASH = hash_password("dummy-password")
 
 
 def me_out(user: User, token: str) -> MeOut:
-    return MeOut(
-        id=user.id,
-        username=user.username,
-        group=user.group,
-        email=user.email,
-        csrf_token=csrf_token(token),
-        username_changed_at=as_utc(user.username_changed_at) if user.username_changed_at else None,
-        can_rename_after=usernames.can_rename_after(user),
-        passkeys=passkey_items(user),
-        **methods_status(user).model_dump(),
-    )
+    try:
+        return MeOut(
+            id=user.id,
+            username=user.username,
+            group=user.group,
+            email=user.email,
+            csrf_token=csrf_token(token),
+            username_changed_at=as_utc(user.username_changed_at) if user.username_changed_at else None,
+            can_rename_after=usernames.can_rename_after(user),
+            passkeys=passkey_items(user),
+            **methods_status(user).model_dump(),
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("me_out failed")
+        raise
 
 
 @router.get("/config", response_model=AuthConfig)
 def auth_config(request: Request) -> AuthConfig:
-    s = settings_of(request)
-    return AuthConfig(
-        google_client_id=s.google_client_id or None,
-        biometrics_enabled=s.biometrics_enabled,
-        email_enabled=s.email_enabled,
-        liveness_enabled=s.biometrics_enabled,
-        liveness_required=s.liveness_required,
-        phone_enabled=s.phone_enabled,
-    )
+    try:
+        s = settings_of(request)
+        return AuthConfig(
+            google_client_id=s.google_client_id or None,
+            biometrics_enabled=s.biometrics_enabled,
+            email_enabled=s.email_enabled,
+            liveness_enabled=s.biometrics_enabled,
+            liveness_required=s.liveness_required,
+            phone_enabled=s.phone_enabled,
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("auth_config failed")
+        raise
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED, response_model=SessionOut)
@@ -95,46 +108,61 @@ def register(
 
 def login_throttles(request: Request, ip: str, name: str) -> tuple[list, list[str]]:
     """(throttles, keys) in matching order: per ip+user, per ip, per account (all IPs)."""
-    state = request.app.state
-    return (
-        [state.login_throttle, state.login_ip_throttle, state.login_account_throttle],
-        [pair_key(ip, name), ip, name],
-    )
+    try:
+        state = request.app.state
+        return (
+            [state.login_throttle, state.login_ip_throttle, state.login_account_throttle],
+            [pair_key(ip, name), ip, name],
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("login_throttles failed")
+        raise
 
 
 @router.post("/login", response_model=SessionOut | MfaRequired)
 def login(
     body: LoginBody, request: Request, response: Response, db: Session = Depends(get_db)
 ) -> SessionOut | MfaRequired:
-    ip, name = client_ip(request), key_of(body.username)  # throttles and lookup use the key
-    throttles, keys = login_throttles(request, ip, name)
-    if any(t.is_blocked(k) for t, k in zip(throttles, keys)):
-        audit.warning("login locked user=%r ip=%s", name, ip)
-        raise too_many()
-    user = db.scalar(select(User).where(func.lower(User.username) == name))
-    password_ok = verify_password(body.password, user.password_hash if user else DUMMY_HASH)
-    if user is None or not password_ok:
-        for throttle, key in zip(throttles, keys):
-            throttle.record(key)
-        audit.warning("login failed user=%r ip=%s", name, ip)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_LOGIN)
-    throttles[0].reset(keys[0])
-    throttles[2].reset(keys[2])
-    if needs_rehash(user.password_hash):
-        user.password_hash = hash_password(body.password[:128])  # bcrypt -> scrypt
-        db.commit()
-    result = start_login(
-        response, user, settings_of(request), biometrics_available(request), request=request, db=db, method="password"
-    )
-    audit.info("login %s user=%r ip=%s", "mfa-pending" if isinstance(result, MfaRequired) else "ok", name, ip)
-    return result
+    try:
+        ip, name = client_ip(request), key_of(body.username)  # throttles and lookup use the key
+        throttles, keys = login_throttles(request, ip, name)
+        if any(t.is_blocked(k) for t, k in zip(throttles, keys)):
+            audit.warning("login locked user=%r ip=%s", name, ip)
+            raise too_many()
+        user = db.scalar(select(User).where(func.lower(User.username) == name))
+        password_ok = verify_password(body.password, user.password_hash if user else DUMMY_HASH)
+        if user is None or not password_ok:
+            for throttle, key in zip(throttles, keys):
+                throttle.record(key)
+            audit.warning("login failed user=%r ip=%s", name, ip)
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_LOGIN)
+        throttles[0].reset(keys[0])
+        throttles[2].reset(keys[2])
+        if needs_rehash(user.password_hash):
+            user.password_hash = hash_password(body.password[:128])  # bcrypt -> scrypt
+            db.commit()
+        result = start_login(
+            response, user, settings_of(request), biometrics_available(request), request=request, db=db, method="password"
+        )
+        audit.info("login %s user=%r ip=%s", "mfa-pending" if isinstance(result, MfaRequired) else "ok", name, ip)
+        return result
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("login failed")
+        raise
 
 
 def reject_refresh(settings, reason: str, ip: str) -> JSONResponse:
-    audit.warning("refresh rejected ip=%s reason=%s", ip, reason)
-    rejected = JSONResponse({"detail": "Invalid refresh token"}, status_code=status.HTTP_401_UNAUTHORIZED)
-    clear_session_cookies(rejected, settings)
-    return rejected
+    try:
+        audit.warning("refresh rejected ip=%s reason=%s", ip, reason)
+        rejected = JSONResponse({"detail": "Invalid refresh token"}, status_code=status.HTTP_401_UNAUTHORIZED)
+        clear_session_cookies(rejected, settings)
+        return rejected
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("reject_refresh failed")
+        raise
 
 
 @router.post("/refresh", response_model=SessionOut)
@@ -169,18 +197,28 @@ def logout(
     session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> None:
-    settings = settings_of(request)
-    # Logout ends every session of the account (logout-everywhere): the bump also marks all session rows revoked.
-    bump_token_version(db, session.user)
-    db.commit()
-    publish_token_version(session.user, settings)
-    clear_session_cookies(response, settings)
-    audit.info("logout user=%r ip=%s", session.user.username, client_ip(request))
+    try:
+        settings = settings_of(request)
+        # Logout ends every session of the account (logout-everywhere): the bump also marks all session rows revoked.
+        bump_token_version(db, session.user)
+        db.commit()
+        publish_token_version(session.user, settings)
+        clear_session_cookies(response, settings)
+        audit.info("logout user=%r ip=%s", session.user.username, client_ip(request))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("logout failed")
+        raise
 
 
 @router.get("/me", response_model=MeOut)
 def me(session: AuthSession = Depends(current_session)) -> MeOut:
-    return me_out(session.user, session.token)
+    try:
+        return me_out(session.user, session.token)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("me failed")
+        raise
 
 
 def verify_google(request: Request, id_token: str) -> GoogleIdentity:
@@ -208,45 +246,55 @@ def verify_google_or_throttle(request: Request, id_token: str) -> GoogleIdentity
 
 
 def create_google_user(db: Session, identity: GoogleIdentity) -> User:
-    for _ in range(MAX_HANDLE_ATTEMPTS):
-        handle = unique_handle(
-            identity.email, lambda h: usernames.unavailable(db, h)
-        )
-        email_taken = db.scalar(select(User.id).where(User.email == identity.email)) is not None
-        user = User(
-            username=handle,
-            password_hash=NO_PASSWORD,
-            email=None if email_taken else identity.email,
-            email_verified=not email_taken,  # Google verified it
-            email_from_google=not email_taken,  # Google wrote it: unlinking Google takes it away again
-            google_sub=identity.sub,
-        )
-        db.add(user)
-        try:
-            db.commit()
-            return user
-        except IntegrityError:  # lost a race on the handle/email/sub: look again
-            db.rollback()
-            existing = db.scalar(select(User).where(User.google_sub == identity.sub))
-            if existing is not None:
-                return existing
-    raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Could not create the account, try again")
+    try:
+        for _ in range(MAX_HANDLE_ATTEMPTS):
+            handle = unique_handle(
+                identity.email, lambda h: usernames.unavailable(db, h)
+            )
+            email_taken = db.scalar(select(User.id).where(User.email == identity.email)) is not None
+            user = User(
+                username=handle,
+                password_hash=NO_PASSWORD,
+                email=None if email_taken else identity.email,
+                email_verified=not email_taken,  # Google verified it
+                email_from_google=not email_taken,  # Google wrote it: unlinking Google takes it away again
+                google_sub=identity.sub,
+            )
+            db.add(user)
+            try:
+                db.commit()
+                return user
+            except IntegrityError:  # lost a race on the handle/email/sub: look again
+                db.rollback()
+                existing = db.scalar(select(User).where(User.google_sub == identity.sub))
+                if existing is not None:
+                    return existing
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Could not create the account, try again")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("create_google_user failed")
+        raise
 
 
 @router.post("/google", response_model=SessionOut | MfaRequired)
 def google_login(
     body: GoogleBody, request: Request, response: Response, db: Session = Depends(get_db)
 ) -> SessionOut | MfaRequired:
-    ip = client_ip(request)
-    identity = verify_google_or_throttle(request, body.id_token)
-    user = db.scalar(select(User).where(User.google_sub == identity.sub))
-    created = user is None
-    if user is None:
-        throttle = request.app.state.register_throttle
-        if not throttle.check_and_record(ip):
-            raise too_many()
-        user = create_google_user(db, identity)
-    audit.info("google %s user=%r ip=%s", "register" if created else "login", user.username, ip)
-    return start_login(
-        response, user, settings_of(request), biometrics_available(request), request=request, db=db, method="google"
-    )
+    try:
+        ip = client_ip(request)
+        identity = verify_google_or_throttle(request, body.id_token)
+        user = db.scalar(select(User).where(User.google_sub == identity.sub))
+        created = user is None
+        if user is None:
+            throttle = request.app.state.register_throttle
+            if not throttle.check_and_record(ip):
+                raise too_many()
+            user = create_google_user(db, identity)
+        audit.info("google %s user=%r ip=%s", "register" if created else "login", user.username, ip)
+        return start_login(
+            response, user, settings_of(request), biometrics_available(request), request=request, db=db, method="google"
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("google_login failed")
+        raise

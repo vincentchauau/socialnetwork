@@ -8,6 +8,9 @@ from api.market.constants import IDEMPOTENCY_KEY_MAX, IDEMPOTENCY_KEY_PATTERN
 from api.market.db import get_db
 from api.market.payments import PaymentProvider
 
+import logging
+logger = logging.getLogger(__name__)
+
 __all__ = ["IdempotencyKey", "expire_stale", "get_db", "get_payment_provider"]
 
 IdempotencyKey = Annotated[
@@ -22,10 +25,20 @@ IdempotencyKey = Annotated[
 
 
 def get_payment_provider(request: Request) -> PaymentProvider:
-    return request.app.state.payment_provider
+    try:
+        return request.app.state.payment_provider
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("get_payment_provider failed")
+        raise
 
 
 def expire_stale(request: Request, db: Session = Depends(get_db)) -> None:
     """Lazy expiry of unpaid orders; attach with dependencies=[Depends(expire_stale)]."""
-    state = request.app.state
-    order_service.expire_stale_orders(db, state.clock(), state.order_ttl)
+    try:
+        state = request.app.state
+        order_service.expire_stale_orders(db, state.clock(), state.order_ttl)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("expire_stale failed")
+        raise

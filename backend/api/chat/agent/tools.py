@@ -59,12 +59,22 @@ def send_request(method: str, url: str, headers: dict[str, str], body: bytes | N
 
 def base(name: str) -> str:
     """Where a service answers: `<NAME>_URL`, else its module of this same backend (every module is mounted under its own name)."""
-    return os.environ.get(f"{name.upper()}_URL", f"http://127.0.0.1:8000/{name}").rstrip("/")
+    try:
+        return os.environ.get(f"{name.upper()}_URL", f"http://127.0.0.1:8000/{name}").rstrip("/")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("base failed")
+        raise
 
 
 def clip(value: Any, limit: int = TEXT_CHARS) -> str:
-    text = " ".join(str(value or "").split())
-    return text if len(text) <= limit else text[: limit - 1] + "…"
+    try:
+        text = " ".join(str(value or "").split())
+        return text if len(text) <= limit else text[: limit - 1] + "…"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("clip failed")
+        raise
 
 
 class Query(BaseModel):
@@ -112,136 +122,231 @@ class Tool:
 
 def field(name: str, label: str, kind: str, **more: Any) -> dict[str, Any]:
     """A field of a form card (see SchemaForm in the shared frontend)."""
-    return {"name": name, "label": label, "kind": kind, **{k: v for k, v in more.items() if v is not None}}
+    try:
+        return {"name": name, "label": label, "kind": kind, **{k: v for k, v in more.items() if v is not None}}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("field failed")
+        raise
 
 
 def action(label: str, tool: str, args: dict[str, Any], run: str = "open") -> dict[str, Any]:
-    return {"label": label, "tool": tool, "args": args, "run": run}
+    try:
+        return {"label": label, "tool": tool, "args": args, "run": run}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("action failed")
+        raise
 
 
 def form_card(tool: str, title: str, fields: list[dict[str, Any]], fixed: dict[str, Any], submit: str) -> dict[str, Any]:
-    return {"type": "form", "tool": tool, "title": title, "fields": fields, "args": fixed, "submit": submit}
+    try:
+        return {"type": "form", "tool": tool, "title": title, "fields": fields, "args": fixed, "submit": submit}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("form_card failed")
+        raise
 
 
 def site_path(value: Any) -> str | None:
     """An address of this site only (a card is never trusted to point elsewhere), else nothing."""
-    return value if isinstance(value, str) and value.startswith("/") and not value.startswith("//") else None
+    try:
+        return value if isinstance(value, str) and value.startswith("/") and not value.startswith("//") else None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("site_path failed")
+        raise
 
 
 def register(*tools: Tool) -> None:
-    for tool in tools:
-        TOOLS[tool.name] = tool
+    try:
+        for tool in tools:
+            TOOLS[tool.name] = tool
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("register failed")
+        raise
 
 
 def headers_tools(token: str) -> dict[str, str]:
-    return {"Content-Type": "application/json", "Cookie": f"{COOKIE_NAME}={token}"}
+    try:
+        return {"Content-Type": "application/json", "Cookie": f"{COOKIE_NAME}={token}"}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("headers_tools failed")
+        raise
 
 
 def get_tools(service: str, path: str, params: dict[str, Any], token: str, http: Http) -> Any:
-    status, data = http("GET", f"{base(service)}{path}?{urllib.parse.urlencode(params)}", headers_tools(token), None)
-    if status != 200 or data is None:
-        raise ToolError("The search did not work")
-    return data
+    try:
+        status, data = http("GET", f"{base(service)}{path}?{urllib.parse.urlencode(params)}", headers_tools(token), None)
+        if status != 200 or data is None:
+            raise ToolError("The search did not work")
+        return data
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("get_tools failed")
+        raise
 
 
 def money(cents: int) -> str:
-    return f"{cents / 100:,.2f}"
+    try:
+        return f"{cents / 100:,.2f}"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("money failed")
+        raise
 
 
 def market_search(args: Query, token: str, http: Http) -> dict[str, Any]:
-    page = get_tools("market", "/products", {"q": args.q, "limit": MAX_ITEMS}, token, http)
-    items = [{"title": clip(p["name"]), "subtitle": f"{money(p['price_cents'])} · {clip(p['seller_username'], 32)}", "href": "/market"} for p in page["items"][:MAX_ITEMS]]
-    return {"type": "list", "title": f"Market: {args.q}", "items": items}
+    try:
+        page = get_tools("market", "/products", {"q": args.q, "limit": MAX_ITEMS}, token, http)
+        items = [{"title": clip(p["name"]), "subtitle": f"{money(p['price_cents'])} · {clip(p['seller_username'], 32)}", "href": "/market"} for p in page["items"][:MAX_ITEMS]]
+        return {"type": "list", "title": f"Market: {args.q}", "items": items}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("market_search failed")
+        raise
 
 
 def jobs_search(args: Query, token: str, http: Http) -> dict[str, Any]:
-    page = get_tools("job", "/jobs", {"q": args.q, "limit": MAX_ITEMS}, token, http)
-    items = [
-        {
-            "title": f"#{p['id']} {clip(p['title'])}", "subtitle": f"{clip(p['company'], 40)} · {clip(p['location'], 40)}", "href": "/job",
-            "actions": [action("Open", "jobs.job", {"job_id": p["id"]})],
-        }
-        for p in page["items"][:MAX_ITEMS]
-    ]
-    return {"type": "list", "title": f"Jobs: {args.q}", "items": items}
+    try:
+        page = get_tools("job", "/jobs", {"q": args.q, "limit": MAX_ITEMS}, token, http)
+        items = [
+            {
+                "title": f"#{p['id']} {clip(p['title'])}", "subtitle": f"{clip(p['company'], 40)} · {clip(p['location'], 40)}", "href": "/job",
+                "actions": [action("Open", "jobs.job", {"job_id": p["id"]})],
+            }
+            for p in page["items"][:MAX_ITEMS]
+        ]
+        return {"type": "list", "title": f"Jobs: {args.q}", "items": items}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("jobs_search failed")
+        raise
 
 
 def write(service: str, path: str, payload: dict[str, Any], token: str, http: Http, method: str = "POST", extra: dict[str, str] | None = None) -> Any:
-    status, data = http(method, f"{base(service)}{path}", {**headers_tools(token), **(extra or {})}, json.dumps(payload).encode())
-    if status in (200, 201, 204):
-        return data
-    detail = data.get("detail") if isinstance(data, dict) else None
-    if isinstance(detail, list) and detail and isinstance(detail[0], dict):  # a field that does not fit: say which
-        where = ".".join(str(part) for part in detail[0].get("loc", ())[1:])
-        detail = f"{where}: {detail[0].get('msg', 'invalid')}" if where else str(detail[0].get("msg", "invalid"))
-    raise ToolError(clip(detail) if isinstance(detail, str) else "It was refused")
+    try:
+        status, data = http(method, f"{base(service)}{path}", {**headers_tools(token), **(extra or {})}, json.dumps(payload).encode())
+        if status in (200, 201, 204):
+            return data
+        detail = data.get("detail") if isinstance(data, dict) else None
+        if isinstance(detail, list) and detail and isinstance(detail[0], dict):  # a field that does not fit: say which
+            where = ".".join(str(part) for part in detail[0].get("loc", ())[1:])
+            detail = f"{where}: {detail[0].get('msg', 'invalid')}" if where else str(detail[0].get("msg", "invalid"))
+        raise ToolError(clip(detail) if isinstance(detail, str) else "It was refused")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("write failed")
+        raise
 
 
 def order_buttons(order: dict[str, Any], selling: bool) -> list[dict[str, Any]]:
     """What the buyer (or the seller) can still do with an order; the service decides again when it is pressed."""
-    status = order["status"]
-    if selling:
-        return [action("Mark shipped", "market.orderstatus", {"order_id": order["id"], "status": "shipped"}, "ask")] if status == "paid" else []
-    if status == "pending_payment":
-        return [action("Pay", "market.pay", {"order_id": order["id"]}, "ask"), action("Cancel", "market.orderstatus", {"order_id": order["id"], "status": "cancelled"}, "ask")]
-    if status == "paid":
-        return [action("Cancel", "market.orderstatus", {"order_id": order["id"], "status": "cancelled"}, "ask")]
-    if status == "shipped":
-        return [action("I received it", "market.orderstatus", {"order_id": order["id"], "status": "delivered"}, "ask")]
-    return []
+    try:
+        status = order["status"]
+        if selling:
+            return [action("Mark shipped", "market.orderstatus", {"order_id": order["id"], "status": "shipped"}, "ask")] if status == "paid" else []
+        if status == "pending_payment":
+            return [action("Pay", "market.pay", {"order_id": order["id"]}, "ask"), action("Cancel", "market.orderstatus", {"order_id": order["id"], "status": "cancelled"}, "ask")]
+        if status == "paid":
+            return [action("Cancel", "market.orderstatus", {"order_id": order["id"], "status": "cancelled"}, "ask")]
+        if status == "shipped":
+            return [action("I received it", "market.orderstatus", {"order_id": order["id"], "status": "delivered"}, "ask")]
+        return []
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("order_buttons failed")
+        raise
 
 
 def market_cart(args: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    cart = get_tools("market", "/cart", {}, token, http)
-    items = [
-        {
-            "title": f"{clip(line['name'])} x{line['quantity']}", "subtitle": money(line["line_total_cents"]), "href": "/market/cart",
-            "actions": [action("Remove", "market.uncart", {"product_id": line["product_id"]}, "do")],
-        }
-        for line in cart["items"][:MAX_ITEMS]
-    ]
-    return {"type": "list", "title": f"Cart: {money(cart['total_cents'])} ({cart['item_count']})", "items": items}
+    try:
+        cart = get_tools("market", "/cart", {}, token, http)
+        items = [
+            {
+                "title": f"{clip(line['name'])} x{line['quantity']}", "subtitle": money(line["line_total_cents"]), "href": "/market/cart",
+                "actions": [action("Remove", "market.uncart", {"product_id": line["product_id"]}, "do")],
+            }
+            for line in cart["items"][:MAX_ITEMS]
+        ]
+        return {"type": "list", "title": f"Cart: {money(cart['total_cents'])} ({cart['item_count']})", "items": items}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("market_cart failed")
+        raise
 
 
 def market_orders(args: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    page = get_tools("market", "/orders", {"limit": MAX_ITEMS}, token, http)
-    items = [
-        {"title": f"#{o['id']} {o['status']}", "subtitle": money(o["total_cents"]), "href": "/market/orders", "actions": order_buttons(o, selling=False)}
-        for o in page["items"][:MAX_ITEMS]
-    ]
-    return {"type": "list", "title": "Orders", "items": items}
+    try:
+        page = get_tools("market", "/orders", {"limit": MAX_ITEMS}, token, http)
+        items = [
+            {"title": f"#{o['id']} {o['status']}", "subtitle": money(o["total_cents"]), "href": "/market/orders", "actions": order_buttons(o, selling=False)}
+            for o in page["items"][:MAX_ITEMS]
+        ]
+        return {"type": "list", "title": "Orders", "items": items}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("market_orders failed")
+        raise
 
 
 def market_add_to_cart(args: AddToCart, token: str, http: Http) -> dict[str, Any]:
-    write("market", f"/cart/items/{args.product_id}", {"quantity": args.quantity}, token, http, method="PUT")
-    return {"type": "done", "summary": f"Added {args.quantity} of product #{args.product_id} to your cart", "href": "/market/cart"}
+    try:
+        write("market", f"/cart/items/{args.product_id}", {"quantity": args.quantity}, token, http, method="PUT")
+        return {"type": "done", "summary": f"Added {args.quantity} of product #{args.product_id} to your cart", "href": "/market/cart"}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("market_add_to_cart failed")
+        raise
 
 
 def market_checkout(args: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    order = write("market", "/orders", {}, token, http, extra={"Idempotency-Key": uuid.uuid4().hex})
-    return {"type": "done", "summary": f"Order #{order['id']} placed: {money(order['total_cents'])}", "href": "/market/orders"}
+    try:
+        order = write("market", "/orders", {}, token, http, extra={"Idempotency-Key": uuid.uuid4().hex})
+        return {"type": "done", "summary": f"Order #{order['id']} placed: {money(order['total_cents'])}", "href": "/market/orders"}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("market_checkout failed")
+        raise
 
 
 def jobs_applications(args: NoArgs, token: str, http: Http) -> dict[str, Any]:
-    rows = get_tools("job", "/me/applications", {}, token, http)
-    items = [
-        {
-            "title": f"#{a['job_id']} {clip(a['job_title'])}", "subtitle": f"{clip(a['company'], 40)} · {a['status']}", "href": "/job/applications",
-            "actions": [] if a["status"] == "hired" else [action("Withdraw", "jobs.withdraw", {"application_id": a["id"]}, "ask")],
-        }
-        for a in rows[:MAX_ITEMS]
-    ]
-    return {"type": "list", "title": "Your applications", "items": items}
+    try:
+        rows = get_tools("job", "/me/applications", {}, token, http)
+        items = [
+            {
+                "title": f"#{a['job_id']} {clip(a['job_title'])}", "subtitle": f"{clip(a['company'], 40)} · {a['status']}", "href": "/job/applications",
+                "actions": [] if a["status"] == "hired" else [action("Withdraw", "jobs.withdraw", {"application_id": a["id"]}, "ask")],
+            }
+            for a in rows[:MAX_ITEMS]
+        ]
+        return {"type": "list", "title": "Your applications", "items": items}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("jobs_applications failed")
+        raise
 
 
 def market_sell(args: Sell, token: str, http: Http) -> dict[str, Any]:
-    product = write("market", "/products", {"name": args.name, "price_cents": args.price_cents, "stock": 1}, token, http)
-    return {"type": "done", "summary": f"Listed {clip(product['name'])} for {money(product['price_cents'])}", "href": "/market"}
+    try:
+        product = write("market", "/products", {"name": args.name, "price_cents": args.price_cents, "stock": 1}, token, http)
+        return {"type": "done", "summary": f"Listed {clip(product['name'])} for {money(product['price_cents'])}", "href": "/market"}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("market_sell failed")
+        raise
 
 
 def jobs_apply(args: Apply, token: str, http: Http) -> dict[str, Any]:
-    write("job", f"/jobs/{args.job_id}/apply", {}, token, http)
-    return {"type": "done", "summary": f"Applied to job #{args.job_id}", "href": "/job/applications"}
+    try:
+        write("job", f"/jobs/{args.job_id}/apply", {}, token, http)
+        return {"type": "done", "summary": f"Applied to job #{args.job_id}", "href": "/job/applications"}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("jobs_apply failed")
+        raise
 
 
 TOOLS: dict[str, Tool] = {
@@ -294,3 +399,6 @@ def run_tool(name: str, args: dict[str, Any], token: str, confirmed: bool, http:
 
 # The tools of each service live in their own module and add themselves to TOOLS; they use the helpers above, so they come last.
 from api.chat.agent import tools_face, tools_jobs, tools_market  # noqa: E402,F401
+
+import logging
+logger = logging.getLogger(__name__)

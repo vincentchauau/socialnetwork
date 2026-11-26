@@ -18,23 +18,36 @@ from sn_shared import comments
 from sn_shared.admincrud import TableSpec, mount_crud
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def delete_job_description(request: Request, db: Session, row, user: TokenPayload):
-    job = db.get(JobDescription, row["id"])
-    if job is None:
+    try:
+        job = db.get(JobDescription, row["id"])
+        if job is None:
+            return None
+        db.execute(delete(JobApplicant).where(JobApplicant.job_description_id == job.id))
+        comments.forget_object(db, "job", job.id)
+        db.delete(job)
         return None
-    db.execute(delete(JobApplicant).where(JobApplicant.job_description_id == job.id))
-    comments.forget_object(db, "job", job.id)
-    db.delete(job)
-    return None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_job_description failed")
+        raise
 
 
 def applicant_scope(db: Session, user: TokenPayload):
     """My own rows, plus the applications (not the mere saves) to jobs that are mine."""
-    mine = select(JobDescription.id).where(JobDescription.owner_id == user.user_id)
-    return (JobApplicant.user_id == user.user_id) | (
-        JobApplicant.job_description_id.in_(mine) & JobApplicant.status.isnot(None)
-    )
+    try:
+        mine = select(JobDescription.id).where(JobDescription.owner_id == user.user_id)
+        return (JobApplicant.user_id == user.user_id) | (
+            JobApplicant.job_description_id.in_(mine) & JobApplicant.status.isnot(None)
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("applicant_scope failed")
+        raise
 
 
 SPECS = [
@@ -50,4 +63,9 @@ SPECS = [
 
 
 def mount(app: FastAPI) -> None:
-    mount_crud(app, SPECS, database="job")
+    try:
+        mount_crud(app, SPECS, database="job")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("mount failed")
+        raise

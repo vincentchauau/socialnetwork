@@ -21,6 +21,8 @@ import secrets
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 CHANNEL = "sn:chat:events"
@@ -33,16 +35,26 @@ Handler = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 def enabled() -> bool:
-    return os.environ.get("CHAT_CLUSTER") == "1" and bool(os.environ.get("REDIS_URL")) and not os.environ.get("TESTING")
+    try:
+        return os.environ.get("CHAT_CLUSTER") == "1" and bool(os.environ.get("REDIS_URL")) and not os.environ.get("TESTING")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("enabled failed")
+        raise
 
 
 class Cluster:
     def __init__(self, client: Any, replica: str | None = None) -> None:
-        self.client_revocation = client
-        self.replica = replica or secrets.token_hex(6)
-        self._handler: Handler | None = None
-        self._snapshot: Callable[[], dict[str, Any]] = lambda: {"rooms": {}, "online": []}
-        self._tasks: list[asyncio.Task] = []
+        try:
+            self.client_revocation = client
+            self.replica = replica or secrets.token_hex(6)
+            self._handler: Handler | None = None
+            self._snapshot: Callable[[], dict[str, Any]] = lambda: {"rooms": {}, "online": []}
+            self._tasks: list[asyncio.Task] = []
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
     # ---- sending ----
     async def publish(self, event: dict[str, Any]) -> None:
@@ -81,38 +93,53 @@ class Cluster:
 
     # ---- receiving ----
     async def listen_cluster(self) -> None:
-        while True:
-            try:
-                pubsub = self.client_revocation.pubsub()
-                await pubsub.subscribe(CHANNEL)
-                async for message in pubsub.listen():
-                    if message.get("type") != "message":
-                        continue
-                    try:
-                        event = json.loads(message["data"])
-                    except (ValueError, TypeError):
-                        continue
-                    if isinstance(event, dict) and event.get("from") != self.replica and self._handler is not None:
+        try:
+            while True:
+                try:
+                    pubsub = self.client_revocation.pubsub()
+                    await pubsub.subscribe(CHANNEL)
+                    async for message in pubsub.listen():
+                        if message.get("type") != "message":
+                            continue
                         try:
-                            await self._handler(event)
-                        except Exception:  # noqa: BLE001 - one bad event must not end the listening
-                            log.exception("cluster: an event failed")
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # noqa: BLE001 - Redis went away: try again
-                log.warning("cluster: lost Redis, retrying")
-                await asyncio.sleep(RETRY_SECONDS)
+                            event = json.loads(message["data"])
+                        except (ValueError, TypeError):
+                            continue
+                        if isinstance(event, dict) and event.get("from") != self.replica and self._handler is not None:
+                            try:
+                                await self._handler(event)
+                            except Exception:  # noqa: BLE001 - one bad event must not end the listening
+                                log.exception("cluster: an event failed")
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001 - Redis went away: try again
+                    log.warning("cluster: lost Redis, retrying")
+                    await asyncio.sleep(RETRY_SECONDS)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("listen_cluster failed")
+            raise
 
     async def heartbeat(self, refresh: Callable[[], Awaitable[None]]) -> None:
-        while True:
-            await self.write_presence()
-            await refresh()
-            await asyncio.sleep(HEARTBEAT_SECONDS)
+        try:
+            while True:
+                await self.write_presence()
+                await refresh()
+                await asyncio.sleep(HEARTBEAT_SECONDS)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("heartbeat failed")
+            raise
 
     async def start(self, handler: Handler, snapshot: Callable[[], dict[str, Any]], refresh: Callable[[], Awaitable[None]]) -> None:
-        self._handler, self._snapshot = handler, snapshot
-        self._tasks = [asyncio.create_task(self.listen_cluster()), asyncio.create_task(self.heartbeat(refresh))]
-        await asyncio.sleep(0)
+        try:
+            self._handler, self._snapshot = handler, snapshot
+            self._tasks = [asyncio.create_task(self.listen_cluster()), asyncio.create_task(self.heartbeat(refresh))]
+            await asyncio.sleep(0)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("start failed")
+            raise
 
     async def stop(self) -> None:
         for task in self._tasks:

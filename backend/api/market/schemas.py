@@ -15,6 +15,9 @@ from api.market.constants import (
     NAME_MAX,
 )
 
+import logging
+logger = logging.getLogger(__name__)
+
 ALLOWED_URL_SCHEMES = frozenset({"https"})
 RATING_MIN = 1
 RATING_MAX = 5
@@ -57,9 +60,14 @@ class ProductIn(BaseModel):
     @field_validator("image_url")
     @classmethod
     def check_image_url(cls, value: str | None) -> str | None:
-        if value is None or value == "":
-            return None
-        return validate_http_url(value)
+        try:
+            if value is None or value == "":
+                return None
+            return validate_http_url(value)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("check_image_url failed")
+            raise
 
 
 class ProductOut(BaseModel):

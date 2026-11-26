@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger("sn.jwtkeys")
 
 ACCESS_ALGORITHM = "EdDSA"
@@ -46,55 +48,95 @@ class Signer:
 
     @property
     def public_key(self) -> Ed25519PublicKey:
-        return self.private_key.public_key()
+        try:
+            return self.private_key.public_key()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("public_key failed")
+            raise
 
 
 def is_production() -> bool:
-    return os.environ.get("APP_ENV", "development").strip().lower() == "production"
+    try:
+        return os.environ.get("APP_ENV", "development").strip().lower() == "production"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("is_production failed")
+        raise
 
 
 def thumbprint(public_key: Ed25519PublicKey) -> str:
-    raw = public_key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-    return base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")[:KID_LENGTH]
+    try:
+        raw = public_key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        return base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")[:KID_LENGTH]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("thumbprint failed")
+        raise
 
 
 def raw_jwtkeys(public_key: Ed25519PublicKey) -> bytes:
-    return public_key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    try:
+        return public_key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("raw_jwtkeys failed")
+        raise
 
 
 def read_jwtkeys(name: str) -> str:
     """The value of NAME, or the contents of the file named by NAME_FILE ('' when neither is set)."""
-    path = os.environ.get(f"{name}_FILE", "").strip()
-    if path:
-        try:
-            info = os.stat(path)  # re-read only when the file changes (this runs on every request)
-            stamp = (info.st_mtime_ns, info.st_size, info.st_ino)  # a same-mtime atomic replace changes size/inode
-            cached = _file_cache.get(path)
-            if cached is not None and cached[0] == stamp:
-                return cached[1]
-            with open(path, encoding="utf-8") as handle:
-                text = handle.read().strip()
-            _file_cache[path] = (stamp, text)
-            return text
-        except OSError as exc:
-            raise RuntimeError(f"{name}_FILE {path!r} cannot be read: {exc.strerror}") from None
-    return os.environ.get(name, "").replace("\\n", "\n").strip()
+    try:
+        path = os.environ.get(f"{name}_FILE", "").strip()
+        if path:
+            try:
+                info = os.stat(path)  # re-read only when the file changes (this runs on every request)
+                stamp = (info.st_mtime_ns, info.st_size, info.st_ino)  # a same-mtime atomic replace changes size/inode
+                cached = _file_cache.get(path)
+                if cached is not None and cached[0] == stamp:
+                    return cached[1]
+                with open(path, encoding="utf-8") as handle:
+                    text = handle.read().strip()
+                _file_cache[path] = (stamp, text)
+                return text
+            except OSError as exc:
+                raise RuntimeError(f"{name}_FILE {path!r} cannot be read: {exc.strerror}") from None
+        return os.environ.get(name, "").replace("\\n", "\n").strip()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("read_jwtkeys failed")
+        raise
 
 
 def private_pem(key: Ed25519PrivateKey) -> str:
-    return key.private_bytes(
-        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
-    ).decode()
+    try:
+        return key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+        ).decode()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("private_pem failed")
+        raise
 
 
 def public_pem(key: Ed25519PublicKey) -> str:
-    return key.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    try:
+        return key.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("public_pem failed")
+        raise
 
 
 def generate_keypair() -> tuple[str, str, str]:
     """(private PEM, public PEM, kid)."""
-    key = Ed25519PrivateKey.generate()
-    return private_pem(key), public_pem(key.public_key()), thumbprint(key.public_key())
+    try:
+        key = Ed25519PrivateKey.generate()
+        return private_pem(key), public_pem(key.public_key()), thumbprint(key.public_key())
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("generate_keypair failed")
+        raise
 
 
 def load_private(pem: str) -> Ed25519PrivateKey:
@@ -108,86 +150,121 @@ def load_private(pem: str) -> Ed25519PrivateKey:
 
 
 def memo(kind: str, source: str, build):
-    with key_lock:
-        hit = _cache.get(kind)
-        if hit is not None and hit[0] == source:
-            return hit[1]
-        value = build()
-        _cache[kind] = (source, value)
-        return value
+    try:
+        with key_lock:
+            hit = _cache.get(kind)
+            if hit is not None and hit[0] == source:
+                return hit[1]
+            value = build()
+            _cache[kind] = (source, value)
+            return value
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("memo failed")
+        raise
 
 
 def get_signer() -> Signer:
     """The signing key; RuntimeError when none is configured (and an ephemeral one is not allowed)."""
-    global _ephemeral
-    pem = read_jwtkeys("JWT_PRIVATE_KEY")
-    if pem:
-        kid_override = os.environ.get("JWT_KEY_ID", "").strip()
-        if kid_override and not re.fullmatch(KID_PATTERN, kid_override):
-            raise RuntimeError("JWT_KEY_ID must be 1-64 characters of A-Z a-z 0-9 . _ -")
+    try:
+        global _ephemeral
+        pem = read_jwtkeys("JWT_PRIVATE_KEY")
+        if pem:
+            kid_override = os.environ.get("JWT_KEY_ID", "").strip()
+            if kid_override and not re.fullmatch(KID_PATTERN, kid_override):
+                raise RuntimeError("JWT_KEY_ID must be 1-64 characters of A-Z a-z 0-9 . _ -")
 
-        def build() -> Signer:
-            key = load_private(pem)
-            return Signer(kid_override or thumbprint(key.public_key()), key)
+            def build() -> Signer:
+                try:
+                    key = load_private(pem)
+                    return Signer(kid_override or thumbprint(key.public_key()), key)
+                except Exception as error:
+                    if getattr(error, "status_code", None) is None:
+                        logger.exception("build failed")
+                    raise
 
-        return memo("signer", pem + "\0" + kid_override, build)
-    if is_production():
-        raise RuntimeError("JWT_PRIVATE_KEY (or JWT_PRIVATE_KEY_FILE) is required in production")
-    with key_lock:
-        if _ephemeral is None:
-            key = Ed25519PrivateKey.generate()
-            _ephemeral = Signer(thumbprint(key.public_key()), key)
-            log.warning(
-                "no JWT_PRIVATE_KEY: using an EPHEMERAL signing key (development only; every token dies on restart)"
-            )
-        return _ephemeral
+            return memo("signer", pem + "\0" + kid_override, build)
+        if is_production():
+            raise RuntimeError("JWT_PRIVATE_KEY (or JWT_PRIVATE_KEY_FILE) is required in production")
+        with key_lock:
+            if _ephemeral is None:
+                key = Ed25519PrivateKey.generate()
+                _ephemeral = Signer(thumbprint(key.public_key()), key)
+                log.warning(
+                    "no JWT_PRIVATE_KEY: using an EPHEMERAL signing key (development only; every token dies on restart)"
+                )
+            return _ephemeral
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("get_signer failed")
+        raise
 
 
 def parse_public_keys(text: str) -> dict[str, Ed25519PublicKey]:
-    keys: dict[str, Ed25519PublicKey] = {}
-    for match in PUBLIC_BLOCK.finditer(text):
-        try:
-            key = serialization.load_pem_public_key(match.group("pem").encode())
-        except Exception:  # noqa: BLE001
-            raise RuntimeError("JWT_PUBLIC_KEYS contains an unreadable PEM public key") from None
-        if not isinstance(key, Ed25519PublicKey):
-            raise RuntimeError("JWT_PUBLIC_KEYS must contain Ed25519 public keys only")
-        kid = match.group("kid") or thumbprint(key)
-        if kid in keys and raw_jwtkeys(keys[kid]) != raw_jwtkeys(key):
-            raise RuntimeError(f"JWT_PUBLIC_KEYS lists the key id {kid!r} more than once")
-        keys[kid] = key
-    return keys
+    try:
+        keys: dict[str, Ed25519PublicKey] = {}
+        for match in PUBLIC_BLOCK.finditer(text):
+            try:
+                key = serialization.load_pem_public_key(match.group("pem").encode())
+            except Exception:  # noqa: BLE001
+                raise RuntimeError("JWT_PUBLIC_KEYS contains an unreadable PEM public key") from None
+            if not isinstance(key, Ed25519PublicKey):
+                raise RuntimeError("JWT_PUBLIC_KEYS must contain Ed25519 public keys only")
+            kid = match.group("kid") or thumbprint(key)
+            if kid in keys and raw_jwtkeys(keys[kid]) != raw_jwtkeys(key):
+                raise RuntimeError(f"JWT_PUBLIC_KEYS lists the key id {kid!r} more than once")
+            keys[kid] = key
+        return keys
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("parse_public_keys failed")
+        raise
 
 
 def get_verification_keys() -> dict[str, Ed25519PublicKey]:
     """kid -> public key accepted for access tokens (empty when nothing is configured)."""
-    text = read_jwtkeys("JWT_PUBLIC_KEYS")
-    keys: dict[str, Ed25519PublicKey] = {}
-    if text:
-        keys = dict(memo("public", text, lambda: parse_public_keys(text)))
-        if not keys:
-            raise RuntimeError("JWT_PUBLIC_KEYS holds no PEM public key")
-    if read_jwtkeys("JWT_PRIVATE_KEY") or _ephemeral is not None:
-        signer = get_signer()
-        if signer.kid in keys and raw_jwtkeys(keys[signer.kid]) != raw_jwtkeys(signer.public_key):
-            raise RuntimeError(f"JWT_KEY_ID {signer.kid!r} collides with a key id listed in JWT_PUBLIC_KEYS")
-        keys[signer.kid] = signer.public_key
-    return keys
+    try:
+        text = read_jwtkeys("JWT_PUBLIC_KEYS")
+        keys: dict[str, Ed25519PublicKey] = {}
+        if text:
+            keys = dict(memo("public", text, lambda: parse_public_keys(text)))
+            if not keys:
+                raise RuntimeError("JWT_PUBLIC_KEYS holds no PEM public key")
+        if read_jwtkeys("JWT_PRIVATE_KEY") or _ephemeral is not None:
+            signer = get_signer()
+            if signer.kid in keys and raw_jwtkeys(keys[signer.kid]) != raw_jwtkeys(signer.public_key):
+                raise RuntimeError(f"JWT_KEY_ID {signer.kid!r} collides with a key id listed in JWT_PUBLIC_KEYS")
+            keys[signer.kid] = signer.public_key
+        return keys
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("get_verification_keys failed")
+        raise
 
 
 def require_verification_keys() -> None:
     """Startup check for an app: production without JWT_PUBLIC_KEYS is an error, development only warns."""
-    if get_verification_keys():
-        return
-    if is_production():
-        raise RuntimeError("JWT_PUBLIC_KEYS (or JWT_PUBLIC_KEYS_FILE) is required in production")
-    log.warning("no JWT_PUBLIC_KEYS: every access token will be refused (development)")
+    try:
+        if get_verification_keys():
+            return
+        if is_production():
+            raise RuntimeError("JWT_PUBLIC_KEYS (or JWT_PUBLIC_KEYS_FILE) is required in production")
+        log.warning("no JWT_PUBLIC_KEYS: every access token will be refused (development)")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("require_verification_keys failed")
+        raise
 
 
 def reset() -> None:
     """Forget cached keys and the ephemeral signer (tests)."""
-    global _ephemeral
-    with key_lock:
-        _cache.clear()
-        _file_cache.clear()
-        _ephemeral = None
+    try:
+        global _ephemeral
+        with key_lock:
+            _cache.clear()
+            _file_cache.clear()
+            _ephemeral = None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("reset failed")
+        raise

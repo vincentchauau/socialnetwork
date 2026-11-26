@@ -17,20 +17,33 @@ from sn_shared import comments
 from sn_shared.admincrud import TableSpec, mount_crud
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def delete_product(request: Request, db: Session, row, user: TokenPayload):
-    product = db.get(Product, row["id"])
-    if product is None:
+    try:
+        product = db.get(Product, row["id"])
+        if product is None:
+            return None
+        db.execute(delete(CartItem).where(CartItem.product_id == product.id))
+        comments.forget_object(db, "product", product.id)
+        db.delete(product)  # past orders keep their own snapshot (`Order.items`), which has no foreign key
         return None
-    db.execute(delete(CartItem).where(CartItem.product_id == product.id))
-    comments.forget_object(db, "product", product.id)
-    db.delete(product)  # past orders keep their own snapshot (`Order.items`), which has no foreign key
-    return None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_product failed")
+        raise
 
 
 def order_scope(db: Session, user: TokenPayload):
     """Orders I bought, and orders that have an item of mine (`seller_ids` is `|3|9|`)."""
-    return (Order.buyer_id == user.user_id) | Order.seller_ids.contains(f"|{int(user.user_id)}|")
+    try:
+        return (Order.buyer_id == user.user_id) | Order.seller_ids.contains(f"|{int(user.user_id)}|")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("order_scope failed")
+        raise
 
 
 SPECS = [
@@ -47,4 +60,9 @@ SPECS = [
 
 
 def mount(app: FastAPI) -> None:
-    mount_crud(app, SPECS, database="market")
+    try:
+        mount_crud(app, SPECS, database="market")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("mount failed")
+        raise

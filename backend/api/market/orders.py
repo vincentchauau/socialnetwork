@@ -14,6 +14,9 @@ from api.market.schemas import OrderOut, OrderPage, StatusIn
 from sn_shared.deps import get_current_user
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 OrderId = Annotated[int, Path(ge=1)]
@@ -22,14 +25,19 @@ Limit = Annotated[int, Query(ge=1, le=PAGE_MAX_LIMIT)]
 
 
 def order_page(db: Session, query: Select[Any], user_id: int, cursor: int | None, limit: int) -> OrderPage:
-    if cursor is not None:
-        query = query.where(Order.id < cursor)
-    orders = list(db.scalars(query.order_by(Order.id.desc()).limit(limit + 1)).all())
-    page = orders[:limit]
-    return OrderPage(
-        items=order_service.order_views(db, page, user_id),
-        next_cursor=page[-1].id if len(orders) > limit else None,
-    )
+    try:
+        if cursor is not None:
+            query = query.where(Order.id < cursor)
+        orders = list(db.scalars(query.order_by(Order.id.desc()).limit(limit + 1)).all())
+        page = orders[:limit]
+        return OrderPage(
+            items=order_service.order_views(db, page, user_id),
+            next_cursor=page[-1].id if len(orders) > limit else None,
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("order_page failed")
+        raise
 
 
 @router.post(
@@ -44,10 +52,15 @@ def create_order(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrderOut:
-    order, created = order_service.checkout(db, user, idempotency_key)
-    if not created:
-        response.status_code = status.HTTP_200_OK
-    return order_service.order_views(db, [order], user.user_id)[0]
+    try:
+        order, created = order_service.checkout(db, user, idempotency_key)
+        if not created:
+            response.status_code = status.HTTP_200_OK
+        return order_service.order_views(db, [order], user.user_id)[0]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("create_order failed")
+        raise
 
 
 @router.get("/orders", response_model=OrderPage, dependencies=[Depends(expire_stale)])
@@ -57,7 +70,12 @@ def list_orders(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrderPage:
-    return order_page(db, select(Order).where(Order.buyer_id == user.user_id), user.user_id, cursor, limit)
+    try:
+        return order_page(db, select(Order).where(Order.buyer_id == user.user_id), user.user_id, cursor, limit)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("list_orders failed")
+        raise
 
 
 @router.get("/sales", response_model=OrderPage, dependencies=[Depends(expire_stale)])
@@ -67,8 +85,13 @@ def list_sales(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrderPage:
-    mine = Order.seller_ids.like(f"%|{user.user_id}|%")
-    return order_page(db, select(Order).where(mine), user.user_id, cursor, limit)
+    try:
+        mine = Order.seller_ids.like(f"%|{user.user_id}|%")
+        return order_page(db, select(Order).where(mine), user.user_id, cursor, limit)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("list_sales failed")
+        raise
 
 
 @router.get("/orders/{order_id}", response_model=OrderOut, dependencies=[Depends(expire_stale)])
@@ -77,8 +100,13 @@ def get_order(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrderOut:
-    order = order_service.involved_order(db, order_id, user.user_id)
-    return order_service.order_views(db, [order], user.user_id)[0]
+    try:
+        order = order_service.involved_order(db, order_id, user.user_id)
+        return order_service.order_views(db, [order], user.user_id)[0]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("get_order failed")
+        raise
 
 
 @router.post(
@@ -91,8 +119,13 @@ def pay_order(
     db: Session = Depends(get_db),
     provider: PaymentProvider = Depends(get_payment_provider),
 ) -> OrderOut:
-    order = order_service.pay(db, user, order_id, provider, idempotency_key)
-    return order_service.order_views(db, [order], user.user_id)[0]
+    try:
+        order = order_service.pay(db, user, order_id, provider, idempotency_key)
+        return order_service.order_views(db, [order], user.user_id)[0]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("pay_order failed")
+        raise
 
 
 @router.patch(
@@ -105,8 +138,13 @@ def update_order_status(
     db: Session = Depends(get_db),
     provider: PaymentProvider = Depends(get_payment_provider),
 ) -> OrderOut:
-    order = order_service.change_status(db, user, order_id, body.status, provider)
-    return order_service.order_views(db, [order], user.user_id)[0]
+    try:
+        order = order_service.change_status(db, user, order_id, body.status, provider)
+        return order_service.order_views(db, [order], user.user_id)[0]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("update_order_status failed")
+        raise
 
 
 @router.delete("/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(expire_stale)])
@@ -116,11 +154,16 @@ def delete_order(
     db: Session = Depends(get_db),
 ) -> Response:
     """The buyer removes an order that was cancelled from the list. Any other order is a record of a sale and stays."""
-    order = db.get(Order, order_id)
-    if order is None or order.buyer_id != user.user_id:  # someone else's order looks like none
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
-    if order.status != STATUS_CANCELLED:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Only a cancelled order can be deleted")
-    db.delete(order)
-    db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        order = db.get(Order, order_id)
+        if order is None or order.buyer_id != user.user_id:  # someone else's order looks like none
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+        if order.status != STATUS_CANCELLED:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Only a cancelled order can be deleted")
+        db.delete(order)
+        db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_order failed")
+        raise

@@ -11,17 +11,30 @@ from sqlalchemy.orm import Session
 
 from api.chat.social.models import Edge, Notification, Report
 
+import logging
+logger = logging.getLogger(__name__)
+
 DELETED_USER_ID = 0
 
 
 def on_user_deleted(db: Session, user_id: int) -> None:
-    if user_id <= DELETED_USER_ID:
-        return
-    db.execute(delete(Edge).where(or_(Edge.src_id == user_id, Edge.dst_id == user_id)))  # friendships, blocks and companions alike
-    db.execute(delete(Notification).where(or_(Notification.user_id == user_id, Notification.actor_id == user_id)))
-    db.execute(update(Report).where(Report.reporter_id == user_id).values(reporter_id=DELETED_USER_ID))
+    try:
+        if user_id <= DELETED_USER_ID:
+            return
+        db.execute(delete(Edge).where(or_(Edge.src_id == user_id, Edge.dst_id == user_id)))  # friendships, blocks and companions alike
+        db.execute(delete(Notification).where(or_(Notification.user_id == user_id, Notification.actor_id == user_id)))
+        db.execute(update(Report).where(Report.reporter_id == user_id).values(reporter_id=DELETED_USER_ID))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("on_user_deleted failed")
+        raise
 
 
 def on_user_renamed(db: Session, user_id: int, new_username: str) -> None:
     """A notice keeps only the id of whoever did it: the name is read from `users`, so nothing follows a rename."""
-    return None
+    try:
+        return None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("on_user_renamed failed")
+        raise

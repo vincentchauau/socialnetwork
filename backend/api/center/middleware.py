@@ -3,6 +3,9 @@
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+import logging
+logger = logging.getLogger(__name__)
+
 STATIC_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -12,25 +15,40 @@ STATIC_HEADERS = {
 
 class SecurityHeadersMiddleware:
     def __init__(self, app: ASGIApp) -> None:
-        self.app = app
+        try:
+            self.app = app
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-        path = scope.get("path", "")
-        root = scope.get("root_path", "")
-        if root and path.startswith(root):
-            path = path[len(root):]
-        no_store = path.startswith("/auth/")
+        try:
+            if scope["type"] != "http":
+                await self.app(scope, receive, send)
+                return
+            path = scope.get("path", "")
+            root = scope.get("root_path", "")
+            if root and path.startswith(root):
+                path = path[len(root):]
+            no_store = path.startswith("/auth/")
 
-        async def add_headers(message: Message) -> None:
-            if message["type"] == "http.response.start":
-                headers = MutableHeaders(scope=message)
-                for name, value in STATIC_HEADERS.items():
-                    headers[name] = value
-                if no_store:
-                    headers["Cache-Control"] = "no-store"
-            await send(message)
+            async def add_headers(message: Message) -> None:
+                try:
+                    if message["type"] == "http.response.start":
+                        headers = MutableHeaders(scope=message)
+                        for name, value in STATIC_HEADERS.items():
+                            headers[name] = value
+                        if no_store:
+                            headers["Cache-Control"] = "no-store"
+                    await send(message)
+                except Exception as error:
+                    if getattr(error, "status_code", None) is None:
+                        logger.exception("add_headers failed")
+                    raise
 
-        await self.app(scope, receive, add_headers)
+            await self.app(scope, receive, add_headers)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__call__ failed")
+            raise

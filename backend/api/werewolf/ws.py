@@ -13,6 +13,9 @@ from api.werewolf.schemas import ROOM_PATTERN, ActionMsg, ChatMsg, ForceMsg
 from sn_shared.origin import allowed_origins
 from api.werewolf.service import commit
 
+import logging
+logger = logging.getLogger(__name__)
+
 MAX_FRAME_CHARS = 8 * 1024
 
 router = APIRouter()
@@ -32,12 +35,17 @@ def parse(raw: str) -> ActionMsg | ChatMsg | ForceMsg | None:
 
 
 async def chat_ws(websocket: WebSocket, room: Room, user: TokenPayload, message: ChatMsg) -> str | None:
-    app = websocket.app
-    if not app.state.ww_limits.allow("chat", user.user_id):
-        return "Bạn gửi quá nhanh, chờ một chút"
-    sent = room.chat(user.user_id, message.text, message.target)
-    await app.state.ww_hub.send_chat(room.code, room.chat_recipients(sent), room.chat_payload(sent))
-    return None
+    try:
+        app = websocket.app
+        if not app.state.ww_limits.allow("chat", user.user_id):
+            return "Bạn gửi quá nhanh, chờ một chút"
+        sent = room.chat(user.user_id, message.text, message.target)
+        await app.state.ww_hub.send_chat(room.code, room.chat_recipients(sent), room.chat_payload(sent))
+        return None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("chat_ws failed")
+        raise
 
 
 async def handle_ws(websocket: WebSocket, room: Room, user: TokenPayload, raw: str) -> str | None:
@@ -59,7 +67,12 @@ async def handle_ws(websocket: WebSocket, room: Room, user: TokenPayload, raw: s
 
 
 async def refuse(websocket: WebSocket) -> None:
-    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+    try:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("refuse failed")
+        raise
 
 
 @router.websocket("/ws/{code}")

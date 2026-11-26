@@ -15,6 +15,9 @@ import jwt
 
 from sn_shared import jwtkeys, revocation
 
+import logging
+logger = logging.getLogger(__name__)
+
 COOKIE_NAME = "sn_token"
 ACCESS_ALGORITHM = jwtkeys.ACCESS_ALGORITHM  # EdDSA: the only algorithm accepted for the access cookie
 INTERNAL_ALGORITHM = "HS256"  # center-internal tokens, signed with JWT_SECRET
@@ -39,16 +42,26 @@ class TokenPayload:
 
 
 def get_jwt_secret() -> str:
-    secret = os.environ.get("JWT_SECRET", "")
-    if len(secret) < MIN_SECRET_LENGTH:
-        raise RuntimeError(
-            f"JWT_SECRET must be set and at least {MIN_SECRET_LENGTH} characters long"
-        )
-    return secret
+    try:
+        secret = os.environ.get("JWT_SECRET", "")
+        if len(secret) < MIN_SECRET_LENGTH:
+            raise RuntimeError(
+                f"JWT_SECRET must be set and at least {MIN_SECRET_LENGTH} characters long"
+            )
+        return secret
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("get_jwt_secret failed")
+        raise
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    try:
+        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("hash_password failed")
+        raise
 
 
 def verify_password(password: str, password_hash: str) -> bool:
@@ -66,33 +79,43 @@ def create_token(
     ver: int | None = None,
     sid: str | None = None,
 ) -> str:
-    now = int(time.time())
-    claims = {
-        "iss": ISSUER,
-        "sub": str(user_id),
-        "username": username,
-        "iat": now,
-        "exp": now + ttl_seconds,
-        "group": group,
-    }
-    if ver is not None:
-        claims["ver"] = ver
-    if sid is not None:
-        claims["sid"] = sid
-    signer = jwtkeys.get_signer()
-    return jwt.encode(claims, signer.private_key, algorithm=ACCESS_ALGORITHM, headers={"kid": signer.kid})
+    try:
+        now = int(time.time())
+        claims = {
+            "iss": ISSUER,
+            "sub": str(user_id),
+            "username": username,
+            "iat": now,
+            "exp": now + ttl_seconds,
+            "group": group,
+        }
+        if ver is not None:
+            claims["ver"] = ver
+        if sid is not None:
+            claims["sid"] = sid
+        signer = jwtkeys.get_signer()
+        return jwt.encode(claims, signer.private_key, algorithm=ACCESS_ALGORITHM, headers={"kid": signer.kid})
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("create_token failed")
+        raise
 
 
 def verification_key(token: str):
     """The public key named by the token's `kid`; only alg EdDSA is ever accepted (no HS256/none confusion)."""
-    header = jwt.get_unverified_header(token)
-    if header.get("alg") != ACCESS_ALGORITHM:
-        raise jwt.InvalidAlgorithmError("unexpected algorithm")
-    kid = header.get("kid")
-    key = jwtkeys.get_verification_keys().get(kid) if isinstance(kid, str) else None
-    if key is None:
-        raise jwt.InvalidKeyError("unknown key id")
-    return key
+    try:
+        header = jwt.get_unverified_header(token)
+        if header.get("alg") != ACCESS_ALGORITHM:
+            raise jwt.InvalidAlgorithmError("unexpected algorithm")
+        kid = header.get("kid")
+        key = jwtkeys.get_verification_keys().get(kid) if isinstance(kid, str) else None
+        if key is None:
+            raise jwt.InvalidKeyError("unknown key id")
+        return key
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("verification_key failed")
+        raise
 
 
 def decode_token(token: str) -> TokenPayload:
@@ -123,10 +146,15 @@ def decode_token(token: str) -> TokenPayload:
 
 
 def payload_from_cookies(cookies: Mapping[str, str]) -> TokenPayload:
-    token = cookies.get(COOKIE_NAME)
-    if not token:
-        raise AuthError("Not authenticated")
-    payload = decode_token(token)
-    if revocation.is_revoked(payload.user_id, payload.sid, payload.ver):
-        raise AuthError("Token revoked")
-    return payload
+    try:
+        token = cookies.get(COOKIE_NAME)
+        if not token:
+            raise AuthError("Not authenticated")
+        payload = decode_token(token)
+        if revocation.is_revoked(payload.user_id, payload.sid, payload.ver):
+            raise AuthError("Token revoked")
+        return payload
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("payload_from_cookies failed")
+        raise

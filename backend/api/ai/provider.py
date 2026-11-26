@@ -18,6 +18,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+import logging
+logger = logging.getLogger(__name__)
+
 SCENES = 8
 
 
@@ -79,13 +82,23 @@ class AiProvider(Protocol):
 
 
 def words_provider(text: str) -> list[str]:
-    folded = unicodedata.normalize("NFKD", text.replace("đ", "d").replace("Đ", "D"))
-    ascii_text = folded.encode("ascii", "ignore").decode("ascii").lower()
-    return re.findall(r"[a-z0-9]+", ascii_text)
+    try:
+        folded = unicodedata.normalize("NFKD", text.replace("đ", "d").replace("Đ", "D"))
+        ascii_text = folded.encode("ascii", "ignore").decode("ascii").lower()
+        return re.findall(r"[a-z0-9]+", ascii_text)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("words_provider failed")
+        raise
 
 
 def timestamp(seconds: int) -> str:
-    return f"{seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d},000"
+    try:
+        return f"{seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d},000"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("timestamp failed")
+        raise
 
 
 SHOTS = (
@@ -108,72 +121,107 @@ class DummyProvider:
     min_similarity = 0.25  # one shared word of a short question gives about 0.3; a lone collision is rare at this size
 
     def video_script(self, prompt: str) -> VideoScript:
-        words = words_provider(prompt) or ["untitled"]
-        slug = "_".join(words[:SLUG_WORDS])
-        stories = tuple(
-            f"[CAMERA: {SHOTS[n % len(SHOTS)]}] [VISUALS: scene {n + 1} of {SCENES} about \"{prompt.strip()}\"] "
-            f"[AUDIO: Narrator says: \"Scene {n + 1}.\"]"
-            for n in range(SCENES)
-        )
-        blocks = [
-            f"{n + 1}\n{timestamp(n * SCENE_SECONDS)} --> {timestamp((n + 1) * SCENE_SECONDS)}\nScene {n + 1}: {prompt.strip()}"
-            for n in range(SCENES)
-        ]
-        return VideoScript(topic=slug, filename=slug, stories=stories, subtitles=(Subtitle("en", "\n\n".join(blocks)),))
+        try:
+            words = words_provider(prompt) or ["untitled"]
+            slug = "_".join(words[:SLUG_WORDS])
+            stories = tuple(
+                f"[CAMERA: {SHOTS[n % len(SHOTS)]}] [VISUALS: scene {n + 1} of {SCENES} about \"{prompt.strip()}\"] "
+                f"[AUDIO: Narrator says: \"Scene {n + 1}.\"]"
+                for n in range(SCENES)
+            )
+            blocks = [
+                f"{n + 1}\n{timestamp(n * SCENE_SECONDS)} --> {timestamp((n + 1) * SCENE_SECONDS)}\nScene {n + 1}: {prompt.strip()}"
+                for n in range(SCENES)
+            ]
+            return VideoScript(topic=slug, filename=slug, stories=stories, subtitles=(Subtitle("en", "\n\n".join(blocks)),))
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("video_script failed")
+            raise
 
     def answer(self, question: str, passages: Sequence[str] = ()) -> AgentAnswer:
-        if passages:
-            quoted = "\n".join(f"- [{n}] {text[:PASSAGE_PREVIEW].strip()}" for n, text in enumerate(passages, start=1))
+        try:
+            if passages:
+                quoted = "\n".join(f"- [{n}] {text[:PASSAGE_PREVIEW].strip()}" for n, text in enumerate(passages, start=1))
+                return AgentAnswer(
+                    language="text",
+                    content=(
+                        "Đây là câu trả lời giả lập: trợ lý chưa nối với mô hình AI nào, nên chỉ trích các đoạn "
+                        f"liên quan nhất trong tài liệu của bạn cho câu hỏi \"{question.strip()}\":\n{quoted}"
+                    ),
+                )
             return AgentAnswer(
                 language="text",
                 content=(
-                    "Đây là câu trả lời giả lập: trợ lý chưa nối với mô hình AI nào, nên chỉ trích các đoạn "
-                    f"liên quan nhất trong tài liệu của bạn cho câu hỏi \"{question.strip()}\":\n{quoted}"
+                    "Đây là câu trả lời giả lập: trợ lý chưa nối với mô hình AI nào "
+                    "và bạn chưa thêm tài liệu nào để tra cứu. "
+                    f"Bạn vừa hỏi: \"{question.strip()}\""
                 ),
             )
-        return AgentAnswer(
-            language="text",
-            content=(
-                "Đây là câu trả lời giả lập: trợ lý chưa nối với mô hình AI nào "
-                "và bạn chưa thêm tài liệu nào để tra cứu. "
-                f"Bạn vừa hỏi: \"{question.strip()}\""
-            ),
-        )
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("answer failed")
+            raise
 
     def run_agent(self, question: str, toolbox: Toolbox) -> AgentAnswer:
         """The dummy has no judgement, so it always does the same thing: search the documents with rag_tool, then quote."""
-        found = toolbox.call("rag_tool", {"query": question, "top_k": 5})
-        return self.answer(question, [passage["text"] for passage in found.get("passages", [])])
+        try:
+            found = toolbox.call("rag_tool", {"query": question, "top_k": 5})
+            return self.answer(question, [passage["text"] for passage in found.get("passages", [])])
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("run_agent failed")
+            raise
 
     def generate(self, prompt: str, max_tokens: int) -> str:
-        return "Đây là bản giả lập (chưa có mô hình AI), nên chưa thể xử lý yêu cầu này."
+        try:
+            return "Đây là bản giả lập (chưa có mô hình AI), nên chưa thể xử lý yêu cầu này."
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("generate failed")
+            raise
 
     def web_search(self, query: str, max_results: int) -> dict:
-        return {"answer": "Tìm web chưa có trong bản giả lập: chưa nối với dịch vụ tìm kiếm nào.", "sources": []}
+        try:
+            return {"answer": "Tìm web chưa có trong bản giả lập: chưa nối với dịch vụ tìm kiếm nào.", "sources": []}
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("web_search failed")
+            raise
 
     def embed(self, texts: Sequence[str], purpose: str = "document") -> list[list[float]]:
         """Hash every word into one of EMBEDDING_DIMENSIONS slots (with a sign), then normalize: same words, same vector."""
-        vectors = []
-        for text in texts:
-            vector = [0.0] * EMBEDDING_DIMENSIONS
-            for word in words_provider(text):
-                digest = hashlib.md5(word.encode("utf-8"), usedforsecurity=False).digest()
-                slot = int.from_bytes(digest[:4], "big") % EMBEDDING_DIMENSIONS
-                vector[slot] += 1.0 if digest[4] % 2 == 0 else -1.0
-            norm = math.sqrt(sum(x * x for x in vector))
-            vectors.append([x / norm for x in vector] if norm else vector)
-        return vectors
+        try:
+            vectors = []
+            for text in texts:
+                vector = [0.0] * EMBEDDING_DIMENSIONS
+                for word in words_provider(text):
+                    digest = hashlib.md5(word.encode("utf-8"), usedforsecurity=False).digest()
+                    slot = int.from_bytes(digest[:4], "big") % EMBEDDING_DIMENSIONS
+                    vector[slot] += 1.0 if digest[4] % 2 == 0 else -1.0
+                norm = math.sqrt(sum(x * x for x in vector))
+                vectors.append([x / norm for x in vector] if norm else vector)
+            return vectors
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("embed failed")
+            raise
 
 
 def get_provider() -> AiProvider:
-    name = os.environ.get("AI_PROVIDER", "dummy").strip().lower() or "dummy"
-    if name == "dummy":
-        return DummyProvider()
-    if name == "gemini":
-        from api.ai.gemini import GeminiProvider
+    try:
+        name = os.environ.get("AI_PROVIDER", "dummy").strip().lower() or "dummy"
+        if name == "dummy":
+            return DummyProvider()
+        if name == "gemini":
+            from api.ai.gemini import GeminiProvider
 
-        key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
-        if not key:
-            raise RuntimeError("AI_PROVIDER=gemini needs GEMINI_API_KEY (or GOOGLE_API_KEY)")
-        return GeminiProvider(key)
-    raise RuntimeError(f"AI_PROVIDER={name!r} is not supported; use 'dummy' or 'gemini'")
+            key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+            if not key:
+                raise RuntimeError("AI_PROVIDER=gemini needs GEMINI_API_KEY (or GOOGLE_API_KEY)")
+            return GeminiProvider(key)
+        raise RuntimeError(f"AI_PROVIDER={name!r} is not supported; use 'dummy' or 'gemini'")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("get_provider failed")
+        raise

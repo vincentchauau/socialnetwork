@@ -15,6 +15,9 @@ from sqlalchemy.orm import Session
 from api.center import models
 from api.center.models import User, VerificationCode
 
+import logging
+logger = logging.getLogger(__name__)
+
 EMAIL = "email"
 PHONE = "phone"
 MAX_CODE_ATTEMPTS = 5
@@ -24,47 +27,72 @@ CodeMac = Callable[[int, str], str]
 
 def no_sync(statement):
     """Bulk UPDATE/DELETE straight on the database: the in-Python matcher cannot compare SQLite's naive datetimes."""
-    return statement.execution_options(synchronize_session=False)
+    try:
+        return statement.execution_options(synchronize_session=False)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("no_sync failed")
+        raise
 
 
 def now() -> datetime:
-    return models.utcnow()
+    try:
+        return models.utcnow()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("now failed")
+        raise
 
 
 def purge(db: Session) -> None:
     """Drop expired and used rows (called on writes, so the table cannot grow without bound)."""
-    db.execute(no_sync(delete(VerificationCode).where(
-        or_(VerificationCode.expires_at < now(), VerificationCode.used_at.is_not(None)))))
+    try:
+        db.execute(no_sync(delete(VerificationCode).where(
+            or_(VerificationCode.expires_at < now(), VerificationCode.used_at.is_not(None)))))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("purge failed")
+        raise
 
 
 def insert(
     db: Session, user_id: int, channel: str, purpose: str, target: str, ttl: timedelta,
     *, token_hash: str | None = None, code: str | None = None, mac: CodeMac | None = None,
 ) -> VerificationCode:
-    row = VerificationCode(
-        user_id=user_id, channel=channel, purpose=purpose, target=target, token_hash=token_hash,
-        expires_at=now() + ttl,
-    )  # fmt: skip
-    db.add(row)
-    db.flush()  # the code is bound to the row id
-    if code is not None and mac is not None:
-        row.code_hash = mac(row.id, code)
-    return row
+    try:
+        row = VerificationCode(
+            user_id=user_id, channel=channel, purpose=purpose, target=target, token_hash=token_hash,
+            expires_at=now() + ttl,
+        )  # fmt: skip
+        db.add(row)
+        db.flush()  # the code is bound to the row id
+        if code is not None and mac is not None:
+            row.code_hash = mac(row.id, code)
+        return row
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("insert failed")
+        raise
 
 
 def trim_live(db: Session, user_id: int, channel: str, purpose: str, keep: int) -> None:
     """Keep the newest `keep` unused rows of this (user, channel, purpose); a stranger's requests cannot wipe them all."""
-    stale = db.scalars(
-        select(VerificationCode.id)
-        .where(
-            VerificationCode.user_id == user_id, VerificationCode.channel == channel,
-            VerificationCode.purpose == purpose, VerificationCode.used_at.is_(None),
-        )
-        .order_by(VerificationCode.id.desc())
-        .offset(keep)
-    ).all()
-    if stale:
-        db.execute(no_sync(delete(VerificationCode).where(VerificationCode.id.in_(stale))))
+    try:
+        stale = db.scalars(
+            select(VerificationCode.id)
+            .where(
+                VerificationCode.user_id == user_id, VerificationCode.channel == channel,
+                VerificationCode.purpose == purpose, VerificationCode.used_at.is_(None),
+            )
+            .order_by(VerificationCode.id.desc())
+            .offset(keep)
+        ).all()
+        if stale:
+            db.execute(no_sync(delete(VerificationCode).where(VerificationCode.id.in_(stale))))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("trim_live failed")
+        raise
 
 
 def rehearse(db: Session, store: Callable[[int], None]) -> None:
@@ -82,24 +110,34 @@ def rehearse(db: Session, store: Callable[[int], None]) -> None:
 
 def live(channel: str, purpose: str):
     """Not used and not expired (a wrong-code counter never kills an email link)."""
-    return (
-        VerificationCode.channel == channel,
-        VerificationCode.purpose == purpose,
-        VerificationCode.used_at.is_(None),
-        VerificationCode.expires_at > now(),
-    )
+    try:
+        return (
+            VerificationCode.channel == channel,
+            VerificationCode.purpose == purpose,
+            VerificationCode.used_at.is_(None),
+            VerificationCode.expires_at > now(),
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("live failed")
+        raise
 
 
 def find_for_user(
     db: Session, user_id: int, channel: str, purpose: str, target: str | None = None
 ) -> VerificationCode | None:
     """The user's newest live row whose CODE can still be tried, optionally for one address or number."""
-    query = select(VerificationCode).where(
-        VerificationCode.user_id == user_id, VerificationCode.attempts < MAX_CODE_ATTEMPTS, *live(channel, purpose)
-    )
-    if target is not None:
-        query = query.where(VerificationCode.target == target)
-    return db.scalar(query.order_by(VerificationCode.id.desc()))
+    try:
+        query = select(VerificationCode).where(
+            VerificationCode.user_id == user_id, VerificationCode.attempts < MAX_CODE_ATTEMPTS, *live(channel, purpose)
+        )
+        if target is not None:
+            query = query.where(VerificationCode.target == target)
+        return db.scalar(query.order_by(VerificationCode.id.desc()))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("find_for_user failed")
+        raise
 
 
 def check_code(db: Session, row: VerificationCode | None, code: str, mac: CodeMac) -> bool:
@@ -108,36 +146,46 @@ def check_code(db: Session, row: VerificationCode | None, code: str, mac: CodeMa
     After MAX_CODE_ATTEMPTS attempts the row's CODE accepts nothing more, not even the right one.
     A missing row costs the same MAC so the caller cannot tell an unknown target from a wrong code.
     """
-    code = code.strip()
-    if row is None:
-        hmac.compare_digest(mac(0, code), mac(0, ""))
-        return False
-    counted = db.execute(
-        no_sync(
-            update(VerificationCode)
-            .where(
-                VerificationCode.id == row.id, VerificationCode.used_at.is_(None),
-                VerificationCode.attempts < MAX_CODE_ATTEMPTS,
+    try:
+        code = code.strip()
+        if row is None:
+            hmac.compare_digest(mac(0, code), mac(0, ""))
+            return False
+        counted = db.execute(
+            no_sync(
+                update(VerificationCode)
+                .where(
+                    VerificationCode.id == row.id, VerificationCode.used_at.is_(None),
+                    VerificationCode.attempts < MAX_CODE_ATTEMPTS,
+                )
+                .values(attempts=VerificationCode.attempts + 1)
             )
-            .values(attempts=VerificationCode.attempts + 1)
         )
-    )
-    db.commit()
-    if counted.rowcount != 1 or row.code_hash is None:
-        return False
-    return hmac.compare_digest(mac(row.id, code), row.code_hash)
+        db.commit()
+        if counted.rowcount != 1 or row.code_hash is None:
+            return False
+        return hmac.compare_digest(mac(row.id, code), row.code_hash)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("check_code failed")
+        raise
 
 
 def consume(db: Session, row_id: int) -> bool:
     """Mark the row used; True for exactly one caller (the caller commits)."""
-    result = db.execute(
-        no_sync(
-            update(VerificationCode)
-            .where(
-                VerificationCode.id == row_id, VerificationCode.used_at.is_(None),
-                VerificationCode.expires_at > now(),
+    try:
+        result = db.execute(
+            no_sync(
+                update(VerificationCode)
+                .where(
+                    VerificationCode.id == row_id, VerificationCode.used_at.is_(None),
+                    VerificationCode.expires_at > now(),
+                )
+                .values(used_at=now())
             )
-            .values(used_at=now())
         )
-    )
-    return result.rowcount == 1
+        return result.rowcount == 1
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("consume failed")
+        raise

@@ -12,6 +12,9 @@ from api.market.schemas import CartItemIn, CartLineOut, CartOut
 from sn_shared.deps import get_current_user
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 ProductId = Annotated[int, Path(ge=1)]
@@ -19,53 +22,68 @@ ProductId = Annotated[int, Path(ge=1)]
 
 def build_cart(db: Session, user_id: int) -> CartOut:
     """The cart priced from current database prices (never from the client)."""
-    rows = db.execute(
-        select(CartItem, Product)
-        .join(Product, Product.id == CartItem.product_id)
-        .where(CartItem.user_id == user_id, Product.is_active.is_(True))
-        .order_by(CartItem.id)
-    ).all()
-    lines = [
-        CartLineOut(
-            product_id=product.id,
-            name=product.name,
-            image_url=product.image_url,
-            unit_price_cents=product.price_cents,
-            quantity=item.quantity,
-            line_total_cents=product.price_cents * item.quantity,
-            stock=product.stock,
+    try:
+        rows = db.execute(
+            select(CartItem, Product)
+            .join(Product, Product.id == CartItem.product_id)
+            .where(CartItem.user_id == user_id, Product.is_active.is_(True))
+            .order_by(CartItem.id)
+        ).all()
+        lines = [
+            CartLineOut(
+                product_id=product.id,
+                name=product.name,
+                image_url=product.image_url,
+                unit_price_cents=product.price_cents,
+                quantity=item.quantity,
+                line_total_cents=product.price_cents * item.quantity,
+                stock=product.stock,
+            )
+            for item, product in rows
+        ]
+        return CartOut(
+            items=lines,
+            currency=CURRENCY,
+            item_count=sum(line.quantity for line in lines),
+            total_cents=sum(line.line_total_cents for line in lines),
         )
-        for item, product in rows
-    ]
-    return CartOut(
-        items=lines,
-        currency=CURRENCY,
-        item_count=sum(line.quantity for line in lines),
-        total_cents=sum(line.line_total_cents for line in lines),
-    )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("build_cart failed")
+        raise
 
 
 def set_quantity(db: Session, user_id: int, product_id: int, quantity: int) -> None:
-    item = db.scalar(
-        select(CartItem).where(CartItem.user_id == user_id, CartItem.product_id == product_id)
-    )
-    if item is None:
-        distinct = db.scalar(select(func.count(CartItem.id)).where(CartItem.user_id == user_id))
-        if (distinct or 0) >= MAX_CART_PRODUCTS:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, f"A cart can hold at most {MAX_CART_PRODUCTS} products"
-            )
-        db.add(CartItem(user_id=user_id, product_id=product_id, quantity=quantity))
-    else:
-        item.quantity = quantity
-    db.commit()
+    try:
+        item = db.scalar(
+            select(CartItem).where(CartItem.user_id == user_id, CartItem.product_id == product_id)
+        )
+        if item is None:
+            distinct = db.scalar(select(func.count(CartItem.id)).where(CartItem.user_id == user_id))
+            if (distinct or 0) >= MAX_CART_PRODUCTS:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, f"A cart can hold at most {MAX_CART_PRODUCTS} products"
+                )
+            db.add(CartItem(user_id=user_id, product_id=product_id, quantity=quantity))
+        else:
+            item.quantity = quantity
+        db.commit()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("set_quantity failed")
+        raise
 
 
 @router.get("/cart", response_model=CartOut)
 def get_cart(
     user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> CartOut:
-    return build_cart(db, user.user_id)
+    try:
+        return build_cart(db, user.user_id)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("get_cart failed")
+        raise
 
 
 @router.put(
@@ -100,11 +118,16 @@ def remove_cart_item(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CartOut:
-    db.execute(
-        delete(CartItem).where(CartItem.user_id == user.user_id, CartItem.product_id == product_id)
-    )
-    db.commit()
-    return build_cart(db, user.user_id)
+    try:
+        db.execute(
+            delete(CartItem).where(CartItem.user_id == user.user_id, CartItem.product_id == product_id)
+        )
+        db.commit()
+        return build_cart(db, user.user_id)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("remove_cart_item failed")
+        raise
 
 
 @router.delete("/cart", response_model=CartOut)
@@ -112,6 +135,11 @@ def clear_cart(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CartOut:
-    db.execute(delete(CartItem).where(CartItem.user_id == user.user_id))
-    db.commit()
-    return build_cart(db, user.user_id)
+    try:
+        db.execute(delete(CartItem).where(CartItem.user_id == user.user_id))
+        db.commit()
+        return build_cart(db, user.user_id)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("clear_cart failed")
+        raise

@@ -9,6 +9,9 @@ from functools import lru_cache
 
 from api.center.biometrics import BiometricError, BiometricUnavailable
 
+import logging
+logger = logging.getLogger(__name__)
+
 SAMPLE_RATE = 16000
 MAX_SECONDS = 10
 encoder_lock = threading.Lock()
@@ -24,8 +27,13 @@ def build_encoder():
 
 
 def encoder_audio():
-    with encoder_lock:  # lru_cache does not lock: load the model exactly once
-        return build_encoder()
+    try:
+        with encoder_lock:  # lru_cache does not lock: load the model exactly once
+            return build_encoder()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("encoder_audio failed")
+        raise
 
 
 def to_wav_bytes(raw: bytes, timeout: int) -> bytes:

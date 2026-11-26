@@ -3,6 +3,9 @@
 import random
 from datetime import date
 
+import logging
+logger = logging.getLogger(__name__)
+
 SEED = 20241018  # changing it changes who is in the pool and their lives: never do it on a live database
 
 PLACES = (
@@ -34,19 +37,24 @@ YEARS = (1978, 2004)  # born between: always an adult
 
 def profile_for(username: str) -> dict[str, object]:
     """The profile columns of one virtual person, a pure function of the name."""
-    rng = random.Random(f"{SEED}:{username.lower()}")
-    city, region = rng.choice(PLACES)
-    role, title, skills = rng.choice(ROLES)
-    likes = rng.sample(INTERESTS, 3)
-    return {
-        "name": username.replace("_", " "),
-        "birth_date": date(rng.randint(*YEARS), rng.randint(1, 12), rng.randint(1, 28)),
-        "city": city, "region": region, "country": "Việt Nam",
-        "headline": f"{title} ở {city}",
-        "summary": f"Tôi thích {likes[0]}, {likes[1]} và {likes[2]}. Rất vui được làm quen.",
-        "interests": likes,
-        "skills": [{"name": skill} for skill in skills],
-        "languages": [{"language": "Tiếng Việt", "proficiency": "native"}],
-        "persona_role": role,
-        "speaking_style": rng.choice(STYLES),
-    }  # fmt: skip
+    try:
+        rng = random.Random(f"{SEED}:{username.lower()}")
+        city, region = rng.choice(PLACES)
+        role, title, skills = rng.choice(ROLES)
+        likes = rng.sample(INTERESTS, 3)
+        return {
+            "name": username.replace("_", " "),
+            "birth_date": date(rng.randint(*YEARS), rng.randint(1, 12), rng.randint(1, 28)),
+            "city": city, "region": region, "country": "Việt Nam",
+            "headline": f"{title} ở {city}",
+            "summary": f"Tôi thích {likes[0]}, {likes[1]} và {likes[2]}. Rất vui được làm quen.",
+            "interests": likes,
+            "skills": [{"name": skill} for skill in skills],
+            "languages": [{"language": "Tiếng Việt", "proficiency": "native"}],
+            "persona_role": role,
+            "speaking_style": rng.choice(STYLES),
+        }  # fmt: skip
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("profile_for failed")
+        raise

@@ -26,14 +26,22 @@ from api.market.constants import (
 from api.market.db import Base
 from sn_shared.clock import utcnow
 
+import logging
+logger = logging.getLogger(__name__)
+
 STATUS_COLUMN_LENGTH = 20
 REFERENCE_COLUMN_LENGTH = 64
 
 
 def seller_ids_text(items: list[dict]) -> str:
     """The sellers of an order as `|3|9|` (what `Order.seller_ids` holds), so a seller's orders are found with a plain LIKE."""
-    ids = sorted({int(item["seller_id"]) for item in items if int(item["seller_id"]) > 0})
-    return f"|{'|'.join(str(seller_id) for seller_id in ids)}|" if ids else ""
+    try:
+        ids = sorted({int(item["seller_id"]) for item in items if int(item["seller_id"]) > 0})
+        return f"|{'|'.join(str(seller_id) for seller_id in ids)}|" if ids else ""
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("seller_ids_text failed")
+        raise
 
 
 class Product(Base):
@@ -91,4 +99,9 @@ class Order(Base):
 
     @property
     def currency(self) -> str:
-        return CURRENCY
+        try:
+            return CURRENCY
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("currency failed")
+            raise

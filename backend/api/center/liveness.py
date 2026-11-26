@@ -17,6 +17,8 @@ from fastapi import HTTPException, Request
 
 from api.center.passkeys import ChallengeStore, PasskeyError, mint_challenge, read_challenge
 
+logger = logging.getLogger(__name__)
+
 audit = logging.getLogger("auth.audit")
 
 PURPOSE = "liveness"
@@ -47,32 +49,52 @@ Point = tuple[float, float]
 
 
 def dist(a: Point, b: Point) -> float:
-    return math.hypot(a[0] - b[0], a[1] - b[1])
+    try:
+        return math.hypot(a[0] - b[0], a[1] - b[1])
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("dist failed")
+        raise
 
 
 def eye_aspect_ratio(eye: Sequence[Point]) -> float:
     """EAR of the 6 landmarks of one eye (face_recognition order); 0.0 when degenerate."""
-    if len(eye) != 6:
-        return 0.0
-    width = dist(eye[0], eye[3])
-    return (dist(eye[1], eye[5]) + dist(eye[2], eye[4])) / (2 * width) if width else 0.0
+    try:
+        if len(eye) != 6:
+            return 0.0
+        width = dist(eye[0], eye[3])
+        return (dist(eye[1], eye[5]) + dist(eye[2], eye[4])) / (2 * width) if width else 0.0
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("eye_aspect_ratio failed")
+        raise
 
 
 def mouth_aspect_ratio(top_lip: Sequence[Point], bottom_lip: Sequence[Point]) -> float:
     """Inner mouth opening over mouth width (face_recognition 12-point lips); 0.0 when degenerate."""
-    if len(top_lip) != 12 or len(bottom_lip) != 12:
-        return 0.0
-    width = dist(top_lip[0], top_lip[6])
-    return dist(top_lip[9], bottom_lip[9]) / width if width else 0.0
+    try:
+        if len(top_lip) != 12 or len(bottom_lip) != 12:
+            return 0.0
+        width = dist(top_lip[0], top_lip[6])
+        return dist(top_lip[9], bottom_lip[9]) / width if width else 0.0
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("mouth_aspect_ratio failed")
+        raise
 
 
 def yaw_proxy(nose_bridge: Sequence[Point], chin: Sequence[Point]) -> float:
     """Nose-bridge tip x relative to the middle of the jaw, as a fraction of the face width (unmirrored image)."""
-    if not nose_bridge or len(chin) != 17:
-        return 0.0
-    left, right = chin[0][0], chin[16][0]
-    width = right - left
-    return (nose_bridge[-1][0] - (left + right) / 2) / width if width else 0.0
+    try:
+        if not nose_bridge or len(chin) != 17:
+            return 0.0
+        left, right = chin[0][0], chin[16][0]
+        width = right - left
+        return (nose_bridge[-1][0] - (left + right) / 2) / width if width else 0.0
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("yaw_proxy failed")
+        raise
 
 
 def detect_actions(frames: Sequence[tuple[float, float, float]]) -> list[str]:
@@ -107,26 +129,46 @@ def detect_actions(frames: Sequence[tuple[float, float, float]]) -> list[str]:
 
 def in_order(requested: Sequence[str], detected: Sequence[str]) -> bool:
     """True when `requested` appears in `detected` as an ordered subsequence (extra movements are tolerated)."""
-    remaining = iter(detected)
-    return bool(requested) and all(action in remaining for action in requested)
+    try:
+        remaining = iter(detected)
+        return bool(requested) and all(action in remaining for action in requested)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("in_order failed")
+        raise
 
 
 def matches_challenge(requested: Sequence[str], detected: Sequence[str]) -> bool:
     """In order AND not much else: a single clip performing every action must not pass any challenge."""
-    return in_order(requested, detected) and len(detected) - len(requested) <= MAX_EXTRA_ACTION_EVENTS
+    try:
+        return in_order(requested, detected) and len(detected) - len(requested) <= MAX_EXTRA_ACTION_EVENTS
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("matches_challenge failed")
+        raise
 
 
 def warn_if_optional(settings) -> None:
     """Startup warning: in production with webcam on but liveness optional, a client can simply skip it."""
-    if settings.production and settings.biometrics_enabled and not settings.liveness_required:
-        audit.warning("liveness is optional (LIVENESS_REQUIRED unset): a client can skip the challenge; set LIVENESS_REQUIRED=1")
+    try:
+        if settings.production and settings.biometrics_enabled and not settings.liveness_required:
+            audit.warning("liveness is optional (LIVENESS_REQUIRED unset): a client can skip the challenge; set LIVENESS_REQUIRED=1")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("warn_if_optional failed")
+        raise
 
 
 def face_present_enough(face_counts: Sequence[int]) -> bool:
     """Exactly one face in most sampled frames, and enough frames to judge."""
-    if len(face_counts) < MIN_FRAMES:
-        return False
-    return sum(1 for n in face_counts if n == 1) / len(face_counts) >= MIN_FACE_FRAME_RATIO
+    try:
+        if len(face_counts) < MIN_FRAMES:
+            return False
+        return sum(1 for n in face_counts if n == 1) / len(face_counts) >= MIN_FACE_FRAME_RATIO
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("face_present_enough failed")
+        raise
 
 
 def has_motion(boxes: Sequence[tuple[float, float, float, float]]) -> bool:
@@ -143,29 +185,49 @@ def has_motion(boxes: Sequence[tuple[float, float, float, float]]) -> bool:
 
 def same_person(first: Sequence[float], last: Sequence[float], limit: float = SAME_PERSON_MAX_DISTANCE) -> bool:
     """First and last frame embeddings (equal length) are close enough to be one person."""
-    if not first or len(first) != len(last):
-        return False
-    return math.sqrt(sum((a - b) ** 2 for a, b in zip(first, last))) <= limit
+    try:
+        if not first or len(first) != len(last):
+            return False
+        return math.sqrt(sum((a - b) ** 2 for a, b in zip(first, last))) <= limit
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("same_person failed")
+        raise
 
 
 # --- challenge tokens -----------------------------------------------------------------------------
 
 
 def new_actions() -> list[str]:
-    return random.SystemRandom().sample(ACTIONS, ACTIONS_PER_CHALLENGE)
+    try:
+        return random.SystemRandom().sample(ACTIONS, ACTIONS_PER_CHALLENGE)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("new_actions failed")
+        raise
 
 
 def issue_token(actions: Sequence[str]) -> str:
     """Signed, 60 s, single-use (consumed on read); bound to the ordered action list."""
-    return mint_challenge(PURPOSE, ",".join(actions).encode(), ttl_seconds=CHALLENGE_TTL_SECONDS)
+    try:
+        return mint_challenge(PURPOSE, ",".join(actions).encode(), ttl_seconds=CHALLENGE_TTL_SECONDS)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("issue_token failed")
+        raise
 
 
 def read_token(token: str, store: ChallengeStore) -> list[str]:
     """Verify and CONSUME a challenge token; PasskeyError for anything wrong (expired, replayed, tampered)."""
-    actions = read_challenge(token, PURPOSE, store).challenge.decode().split(",")
-    if len(actions) != ACTIONS_PER_CHALLENGE or len(set(actions)) != len(actions) or not set(actions) <= set(ACTIONS):
-        raise PasskeyError("bad actions")
-    return actions
+    try:
+        actions = read_challenge(token, PURPOSE, store).challenge.decode().split(",")
+        if len(actions) != ACTIONS_PER_CHALLENGE or len(set(actions)) != len(actions) or not set(actions) <= set(ACTIONS):
+            raise PasskeyError("bad actions")
+        return actions
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("read_token failed")
+        raise
 
 
 def liveness_ok(request: Request, token: str | None, video) -> bool:

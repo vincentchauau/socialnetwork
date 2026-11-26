@@ -23,6 +23,9 @@ from sn_shared.origin import check_origin
 from sn_shared.deps import GROUP_ADMIN, ensure_group, get_current_user
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 MAX_FILE_BYTES = 20 * 1024 * 1024
 QUOTA_BYTES = 100 * 1024 * 1024
 MAX_LIST_ENTRIES = 500
@@ -57,41 +60,66 @@ class RenameIn(BaseModel):
 
 
 def ensure_root(user_id: int) -> Path:
-    root = store.files_root(user_id)
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    try:
+        root = store.files_root(user_id)
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_root failed")
+        raise
 
 
 def data_root() -> Path:
-    return Path(os.environ.get("DATA_ROOT", DEFAULT_DATA_ROOT))
+    try:
+        return Path(os.environ.get("DATA_ROOT", DEFAULT_DATA_ROOT))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("data_root failed")
+        raise
 
 
 def area_files(user: TokenPayload, area: str) -> tuple[Path, bool]:
     """(the root of the area, whether the limits of one person's sandbox hold in it)."""
-    if area == "mine":
-        return ensure_root(user.user_id), True
-    ensure_group(user, GROUP_ADMIN, detail="Chỉ quản trị viên được quản lý thư mục dữ liệu của máy chủ")
-    root = data_root()
-    if not root.is_dir():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy thư mục dữ liệu")
-    return root, False
+    try:
+        if area == "mine":
+            return ensure_root(user.user_id), True
+        ensure_group(user, GROUP_ADMIN, detail="Chỉ quản trị viên được quản lý thư mục dữ liệu của máy chủ")
+        root = data_root()
+        if not root.is_dir():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy thư mục dữ liệu")
+        return root, False
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("area_files failed")
+        raise
 
 
 def user_lock_for(user: TokenPayload, limited: bool) -> store.user_lock:
-    return store.user_lock(user.user_id if limited else 0)  # the data area is one for everybody: one lock
+    try:
+        return store.user_lock(user.user_id if limited else 0)  # the data area is one for everybody: one lock
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("user_lock_for failed")
+        raise
 
 
 def scan_files(root: Path) -> tuple[int, int]:
     """(bytes, nodes) of a tree; symlinks count as nodes but are never followed."""
-    total = nodes = 0
-    for current, dirs, names in os.walk(root, followlinks=False):
-        nodes += len(dirs) + len(names)
-        for name in names:
-            try:
-                total += os.lstat(os.path.join(current, name)).st_size
-            except OSError:
-                continue
-    return total, nodes
+    try:
+        total = nodes = 0
+        for current, dirs, names in os.walk(root, followlinks=False):
+            nodes += len(dirs) + len(names)
+            for name in names:
+                try:
+                    total += os.lstat(os.path.join(current, name)).st_size
+                except OSError:
+                    continue
+        return total, nodes
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("scan_files failed")
+        raise
 
 
 def resolve_files(root: Path, raw: str, limited: bool = True) -> Resolved:
@@ -111,28 +139,38 @@ def name_files(raw: str) -> str:
 
 
 def directory_files(root: Path, raw: str, limited: bool = True) -> Resolved:
-    target = resolve_files(root, raw, limited)
-    if not target.real.is_dir():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Đường dẫn không phải thư mục")
-    return target
+    try:
+        target = resolve_files(root, raw, limited)
+        if not target.real.is_dir():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Đường dẫn không phải thư mục")
+        return target
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("directory_files failed")
+        raise
 
 
 def check_new_entry(root: Path, parent: Resolved, name: str, limited: bool = True) -> Path:
     """The real path a new child `name` of `parent` would get, after depth / collision / count limits."""
-    if len(parent.parts) + 1 > MAX_DEPTH:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Đường dẫn quá sâu (tối đa 6 cấp)")
-    target = parent.real / name
-    if os.path.lexists(target):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Tên này đã tồn tại")
-    if not limited:
+    try:
+        if len(parent.parts) + 1 > MAX_DEPTH:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Đường dẫn quá sâu (tối đa 6 cấp)")
+        target = parent.real / name
+        if os.path.lexists(target):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Tên này đã tồn tại")
+        if not limited:
+            return target
+        with os.scandir(parent.real) as entries:
+            count = sum(1 for _ in entries)
+        if count >= MAX_LIST_ENTRIES:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Thư mục đã đầy (tối đa 500 mục)")
+        if scan_files(root)[1] >= MAX_NODES_PER_USER:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Đã đạt số tệp và thư mục tối đa (1000)")
         return target
-    with os.scandir(parent.real) as entries:
-        count = sum(1 for _ in entries)
-    if count >= MAX_LIST_ENTRIES:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Thư mục đã đầy (tối đa 500 mục)")
-    if scan_files(root)[1] >= MAX_NODES_PER_USER:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Đã đạt số tệp và thư mục tối đa (1000)")
-    return target
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("check_new_entry failed")
+        raise
 
 
 def entry_files(entry: os.DirEntry) -> dict | None:
@@ -153,29 +191,39 @@ def entry_files(entry: os.DirEntry) -> dict | None:
 
 @router.get("/entries")
 def list_files(path: VirtualPath = "/", area: Area = "mine", user: TokenPayload = Depends(get_current_user)) -> dict:
-    root, limited = area_files(user, area)
-    target = directory_files(root, path, limited)
-    with os.scandir(target.real) as scan:
-        entries = [item for item in map(entry_files, scan) if item is not None]
-    entries.sort(key=lambda e: (e["type"] != "folder", e["name"].casefold(), e["name"]))
-    if not limited:  # no quota in the data area: its size is not counted (the tree is large), and a quota of 0 means "none"
-        return {"path": target.virtual, "entries": entries[:DATA_MAX_LIST_ENTRIES], "total": len(entries), "usage": {"usedBytes": 0, "quotaBytes": 0}}
-    return {
-        "path": target.virtual,
-        "entries": entries[:MAX_LIST_ENTRIES],
-        "total": len(entries),
-        "usage": {"usedBytes": scan_files(root)[0], "quotaBytes": QUOTA_BYTES},
-    }
+    try:
+        root, limited = area_files(user, area)
+        target = directory_files(root, path, limited)
+        with os.scandir(target.real) as scan:
+            entries = [item for item in map(entry_files, scan) if item is not None]
+        entries.sort(key=lambda e: (e["type"] != "folder", e["name"].casefold(), e["name"]))
+        if not limited:  # no quota in the data area: its size is not counted (the tree is large), and a quota of 0 means "none"
+            return {"path": target.virtual, "entries": entries[:DATA_MAX_LIST_ENTRIES], "total": len(entries), "usage": {"usedBytes": 0, "quotaBytes": 0}}
+        return {
+            "path": target.virtual,
+            "entries": entries[:MAX_LIST_ENTRIES],
+            "total": len(entries),
+            "usage": {"usedBytes": scan_files(root)[0], "quotaBytes": QUOTA_BYTES},
+        }
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("list_files failed")
+        raise
 
 
 @router.post("/folder", status_code=status.HTTP_201_CREATED)
 def create_folder(body: FolderIn, area: Area = "mine", user: TokenPayload = Depends(writer)) -> dict:
-    name = name_files(body.name)
-    root, limited = area_files(user, area)
-    with user_lock_for(user, limited):
-        parent = directory_files(root, body.path, limited)
-        os.mkdir(check_new_entry(root, parent, name, limited))
-    return {"name": name}
+    try:
+        name = name_files(body.name)
+        root, limited = area_files(user, area)
+        with user_lock_for(user, limited):
+            parent = directory_files(root, body.path, limited)
+            os.mkdir(check_new_entry(root, parent, name, limited))
+        return {"name": name}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("create_folder failed")
+        raise
 
 
 def spool(source, limit: int) -> tuple[Path, int]:
@@ -206,34 +254,49 @@ def upload(
     user: TokenPayload = Depends(writer),
 ) -> dict:
     """Put a file in a folder. A name that is taken is refused, unless `replace` is asked for in the person's own area: then what the file was is kept as a version."""
-    name = name_files(re.split(r"[\\/]", file.filename or "")[-1])  # a client may send a path: keep the last part
-    root, limited = area_files(user, area)
-    with user_lock_for(user, limited):
-        parent = directory_files(root, path, limited)
-        existing = parent.real / name
-        replacing = replace and limited and existing.is_file() and not existing.is_symlink()
-        target = existing if replacing else check_new_entry(root, parent, name, limited)
-        used = scan_files(root)[0] if limited else 0
-        temp, size = spool(file.file, MAX_FILE_BYTES)
-        try:
-            if limited and used - (existing.stat().st_size if replacing else 0) + size > QUOTA_BYTES:
-                raise HTTPException(413, "Vượt quá dung lượng 100 MB")
-            if replacing:
-                versions.keep(user.user_id, join_files(parent.virtual, name), existing)
-            os.replace(temp, target)  # atomic; without `replace` the collision check and the user lock rule out an overwrite
-        finally:
-            temp.unlink(missing_ok=True)
-    return {"name": name, "size": size, **({"replaced": True} if replacing else {})}
+    try:
+        name = name_files(re.split(r"[\\/]", file.filename or "")[-1])  # a client may send a path: keep the last part
+        root, limited = area_files(user, area)
+        with user_lock_for(user, limited):
+            parent = directory_files(root, path, limited)
+            existing = parent.real / name
+            replacing = replace and limited and existing.is_file() and not existing.is_symlink()
+            target = existing if replacing else check_new_entry(root, parent, name, limited)
+            used = scan_files(root)[0] if limited else 0
+            temp, size = spool(file.file, MAX_FILE_BYTES)
+            try:
+                if limited and used - (existing.stat().st_size if replacing else 0) + size > QUOTA_BYTES:
+                    raise HTTPException(413, "Vượt quá dung lượng 100 MB")
+                if replacing:
+                    versions.keep(user.user_id, join_files(parent.virtual, name), existing)
+                os.replace(temp, target)  # atomic; without `replace` the collision check and the user lock rule out an overwrite
+            finally:
+                temp.unlink(missing_ok=True)
+        return {"name": name, "size": size, **({"replaced": True} if replacing else {})}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("upload failed")
+        raise
 
 
 def join_files(folder: str, name: str) -> str:
-    return f"/{name}" if folder == "/" else f"{folder}/{name}"
+    try:
+        return f"/{name}" if folder == "/" else f"{folder}/{name}"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("join_files failed")
+        raise
 
 
 @router.get("/versions")
 def list_versions(path: VirtualPath, user: TokenPayload = Depends(get_current_user)) -> dict:
     """The versions kept of the file at `path` (what it was before it was replaced), the newest first."""
-    return {"versions": [{"id": meta["id"], "size": meta["size"], "savedAt": meta["savedAt"]} for meta in versions.of_path(user.user_id, path)], "keepDays": versions.KEEP_DAYS}
+    try:
+        return {"versions": [{"id": meta["id"], "size": meta["size"], "savedAt": meta["savedAt"]} for meta in versions.of_path(user.user_id, path)], "keepDays": versions.KEEP_DAYS}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("list_versions failed")
+        raise
 
 
 class VersionIn(BaseModel):
@@ -244,74 +307,94 @@ class VersionIn(BaseModel):
 @router.post("/versions/restore")
 def restore_version(body: VersionIn, user: TokenPayload = Depends(writer)) -> dict:
     """Put a version back as the file; what the file is now is kept as a version, so this can be undone."""
-    root, _ = area_files(user, "mine")
-    with user_lock_for(user, True):
-        found = versions.find(user.user_id, body.id)
-        if found is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy phiên bản")
-        folder, meta = found
-        try:
-            parent = directory_files(root, meta["path"].rsplit("/", 1)[0] or "/")
-        except HTTPException:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Thư mục của tệp không còn") from None
-        target = parent.real / meta["name"]
-        if target.exists() and not target.is_file():
-            raise HTTPException(status.HTTP_409_CONFLICT, "Tên này đã tồn tại")
-        current = target.stat().st_size if target.is_file() else 0
-        if scan_files(root)[0] - current + meta["size"] > QUOTA_BYTES:
-            raise HTTPException(413, "Vượt quá dung lượng 100 MB")
-        if target.is_file():
-            versions.keep(user.user_id, meta["path"], target)
-        temp = target.with_name(f".restore-{secrets.token_hex(6)}")
-        shutil.copy2(folder / versions.ITEM, temp)
-        os.replace(temp, target)
-        versions.drop(user.user_id, body.id)
-    return {"name": meta["name"], "path": parent.virtual}
+    try:
+        root, _ = area_files(user, "mine")
+        with user_lock_for(user, True):
+            found = versions.find(user.user_id, body.id)
+            if found is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy phiên bản")
+            folder, meta = found
+            try:
+                parent = directory_files(root, meta["path"].rsplit("/", 1)[0] or "/")
+            except HTTPException:
+                raise HTTPException(status.HTTP_409_CONFLICT, "Thư mục của tệp không còn") from None
+            target = parent.real / meta["name"]
+            if target.exists() and not target.is_file():
+                raise HTTPException(status.HTTP_409_CONFLICT, "Tên này đã tồn tại")
+            current = target.stat().st_size if target.is_file() else 0
+            if scan_files(root)[0] - current + meta["size"] > QUOTA_BYTES:
+                raise HTTPException(413, "Vượt quá dung lượng 100 MB")
+            if target.is_file():
+                versions.keep(user.user_id, meta["path"], target)
+            temp = target.with_name(f".restore-{secrets.token_hex(6)}")
+            shutil.copy2(folder / versions.ITEM, temp)
+            os.replace(temp, target)
+            versions.drop(user.user_id, body.id)
+        return {"name": meta["name"], "path": parent.virtual}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("restore_version failed")
+        raise
 
 
 @router.delete("/versions", status_code=status.HTTP_204_NO_CONTENT)
 def drop_version(id: Annotated[str, Query(max_length=64)], user: TokenPayload = Depends(writer)) -> Response:
-    with user_lock_for(user, True):
-        if not versions.drop(user.user_id, id):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy phiên bản")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        with user_lock_for(user, True):
+            if not versions.drop(user.user_id, id):
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy phiên bản")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("drop_version failed")
+        raise
 
 
 @router.get("/download")
 def download(path: VirtualPath, area: Area = "mine", user: TokenPayload = Depends(get_current_user)) -> FileResponse:
-    root, limited = area_files(user, area)
-    target = resolve_files(root, path, limited)
-    if not target.parts or not target.real.is_file():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy tệp")
-    return FileResponse(
-        target.real,
-        media_type="application/octet-stream",
-        filename=target.parts[-1],
-        content_disposition_type="attachment",
-        headers={
-            "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "sandbox",
-            "Cache-Control": "private, no-store",
-        },
-    )
+    try:
+        root, limited = area_files(user, area)
+        target = resolve_files(root, path, limited)
+        if not target.parts or not target.real.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy tệp")
+        return FileResponse(
+            target.real,
+            media_type="application/octet-stream",
+            filename=target.parts[-1],
+            content_disposition_type="attachment",
+            headers={
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "sandbox",
+                "Cache-Control": "private, no-store",
+            },
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("download failed")
+        raise
 
 
 @router.delete("/entries", status_code=status.HTTP_204_NO_CONTENT)
 def delete(path: VirtualPath, area: Area = "mine", user: TokenPayload = Depends(writer)) -> Response:
-    root, limited = area_files(user, area)
-    with user_lock_for(user, limited):
-        target = resolve_files(root, path, limited)
-        if not target.parts:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể xóa thư mục gốc")
-        if not limited and len(target.parts) == 1:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể xóa thư mục ở cấp cao nhất của dữ liệu máy chủ")
-        if target.real.is_dir():
-            if scan_files(target.real)[1] > (MAX_DELETE_ENTRIES if limited else DATA_MAX_DELETE_ENTRIES):
-                raise HTTPException(status.HTTP_409_CONFLICT, "Thư mục có quá nhiều mục để xóa cùng lúc")
-            (trash.put(user.user_id, target.real, target.parts) if limited else shutil.rmtree(target.real))
-        else:
-            (trash.put(user.user_id, target.real, target.parts) if limited else target.real.unlink())  # a person's delete goes to the trash; the data area has none
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        root, limited = area_files(user, area)
+        with user_lock_for(user, limited):
+            target = resolve_files(root, path, limited)
+            if not target.parts:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể xóa thư mục gốc")
+            if not limited and len(target.parts) == 1:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể xóa thư mục ở cấp cao nhất của dữ liệu máy chủ")
+            if target.real.is_dir():
+                if scan_files(target.real)[1] > (MAX_DELETE_ENTRIES if limited else DATA_MAX_DELETE_ENTRIES):
+                    raise HTTPException(status.HTTP_409_CONFLICT, "Thư mục có quá nhiều mục để xóa cùng lúc")
+                (trash.put(user.user_id, target.real, target.parts) if limited else shutil.rmtree(target.real))
+            else:
+                (trash.put(user.user_id, target.real, target.parts) if limited else target.real.unlink())  # a person's delete goes to the trash; the data area has none
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete failed")
+        raise
 
 
 class RestoreIn(BaseModel):
@@ -322,89 +405,119 @@ class RestoreIn(BaseModel):
 @router.get("/trash")
 def list_trash(user: TokenPayload = Depends(get_current_user)) -> dict:
     """What the person deleted and can still put back (the newest first); it is erased for good after a while."""
-    return {"entries": trash.entries(user.user_id), "keepDays": trash.KEEP_DAYS}
+    try:
+        return {"entries": trash.entries(user.user_id), "keepDays": trash.KEEP_DAYS}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("list_trash failed")
+        raise
 
 
 def free_name(parent: Path, name: str) -> str:
     """`name` when nothing of that name is in `parent`, else `name (2)`, `name (3)`..., short enough to be a name."""
-    if not os.path.lexists(parent / name):
-        return name
-    stem, dot, extension = name.rpartition(".") if "." in name[1:] else (name, "", "")
-    for number in range(2, 1000):
-        candidate = f"{stem} ({number}){dot}{extension}"
-        if len(candidate) <= MAX_NAME_LENGTH and not os.path.lexists(parent / candidate):
-            return candidate
-    raise HTTPException(status.HTTP_409_CONFLICT, "Tên này đã tồn tại")
+    try:
+        if not os.path.lexists(parent / name):
+            return name
+        stem, dot, extension = name.rpartition(".") if "." in name[1:] else (name, "", "")
+        for number in range(2, 1000):
+            candidate = f"{stem} ({number}){dot}{extension}"
+            if len(candidate) <= MAX_NAME_LENGTH and not os.path.lexists(parent / candidate):
+                return candidate
+        raise HTTPException(status.HTTP_409_CONFLICT, "Tên này đã tồn tại")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("free_name failed")
+        raise
 
 
 @router.post("/trash/restore")
 def restore(body: RestoreIn, user: TokenPayload = Depends(writer)) -> dict:
     """Put an item back where it was (at the top when that folder is gone; under a new name when the name is taken)."""
-    root, _ = area_files(user, "mine")
-    with user_lock_for(user, True):
-        found = trash.find(user.user_id, body.id)
-        if found is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy trong thùng rác")
-        folder, meta = found
-        try:
-            parent = directory_files(root, meta["parent"])
-        except HTTPException:
-            parent = directory_files(root, "/")  # the folder it was in is gone
-        name = free_name(parent.real, meta["name"])
-        target = check_new_entry(root, parent, name)
-        if scan_files(root)[0] + meta["size"] > QUOTA_BYTES:
-            raise HTTPException(413, "Vượt quá dung lượng 100 MB")
-        shutil.move(str(folder / trash.ITEM), str(target))
-        shutil.rmtree(folder, ignore_errors=True)
-    return {"name": name, "path": parent.virtual}
+    try:
+        root, _ = area_files(user, "mine")
+        with user_lock_for(user, True):
+            found = trash.find(user.user_id, body.id)
+            if found is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy trong thùng rác")
+            folder, meta = found
+            try:
+                parent = directory_files(root, meta["parent"])
+            except HTTPException:
+                parent = directory_files(root, "/")  # the folder it was in is gone
+            name = free_name(parent.real, meta["name"])
+            target = check_new_entry(root, parent, name)
+            if scan_files(root)[0] + meta["size"] > QUOTA_BYTES:
+                raise HTTPException(413, "Vượt quá dung lượng 100 MB")
+            shutil.move(str(folder / trash.ITEM), str(target))
+            shutil.rmtree(folder, ignore_errors=True)
+        return {"name": name, "path": parent.virtual}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("restore failed")
+        raise
 
 
 @router.delete("/trash", status_code=status.HTTP_204_NO_CONTENT)
 def erase_trash(id: Annotated[str | None, Query(max_length=64)] = None, user: TokenPayload = Depends(writer)) -> Response:
     """Erase one item of the trash for good (`id`), or all of it."""
-    with user_lock_for(user, True):
-        if id is not None and trash.find(user.user_id, id) is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy trong thùng rác")
-        trash.erase(user.user_id, id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        with user_lock_for(user, True):
+            if id is not None and trash.find(user.user_id, id) is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy trong thùng rác")
+            trash.erase(user.user_id, id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("erase_trash failed")
+        raise
 
 
 @router.post("/rename")
 def rename(body: RenameIn, area: Area = "mine", user: TokenPayload = Depends(writer)) -> dict:
-    new_name = name_files(body.new_name)
-    root, limited = area_files(user, area)
-    with user_lock_for(user, limited):
-        target = resolve_files(root, body.path, limited)
-        if not target.parts:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể đổi tên thư mục gốc")
-        if not limited and len(target.parts) == 1:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể đổi tên thư mục ở cấp cao nhất của dữ liệu máy chủ")
-        if new_name != target.parts[-1]:
-            destination = target.real.parent / new_name
-            if os.path.lexists(destination):
-                raise HTTPException(status.HTTP_409_CONFLICT, "Tên này đã tồn tại")
-            os.rename(target.real, destination)
-    return {"name": new_name}
+    try:
+        new_name = name_files(body.new_name)
+        root, limited = area_files(user, area)
+        with user_lock_for(user, limited):
+            target = resolve_files(root, body.path, limited)
+            if not target.parts:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể đổi tên thư mục gốc")
+            if not limited and len(target.parts) == 1:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể đổi tên thư mục ở cấp cao nhất của dữ liệu máy chủ")
+            if new_name != target.parts[-1]:
+                destination = target.real.parent / new_name
+                if os.path.lexists(destination):
+                    raise HTTPException(status.HTTP_409_CONFLICT, "Tên này đã tồn tại")
+                os.rename(target.real, destination)
+        return {"name": new_name}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("rename failed")
+        raise
 
 
 @router.post("/move")
 def move(body: MoveIn, area: Area = "mine", user: TokenPayload = Depends(writer)) -> dict:
     """Move a file or folder into another folder of the same area (drag and drop in the explorer)."""
-    root, limited = area_files(user, area)
-    with user_lock_for(user, limited):
-        target = resolve_files(root, body.path, limited)
-        if not target.parts:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể di chuyển thư mục gốc")
-        if not limited and len(target.parts) == 1:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể di chuyển thư mục ở cấp cao nhất của dữ liệu máy chủ")
-        destination_folder = directory_files(root, body.to_folder, limited)
-        if destination_folder.parts[: len(target.parts)] == target.parts:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể đưa thư mục vào chính nó")
-        if destination_folder.parts == target.parts[:-1]:
-            return {"moved": False}
-        new_path = check_new_entry(root, destination_folder, target.parts[-1], limited)
-        os.rename(target.real, new_path)
-    return {"moved": True}
+    try:
+        root, limited = area_files(user, area)
+        with user_lock_for(user, limited):
+            target = resolve_files(root, body.path, limited)
+            if not target.parts:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể di chuyển thư mục gốc")
+            if not limited and len(target.parts) == 1:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể di chuyển thư mục ở cấp cao nhất của dữ liệu máy chủ")
+            destination_folder = directory_files(root, body.to_folder, limited)
+            if destination_folder.parts[: len(target.parts)] == target.parts:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể đưa thư mục vào chính nó")
+            if destination_folder.parts == target.parts[:-1]:
+                return {"moved": False}
+            new_path = check_new_entry(root, destination_folder, target.parts[-1], limited)
+            os.rename(target.real, new_path)
+        return {"moved": True}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("move failed")
+        raise
 
 
 class CopyIn(BaseModel):
@@ -416,20 +529,25 @@ class CopyIn(BaseModel):
 @router.post("/copy", status_code=status.HTTP_201_CREATED)
 def copy(body: CopyIn, area: Area = "mine", user: TokenPayload = Depends(writer)) -> dict:
     """Copy a file or a folder (with all it holds) into another folder of the same area. The copy keeps the name; a name that is taken is refused."""
-    root, limited = area_files(user, area)
-    with user_lock_for(user, limited):
-        source = resolve_files(root, body.path, limited)
-        if not source.parts:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể sao chép thư mục gốc")
-        destination_folder = directory_files(root, body.to_folder, limited)
-        if source.real.is_dir() and destination_folder.parts[: len(source.parts)] == source.parts:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể sao chép thư mục vào chính nó")
-        new_path = check_new_entry(root, destination_folder, source.parts[-1], limited)
-        if source.real.is_dir():
-            shutil.copytree(source.real, new_path, symlinks=True)
-        else:
-            shutil.copy2(source.real, new_path, follow_symlinks=False)
-    return {"copied": True, "name": source.parts[-1]}
+    try:
+        root, limited = area_files(user, area)
+        with user_lock_for(user, limited):
+            source = resolve_files(root, body.path, limited)
+            if not source.parts:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể sao chép thư mục gốc")
+            destination_folder = directory_files(root, body.to_folder, limited)
+            if source.real.is_dir() and destination_folder.parts[: len(source.parts)] == source.parts:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Không thể sao chép thư mục vào chính nó")
+            new_path = check_new_entry(root, destination_folder, source.parts[-1], limited)
+            if source.real.is_dir():
+                shutil.copytree(source.real, new_path, symlinks=True)
+            else:
+                shutil.copy2(source.real, new_path, follow_symlinks=False)
+        return {"copied": True, "name": source.parts[-1]}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("copy failed")
+        raise
 
 
 MAX_SEARCH_HITS = 200
@@ -438,28 +556,33 @@ MAX_SEARCH_HITS = 200
 @router.get("/search-folder")
 def search_folder(path: VirtualPath = "/", q: Annotated[str, Query(min_length=1, max_length=120)] = "", area: Area = "mine", user: TokenPayload = Depends(get_current_user)) -> dict:
     """The files and folders whose name holds `q`, in the folder and all the folders below it (at most 200 hits)."""
-    root, limited = area_files(user, area)
-    start = directory_files(root, path, limited)
-    needle = q.strip().casefold()
-    hits: list[dict] = []
-    for dirpath, dirnames, filenames in os.walk(start.real):
-        here = Path(dirpath)
-        relative = here.relative_to(start.real).parts
-        for name, is_dir in [(n, True) for n in dirnames] + [(n, False) for n in filenames]:
-            if needle not in name.casefold():
-                continue
-            child = here / name
-            try:
-                info = child.stat()
-            except OSError:
-                continue
-            hits.append({
-                "name": name,
-                "path": to_virtual([*start.parts, *relative, name]),
-                "type": "folder" if is_dir else "file",
-                "size": 0 if is_dir else info.st_size,
-                "modifiedAt": int(info.st_mtime),
-            })
-            if len(hits) >= MAX_SEARCH_HITS:
-                return {"entries": hits, "more": True}
-    return {"entries": hits, "more": False}
+    try:
+        root, limited = area_files(user, area)
+        start = directory_files(root, path, limited)
+        needle = q.strip().casefold()
+        hits: list[dict] = []
+        for dirpath, dirnames, filenames in os.walk(start.real):
+            here = Path(dirpath)
+            relative = here.relative_to(start.real).parts
+            for name, is_dir in [(n, True) for n in dirnames] + [(n, False) for n in filenames]:
+                if needle not in name.casefold():
+                    continue
+                child = here / name
+                try:
+                    info = child.stat()
+                except OSError:
+                    continue
+                hits.append({
+                    "name": name,
+                    "path": to_virtual([*start.parts, *relative, name]),
+                    "type": "folder" if is_dir else "file",
+                    "size": 0 if is_dir else info.st_size,
+                    "modifiedAt": int(info.st_mtime),
+                })
+                if len(hits) >= MAX_SEARCH_HITS:
+                    return {"entries": hits, "more": True}
+        return {"entries": hits, "more": False}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("search_folder failed")
+        raise

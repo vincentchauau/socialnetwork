@@ -21,6 +21,8 @@ from sqlalchemy.orm import Session
 from api.center.config import Settings
 from api.center.models import User
 
+logger = logging.getLogger(__name__)
+
 MAX_IDENTIFY_CANDIDATES = 5000
 ENTER_USERNAME = "Enter your username"
 FACE_TAKEN = "This face is already registered"
@@ -44,7 +46,12 @@ class Modality:
     margin: Callable[[Settings], float]  # best must beat the runner-up by at least this
 
     def filters(self) -> tuple:
-        return (getattr(User, self.flag).is_(True), getattr(User, self.column).is_not(None), User.kind == "human")
+        try:
+            return (getattr(User, self.flag).is_(True), getattr(User, self.column).is_not(None), User.kind == "human")
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("filters failed")
+            raise
 
 
 # Placeholders must be well-formed templates for the REAL engine (a malformed one used to crash it and
@@ -67,11 +74,21 @@ VOICE = Modality(
 
 
 def candidate_count(db: Session, kind: Modality = FACE) -> int:
-    return db.scalar(select(func.count()).select_from(User).where(*kind.filters())) or 0
+    try:
+        return db.scalar(select(func.count()).select_from(User).where(*kind.filters())) or 0
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("candidate_count failed")
+        raise
 
 
 def too_many_candidates(db: Session, kind: Modality = FACE) -> bool:
-    return candidate_count(db, kind) > MAX_IDENTIFY_CANDIDATES
+    try:
+        return candidate_count(db, kind) > MAX_IDENTIFY_CANDIDATES
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("too_many_candidates failed")
+        raise
 
 
 def identify_identify(request: Request, db: Session, kind: Modality, probe: bytes) -> User | None:
@@ -80,34 +97,49 @@ def identify_identify(request: Request, db: Session, kind: Modality, probe: byte
     The probe is the only factor. Always walks every candidate (and runs one dummy comparison when there
     is none), so the amount of work does not reveal which check failed.
     """
-    engine, cipher, settings = request.app.state.biometrics, request.app.state.cipher, request.app.state.settings
-    best: User | None = None
-    best_cost, second_cost, count = math.inf, math.inf, 0
-    for user in db.scalars(select(User).where(*kind.filters())):
-        template = cipher.decrypt(getattr(user, kind.column))
-        if template is None:
-            continue
-        count += 1
-        cost = kind.cost(engine, template, probe)
-        if cost < best_cost:
-            best, best_cost, second_cost = user, cost, best_cost
-        elif cost < second_cost:
-            second_cost = cost
-    if count == 0:
-        kind.cost(engine, kind.dummy, probe)
-    unambiguous = count == 1 or second_cost - best_cost >= kind.margin(settings)
-    accepted = best is not None and best_cost <= kind.limit(settings) and unambiguous
-    return best if accepted else None
+    try:
+        engine, cipher, settings = request.app.state.biometrics, request.app.state.cipher, request.app.state.settings
+        best: User | None = None
+        best_cost, second_cost, count = math.inf, math.inf, 0
+        for user in db.scalars(select(User).where(*kind.filters())):
+            template = cipher.decrypt(getattr(user, kind.column))
+            if template is None:
+                continue
+            count += 1
+            cost = kind.cost(engine, template, probe)
+            if cost < best_cost:
+                best, best_cost, second_cost = user, cost, best_cost
+            elif cost < second_cost:
+                second_cost = cost
+        if count == 0:
+            kind.cost(engine, kind.dummy, probe)
+        unambiguous = count == 1 or second_cost - best_cost >= kind.margin(settings)
+        accepted = best is not None and best_cost <= kind.limit(settings) and unambiguous
+        return best if accepted else None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("identify_identify failed")
+        raise
 
 
 def identify(request: Request, db: Session, face: bytes) -> User | None:
     """Webcam sign-in without a username: the account whose face is closest, if strict and unambiguous."""
-    return identify_identify(request, db, FACE, face)
+    try:
+        return identify_identify(request, db, FACE, face)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("identify failed")
+        raise
 
 
 def identify_voice(request: Request, db: Session, voice: bytes) -> User | None:
     """Voice sign-in without a username: the account whose voice is closest, if strict and unambiguous."""
-    return identify_identify(request, db, VOICE, voice)
+    try:
+        return identify_identify(request, db, VOICE, voice)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("identify_voice failed")
+        raise
 
 
 def ensure_unique(
@@ -118,22 +150,37 @@ def ensure_unique(
     Keeps 1-N identification unambiguous. Privacy trade-off: the 409 tells the caller that a given face or
     voice is registered here. Above MAX_IDENTIFY_CANDIDATES the check is skipped (identification is off).
     """
-    if too_many_candidates(db, kind):
-        log.warning("%s uniqueness check skipped: more than %d accounts", kind.name, MAX_IDENTIFY_CANDIDATES)
-        return
-    engine, cipher, settings = request.app.state.biometrics, request.app.state.cipher, request.app.state.settings
-    query = select(User).where(*kind.filters())
-    if exclude_user_id is not None:
-        query = query.where(User.id != exclude_user_id)
-    for user in db.scalars(query):
-        template = cipher.decrypt(getattr(user, kind.column))
-        if template is not None and kind.cost(engine, template, probe) <= kind.limit(settings):
-            raise HTTPException(status.HTTP_409_CONFLICT, kind.taken)
+    try:
+        if too_many_candidates(db, kind):
+            log.warning("%s uniqueness check skipped: more than %d accounts", kind.name, MAX_IDENTIFY_CANDIDATES)
+            return
+        engine, cipher, settings = request.app.state.biometrics, request.app.state.cipher, request.app.state.settings
+        query = select(User).where(*kind.filters())
+        if exclude_user_id is not None:
+            query = query.where(User.id != exclude_user_id)
+        for user in db.scalars(query):
+            template = cipher.decrypt(getattr(user, kind.column))
+            if template is not None and kind.cost(engine, template, probe) <= kind.limit(settings):
+                raise HTTPException(status.HTTP_409_CONFLICT, kind.taken)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_unique failed")
+        raise
 
 
 def ensure_face_unique(request: Request, db: Session, face: bytes, exclude_user_id: int | None = None) -> None:
-    ensure_unique(request, db, FACE, face, exclude_user_id)
+    try:
+        ensure_unique(request, db, FACE, face, exclude_user_id)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_face_unique failed")
+        raise
 
 
 def ensure_voice_unique(request: Request, db: Session, voice: bytes, exclude_user_id: int | None = None) -> None:
-    ensure_unique(request, db, VOICE, voice, exclude_user_id)
+    try:
+        ensure_unique(request, db, VOICE, voice, exclude_user_id)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_voice_unique failed")
+        raise

@@ -29,99 +29,137 @@ from sn_shared import directory
 from sn_shared.security import TokenPayload
 from sn_shared.clock import aware
 
+import logging
+logger = logging.getLogger(__name__)
+
 def conflict(message: str) -> HTTPException:
-    return HTTPException(status.HTTP_409_CONFLICT, message)
+    try:
+        return HTTPException(status.HTTP_409_CONFLICT, message)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("conflict failed")
+        raise
 
 
 def order_views(db: Session, orders: list[Order], viewer_id: int) -> list[OrderOut]:
     """Views of many orders with the buyer names read once."""
-    found = directory.names(db, [order.buyer_id for order in orders])
-    return [order_view(order, viewer_id, found[order.buyer_id]) for order in orders]
+    try:
+        found = directory.names(db, [order.buyer_id for order in orders])
+        return [order_view(order, viewer_id, found[order.buyer_id]) for order in orders]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("order_views failed")
+        raise
 
 
 def order_view(order: Order, viewer_id: int, buyer_username: str) -> OrderOut:
     """The buyer sees every line; a seller sees only their own lines and subtotal."""
-    lines = order.items if order.buyer_id == viewer_id else [
-        item for item in order.items if item["seller_id"] == viewer_id
-    ]
-    items = [
-        OrderItemOut(
-            product_id=item["product_id"],
-            name=item["name"],
-            unit_price_cents=item["unit_price_cents"],
-            quantity=item["quantity"],
-            line_total_cents=item["unit_price_cents"] * item["quantity"] - item.get("discount_cents", 0),
-            discount_cents=item.get("discount_cents", 0),
+    try:
+        lines = order.items if order.buyer_id == viewer_id else [
+            item for item in order.items if item["seller_id"] == viewer_id
+        ]
+        items = [
+            OrderItemOut(
+                product_id=item["product_id"],
+                name=item["name"],
+                unit_price_cents=item["unit_price_cents"],
+                quantity=item["quantity"],
+                line_total_cents=item["unit_price_cents"] * item["quantity"] - item.get("discount_cents", 0),
+                discount_cents=item.get("discount_cents", 0),
+            )
+            for item in lines
+        ]
+        # The order discount is the buyer's; a seller sees their own lines at full price.
+        discount = order.discount_cents if order.buyer_id == viewer_id else 0
+        return OrderOut(
+            id=order.id,
+            status=order.status,  # type: ignore[arg-type]
+            currency=order.currency,
+            total_cents=sum(item.line_total_cents for item in items) - discount,
+            buyer_username=buyer_username,
+            created_at=order.created_at,
+            items=items,
+            discount_cents=discount,
+            delivered_at=order.delivered_at,
         )
-        for item in lines
-    ]
-    # The order discount is the buyer's; a seller sees their own lines at full price.
-    discount = order.discount_cents if order.buyer_id == viewer_id else 0
-    return OrderOut(
-        id=order.id,
-        status=order.status,  # type: ignore[arg-type]
-        currency=order.currency,
-        total_cents=sum(item.line_total_cents for item in items) - discount,
-        buyer_username=buyer_username,
-        created_at=order.created_at,
-        items=items,
-        discount_cents=discount,
-        delivered_at=order.delivered_at,
-    )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("order_view failed")
+        raise
 
 
 def involved_order(db: Session, order_id: int, user_id: int) -> Order:
     """The order if the user is its buyer or a seller on it; otherwise 404 (no leak)."""
-    order = db.get(Order, order_id)
-    if order is None or not (
-        order.buyer_id == user_id or any(item["seller_id"] == user_id for item in order.items)
-    ):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
-    return order
+    try:
+        order = db.get(Order, order_id)
+        if order is None or not (
+            order.buyer_id == user_id or any(item["seller_id"] == user_id for item in order.items)
+        ):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+        return order
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("involved_order failed")
+        raise
 
 
 def checkout_replay(db: Session, user_id: int, key: str | None) -> Order | None:
-    if key is None:
-        return None
-    return db.scalar(select(Order).where(Order.buyer_id == user_id, Order.idempotency_key == key))
+    try:
+        if key is None:
+            return None
+        return db.scalar(select(Order).where(Order.buyer_id == user_id, Order.idempotency_key == key))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("checkout_replay failed")
+        raise
 
 
 def claim_cart(db: Session, user_id: int) -> list[tuple[CartItem, Product]]:
-    rows = db.execute(
-        select(CartItem, Product)
-        .join(Product, Product.id == CartItem.product_id)
-        .where(CartItem.user_id == user_id, Product.is_active.is_(True))
-        .order_by(Product.id)  # stable lock order avoids deadlocks between buyers
-    ).all()
-    if not rows:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Your cart is empty")
-    if any(product.seller_id == user_id for _, product in rows):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot buy your own product")
-    # Deleting the exact lines read makes a concurrent second checkout of the same
-    # cart match fewer rows and fail, so one cart can never become two orders.
-    deleted = db.execute(
-        delete(CartItem).where(CartItem.id.in_([item.id for item, _ in rows]))
-    )
-    if deleted.rowcount != len(rows):
-        raise conflict("Your cart changed, please review it and try again")
-    return [(item, product) for item, product in rows]
+    try:
+        rows = db.execute(
+            select(CartItem, Product)
+            .join(Product, Product.id == CartItem.product_id)
+            .where(CartItem.user_id == user_id, Product.is_active.is_(True))
+            .order_by(Product.id)  # stable lock order avoids deadlocks between buyers
+        ).all()
+        if not rows:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Your cart is empty")
+        if any(product.seller_id == user_id for _, product in rows):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot buy your own product")
+        # Deleting the exact lines read makes a concurrent second checkout of the same
+        # cart match fewer rows and fail, so one cart can never become two orders.
+        deleted = db.execute(
+            delete(CartItem).where(CartItem.id.in_([item.id for item, _ in rows]))
+        )
+        if deleted.rowcount != len(rows):
+            raise conflict("Your cart changed, please review it and try again")
+        return [(item, product) for item, product in rows]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("claim_cart failed")
+        raise
 
 
 def reserve_stock(db: Session, item: CartItem, product: Product) -> None:
     """Atomic conditional decrement: never oversells, never goes negative."""
-    result = db.execute(
-        update(Product)
-        .where(
-            Product.id == product.id,
-            Product.is_active.is_(True),
-            Product.stock >= item.quantity,
-            Product.price_cents == product.price_cents,  # price must not change mid-checkout
+    try:
+        result = db.execute(
+            update(Product)
+            .where(
+                Product.id == product.id,
+                Product.is_active.is_(True),
+                Product.stock >= item.quantity,
+                Product.price_cents == product.price_cents,  # price must not change mid-checkout
+            )
+            .values(stock=Product.stock - item.quantity)
+            .execution_options(synchronize_session=False)
         )
-        .values(stock=Product.stock - item.quantity)
-        .execution_options(synchronize_session=False)
-    )
-    if result.rowcount != 1:
-        raise conflict(f"'{product.name}' is out of stock or its price changed")
+        if result.rowcount != 1:
+            raise conflict(f"'{product.name}' is out of stock or its price changed")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("reserve_stock failed")
+        raise
 
 
 def checkout(db: Session, user: TokenPayload, key: str | None) -> tuple[Order, bool]:
@@ -207,21 +245,31 @@ def pay(
 
 
 def role_targets(order: Order, user_id: int) -> frozenset[str]:
-    if order.buyer_id == user_id:
-        return BUYER_TARGETS
-    if order.status == STATUS_RETURN_REQUESTED:
-        return RETURN_TARGETS
-    return SELLER_TARGETS  # involved_order already proved the user is a seller on it
+    try:
+        if order.buyer_id == user_id:
+            return BUYER_TARGETS
+        if order.status == STATUS_RETURN_REQUESTED:
+            return RETURN_TARGETS
+        return SELLER_TARGETS  # involved_order already proved the user is a seller on it
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("role_targets failed")
+        raise
 
 
 def restock_order_service(db: Session, order: Order) -> None:
-    for item in order.items:  # restock exactly what checkout took
-        db.execute(
-            update(Product)
-            .where(Product.id == item["product_id"])
-            .values(stock=Product.stock + item["quantity"])
-            .execution_options(synchronize_session=False)
-        )
+    try:
+        for item in order.items:  # restock exactly what checkout took
+            db.execute(
+                update(Product)
+                .where(Product.id == item["product_id"])
+                .values(stock=Product.stock + item["quantity"])
+                .execution_options(synchronize_session=False)
+            )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("restock_order_service failed")
+        raise
 
 
 def refund_or_rollback(db: Session, order: Order, provider: PaymentProvider) -> None:
@@ -240,23 +288,28 @@ def expire_stale_orders(db: Session, now: datetime, ttl: timedelta) -> int:
 
     Called lazily from request paths (no background worker). Returns how many expired.
     """
-    stale = db.scalars(
-        select(Order).where(Order.status == STATUS_PENDING, Order.created_at < now - ttl)
-    ).all()
-    expired = 0
-    for order in stale:
-        claimed = db.execute(
-            update(Order)
-            .where(Order.id == order.id, Order.status == STATUS_PENDING)
-            .values(status=STATUS_CANCELLED)
-            .execution_options(synchronize_session=False)
-        )
-        if claimed.rowcount == 1:  # lost races mean someone else paid or cancelled it
-            restock_order_service(db, order)
-            expired += 1
-    if stale:
-        db.commit()
-    return expired
+    try:
+        stale = db.scalars(
+            select(Order).where(Order.status == STATUS_PENDING, Order.created_at < now - ttl)
+        ).all()
+        expired = 0
+        for order in stale:
+            claimed = db.execute(
+                update(Order)
+                .where(Order.id == order.id, Order.status == STATUS_PENDING)
+                .values(status=STATUS_CANCELLED)
+                .execution_options(synchronize_session=False)
+            )
+            if claimed.rowcount == 1:  # lost races mean someone else paid or cancelled it
+                restock_order_service(db, order)
+                expired += 1
+        if stale:
+            db.commit()
+        return expired
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("expire_stale_orders failed")
+        raise
 
 
 def change_status(
@@ -266,32 +319,37 @@ def change_status(
 
     A multi-seller order has a single shared status, not one per seller.
     """
-    order = involved_order(db, order_id, user.user_id)
-    if target not in role_targets(order, user.user_id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "You may not set that status")
-    ORDER_FLOW.check(order.status, target, "an order")
-    current = order.status
-    values: dict = {"status": target}
-    if target == STATUS_DELIVERED and current != STATUS_RETURN_REQUESTED:
-        values["delivered_at"] = utcnow()
-    if target == STATUS_RETURN_REQUESTED:
-        if utcnow() - aware(order.delivered_at or order.created_at) > timedelta(days=RETURN_WINDOW_DAYS):
-            raise conflict(f"A return must be asked within {RETURN_WINDOW_DAYS} days of the delivery")
-    changed = db.execute(
-        update(Order)
-        .where(Order.id == order_id, Order.status == current)  # guards against races
-        .values(**values)
-        .execution_options(synchronize_session=False)
-    )
-    if changed.rowcount != 1:
-        raise conflict("Order was changed by someone else, please reload")
-    if target == STATUS_CANCELLED:
-        restock_order_service(db, order)
-        if current == STATUS_PAID:
+    try:
+        order = involved_order(db, order_id, user.user_id)
+        if target not in role_targets(order, user.user_id):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "You may not set that status")
+        ORDER_FLOW.check(order.status, target, "an order")
+        current = order.status
+        values: dict = {"status": target}
+        if target == STATUS_DELIVERED and current != STATUS_RETURN_REQUESTED:
+            values["delivered_at"] = utcnow()
+        if target == STATUS_RETURN_REQUESTED:
+            if utcnow() - aware(order.delivered_at or order.created_at) > timedelta(days=RETURN_WINDOW_DAYS):
+                raise conflict(f"A return must be asked within {RETURN_WINDOW_DAYS} days of the delivery")
+        changed = db.execute(
+            update(Order)
+            .where(Order.id == order_id, Order.status == current)  # guards against races
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        if changed.rowcount != 1:
+            raise conflict("Order was changed by someone else, please reload")
+        if target == STATUS_CANCELLED:
+            restock_order_service(db, order)
+            if current == STATUS_PAID:
+                refund_or_rollback(db, order, provider)
+        if target == STATUS_RETURNED:  # the seller accepted the return: the money goes back and the goods return to the stock
+            restock_order_service(db, order)
             refund_or_rollback(db, order, provider)
-    if target == STATUS_RETURNED:  # the seller accepted the return: the money goes back and the goods return to the stock
-        restock_order_service(db, order)
-        refund_or_rollback(db, order, provider)
-    db.commit()
-    db.refresh(order)
-    return order
+        db.commit()
+        db.refresh(order)
+        return order
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("change_status failed")
+        raise

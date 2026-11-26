@@ -49,6 +49,9 @@ from api.chat.routes_people import router as people_router
 from api.chat.routes_rooms import router as rooms_router
 from api.chat.schemas import ROOM_PATTERN, IncomingMessage, MessageOut
 
+import logging
+logger = logging.getLogger(__name__)
+
 DEFAULT_DATABASE_URL = "sqlite:///./chat.db"
 MAX_FRAME_CHARS = 8 * 1024
 RATE_LIMIT_MESSAGES = 20
@@ -56,60 +59,90 @@ RATE_LIMIT_WINDOW_SECONDS = 10.0
 
 
 def joined_room_ids(user: TokenPayload):
-    return select(RoomMember.room_id).where(RoomMember.user_id == user.user_id, RoomMember.status == "joined")
+    try:
+        return select(RoomMember.room_id).where(RoomMember.user_id == user.user_id, RoomMember.status == "joined")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("joined_room_ids failed")
+        raise
 
 
 def joined_rooms_scope(db, user: TokenPayload):
-    return Room.id.in_(joined_room_ids(user))
+    try:
+        return Room.id.in_(joined_room_ids(user))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("joined_rooms_scope failed")
+        raise
 
 
 def fellow_members_scope(db, user: TokenPayload):
-    return RoomMember.room_id.in_(joined_room_ids(user))
+    try:
+        return RoomMember.room_id.in_(joined_room_ids(user))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("fellow_members_scope failed")
+        raise
 
 
 def joined_messages_scope(db, user: TokenPayload):
-    return and_(Message.room_id.in_(joined_room_ids(user)), Message.deleted_at.is_(None))
+    try:
+        return and_(Message.room_id.in_(joined_room_ids(user)), Message.deleted_at.is_(None))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("joined_messages_scope failed")
+        raise
 
 
 def enter(factory: sessionmaker, slug: str, user: TokenPayload) -> str | None:
     """Why this user may not open a socket in the room, or None: it must exist and they must be an active member."""
-    with factory() as session:
-        room = service.room_by_slug(session, slug)
-        if room is None or room.state == service.DELETED:
-            return service.NOT_FOUND
-        member = service.member_of(session, room.id, user.user_id)
-        if member is None or member.status in (service.LEFT, service.KICKED):
-            return service.NOT_A_MEMBER
-        if member.status == service.PENDING_STATUS:
-            return service.PENDING
-        if member.status == service.BANNED_STATUS:
-            return service.BANNED
-        return None
+    try:
+        with factory() as session:
+            room = service.room_by_slug(session, slug)
+            if room is None or room.state == service.DELETED:
+                return service.NOT_FOUND
+            member = service.member_of(session, room.id, user.user_id)
+            if member is None or member.status in (service.LEFT, service.KICKED):
+                return service.NOT_A_MEMBER
+            if member.status == service.PENDING_STATUS:
+                return service.PENDING
+            if member.status == service.BANNED_STATUS:
+                return service.BANNED
+            return None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("enter failed")
+        raise
 
 
 def save_message(
     factory: sessionmaker, slug: str, user: TokenPayload, content: str, reply_to: int | None
 ) -> tuple[MessageOut | None, str | None]:
     """The saved message, or the reason it was not saved (a rule of the room: not a member, muted, closed...)."""
-    with factory() as session:
-        room = service.room_by_slug(session, slug)
-        if room is None:
-            return None, service.NOT_FOUND
-        problem = service.posting_problem(room, service.member_of(session, room.id, user.user_id))
-        if problem is not None:
-            return None, problem
-        if reply_to is not None:
-            target = session.get(Message, reply_to)
-            if target is None or target.room_id != room.id or target.deleted_at is not None:
-                reply_to = None  # the message answered is gone: this one stands on its own
-        if service.waiting_for_answer(session, room, user.user_id):
-            return None, service.PENDING  # a request is answered before it is followed by more
-        message = Message(
-            room_id=room.id, user_id=user.user_id, content=content, reply_to_id=reply_to
-        )
-        session.add(message)
-        session.commit()
-        return MessageOut.model_validate(service.show_one(session, message)), None
+    try:
+        with factory() as session:
+            room = service.room_by_slug(session, slug)
+            if room is None:
+                return None, service.NOT_FOUND
+            problem = service.posting_problem(room, service.member_of(session, room.id, user.user_id))
+            if problem is not None:
+                return None, problem
+            if reply_to is not None:
+                target = session.get(Message, reply_to)
+                if target is None or target.room_id != room.id or target.deleted_at is not None:
+                    reply_to = None  # the message answered is gone: this one stands on its own
+            if service.waiting_for_answer(session, room, user.user_id):
+                return None, service.PENDING  # a request is answered before it is followed by more
+            message = Message(
+                room_id=room.id, user_id=user.user_id, content=content, reply_to_id=reply_to
+            )
+            session.add(message)
+            session.commit()
+            return MessageOut.model_validate(service.show_one(session, message)), None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("save_message failed")
+        raise
 
 
 def parse_incoming(raw: str) -> IncomingMessage | None:
@@ -130,7 +163,12 @@ def parse_incoming(raw: str) -> IncomingMessage | None:
 
 
 def valid_room(room: str) -> bool:
-    return re.fullmatch(ROOM_PATTERN, room) is not None
+    try:
+        return re.fullmatch(ROOM_PATTERN, room) is not None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("valid_room failed")
+        raise
 
 
 stop_account_consumer = stop_consumer
@@ -168,42 +206,62 @@ async def receive_main(websocket: WebSocket, user: TokenPayload) -> str | None:
 
 
 def public_slugs_main(factory: sessionmaker) -> set[str]:
-    with factory() as session:
-        return service.public_slugs(session)
+    try:
+        with factory() as session:
+            return service.public_slugs(session)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("public_slugs_main failed")
+        raise
 
 
 def delete_room(request, db, room, admin_user):
     """A room removed by an admin goes with its members and messages (nothing is left that points to it)."""
-    room_id = room["id"]  # (the row is a mapping)
-    db.execute(delete(Message).where(Message.room_id == room_id))
-    db.execute(delete(RoomMember).where(RoomMember.room_id == room_id))
-    db.execute(delete(Room).where(Room.id == room_id))
+    try:
+        room_id = room["id"]  # (the row is a mapping)
+        db.execute(delete(Message).where(Message.room_id == room_id))
+        db.execute(delete(RoomMember).where(RoomMember.room_id == room_id))
+        db.execute(delete(Room).where(Room.id == room_id))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_room failed")
+        raise
 
 
 def open_database(database_url: str | None) -> sessionmaker:
     """Make the engine, the tables, the old-data upgrade and the session factory of the chat."""
-    engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
-    textsearch.register_sqlite(engine)
-    Base.metadata.create_all(engine)
-    for table in ("room_members", "messages", "meetings"):
-        ensure_foreign_key(engine, table, "room_id", "rooms")
-    social_models.ensure_tables(engine)  # the friendships, blocks and notices are the shared tables of `api.chat.social`
-    directory.ensure_table_for_sqlite(engine)  # the people are read from `users` of center (a SQLite database has none: an empty one)
-    session_factory = sessionmaker(engine, expire_on_commit=False)
-    upgrade(engine, session_factory)  # an old database gets its rooms (made from the names its messages use)
-    textsearch.ensure_postgres(engine)  # search without minding accents
-    return session_factory
+    try:
+        engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
+        textsearch.register_sqlite(engine)
+        Base.metadata.create_all(engine)
+        for table in ("room_members", "messages", "meetings"):
+            ensure_foreign_key(engine, table, "room_id", "rooms")
+        social_models.ensure_tables(engine)  # the friendships, blocks and notices are the shared tables of `api.chat.social`
+        directory.ensure_table_for_sqlite(engine)  # the people are read from `users` of center (a SQLite database has none: an empty one)
+        session_factory = sessionmaker(engine, expire_on_commit=False)
+        upgrade(engine, session_factory)  # an old database gets its rooms (made from the names its messages use)
+        textsearch.ensure_postgres(engine)  # search without minding accents
+        return session_factory
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("open_database failed")
+        raise
 
 
 def include_routers(app: FastAPI) -> None:
-    app.include_router(rooms_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(members_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(messages_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(calls_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(meeting_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(inbox_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(people_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(internal_router, dependencies=access_dependencies(public=True))
+    try:
+        app.include_router(rooms_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(members_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(messages_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(calls_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(meeting_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(inbox_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(people_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(internal_router, dependencies=access_dependencies(public=True))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("include_routers failed")
+        raise
 
 
 def mount_admin(app: FastAPI) -> None:
@@ -211,21 +269,26 @@ def mount_admin(app: FastAPI) -> None:
     # with `state: deleted` instead (see the room service) and use a hard delete only on an empty room.
     # /data (any signed-in person, reads only; writes stay in the app routes): the rooms the person has joined, their members and
     # live messages, and the person's own social edges, notices and reports.
-    specs = [
-        TableSpec(
-            Room, on_delete=delete_room, scope=joined_rooms_scope),
-        TableSpec(
-            RoomMember, scope=fellow_members_scope,
-            user_hidden_columns=("status_reason", "last_read_message_id", "hidden_at", "notify"),
-            refs={"room_id": ("rooms", "title")}),
-        TableSpec(
-            Message, readonly_columns=("created_at",), scope=joined_messages_scope, refs={"room_id": ("rooms", "title")}),
-        TableSpec(Meeting, owner="started_by", refs={"room_id": ("rooms", "title")}),
-        TableSpec(social_models.Edge, owner="src_id"),
-        TableSpec(social_models.Report, owner="reporter_id"),
-        TableSpec(social_models.Notification, owner="user_id"),
-    ]
-    mount_crud(app, specs, database="chat")
+    try:
+        specs = [
+            TableSpec(
+                Room, on_delete=delete_room, scope=joined_rooms_scope),
+            TableSpec(
+                RoomMember, scope=fellow_members_scope,
+                user_hidden_columns=("status_reason", "last_read_message_id", "hidden_at", "notify"),
+                refs={"room_id": ("rooms", "title")}),
+            TableSpec(
+                Message, readonly_columns=("created_at",), scope=joined_messages_scope, refs={"room_id": ("rooms", "title")}),
+            TableSpec(Meeting, owner="started_by", refs={"room_id": ("rooms", "title")}),
+            TableSpec(social_models.Edge, owner="src_id"),
+            TableSpec(social_models.Report, owner="reporter_id"),
+            TableSpec(social_models.Notification, owner="user_id"),
+        ]
+        mount_crud(app, specs, database="chat")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("mount_admin failed")
+        raise
 
 
 async def serve_lobby(websocket: WebSocket, rt: SimpleNamespace) -> None:
@@ -272,20 +335,25 @@ async def serve_lobby(websocket: WebSocket, rt: SimpleNamespace) -> None:
 
 async def answer_command(app: FastAPI, hub: RoomHub, room: str, user: TokenPayload, websocket: WebSocket, content: str) -> None:
     """A message that is not a command lets the virtual people of the room answer; a command is answered by the room's assistant."""
-    command = assistant.parse(content)
-    if command is None:
-        virtual_reply.spawn(
-            app.state.background, virtual_reply.reply_in_room(app.state.session_factory, hub.broadcast, room, user)
-        )  # the writer does not wait for them
-    elif not command[0]:
-        await websocket.send_json({"type": "error", "error": assistant.USAGE})
-    elif not await run_in_threadpool(assistant.has_assistant, app.state.session_factory, room, user.user_id):
-        await websocket.send_json({"type": "error", "error": assistant.NO_ASSISTANT})
-    else:  # a command: the assistant of the room answers with a card, in the name of a virtual person
-        virtual_reply.spawn(
-            app.state.background,
-            assistant.run_command(app.state.session_factory, hub.broadcast, room, user, command[0], command[1], assistant.token_of(websocket.cookies)),
-        )
+    try:
+        command = assistant.parse(content)
+        if command is None:
+            virtual_reply.spawn(
+                app.state.background, virtual_reply.reply_in_room(app.state.session_factory, hub.broadcast, room, user)
+            )  # the writer does not wait for them
+        elif not command[0]:
+            await websocket.send_json({"type": "error", "error": assistant.USAGE})
+        elif not await run_in_threadpool(assistant.has_assistant, app.state.session_factory, room, user.user_id):
+            await websocket.send_json({"type": "error", "error": assistant.NO_ASSISTANT})
+        else:  # a command: the assistant of the room answers with a card, in the name of a virtual person
+            virtual_reply.spawn(
+                app.state.background,
+                assistant.run_command(app.state.session_factory, hub.broadcast, room, user, command[0], command[1], assistant.token_of(websocket.cookies)),
+            )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("answer_command failed")
+        raise
 
 
 async def serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> None:
@@ -395,156 +463,236 @@ def wire_cluster(
     close_sockets: Callable[[str, int, str], Awaitable[None]],
 ) -> tuple[Callable[[], Awaitable[None]], Callable[[str], Awaitable[None]], Callable[[], Awaitable[None]]]:
     """Connect this copy of the chat to the other copies (through Redis when it is set): what changes is sent, what they report is read."""
-    async def cluster_changed() -> None:
-        if app.state.cluster is not None:
-            await app.state.cluster.write_presence()
-            await app.state.cluster.publish({"t": "changed"})
+    try:
+        async def cluster_changed() -> None:
+            try:
+                if app.state.cluster is not None:
+                    await app.state.cluster.write_presence()
+                    await app.state.cluster.publish({"t": "changed"})
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("cluster_changed failed")
+                raise
 
-    app.state.cluster_changed = cluster_changed
+        app.state.cluster_changed = cluster_changed
 
-    async def people_changed() -> None:
-        app.state.people_version += 1
-        await lobby.notify()
-        await cluster_changed()
+        async def people_changed() -> None:
+            try:
+                app.state.people_version += 1
+                await lobby.notify()
+                await cluster_changed()
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("people_changed failed")
+                raise
 
-    async def presence_changed(room: str) -> None:
-        """Someone came to or left a room: the other copies learn it and show their sockets the whole room."""
-        if app.state.cluster is not None:
-            await app.state.cluster.write_presence()
-            await app.state.cluster.publish({"t": "presence", "room": room})
+        async def presence_changed(room: str) -> None:
+            """Someone came to or left a room: the other copies learn it and show their sockets the whole room."""
+            try:
+                if app.state.cluster is not None:
+                    await app.state.cluster.write_presence()
+                    await app.state.cluster.publish({"t": "presence", "room": room})
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("presence_changed failed")
+                raise
 
-    async def refresh_remote() -> None:
-        if app.state.cluster is None:
-            return
-        rooms, online = await app.state.cluster.read_others()
-        presence.set_remote(rooms)
-        remote_online.clear()
-        remote_online.update(online)
+        async def refresh_remote() -> None:
+            try:
+                if app.state.cluster is None:
+                    return
+                rooms, online = await app.state.cluster.read_others()
+                presence.set_remote(rooms)
+                remote_online.clear()
+                remote_online.update(online)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("refresh_remote failed")
+                raise
 
-    async def on_cluster_event(event: dict) -> None:
-        kind = event.get("t")
-        room = event.get("room")
-        if kind == "frame" and isinstance(room, str) and isinstance(event.get("payload"), dict):
-            await hub.broadcast_local(room, event["payload"])
-        elif kind == "close" and isinstance(room, str):
-            await close_sockets(room, int(event.get("user_id", 0)), str(event.get("reason", "")))
-        elif kind == "presence" and isinstance(room, str):
-            await refresh_remote()
-            await hub.broadcast_local(room, presence_frame(presence, room))
-            await lobby.notify()
-        elif kind == "changed":
-            await refresh_remote()
-            app.state.public_slugs = await run_in_threadpool(public_slugs_main, session_factory)
-            app.state.rooms_version += 1
-            app.state.people_version += 1
-            await lobby.notify()
+        async def on_cluster_event(event: dict) -> None:
+            try:
+                kind = event.get("t")
+                room = event.get("room")
+                if kind == "frame" and isinstance(room, str) and isinstance(event.get("payload"), dict):
+                    await hub.broadcast_local(room, event["payload"])
+                elif kind == "close" and isinstance(room, str):
+                    await close_sockets(room, int(event.get("user_id", 0)), str(event.get("reason", "")))
+                elif kind == "presence" and isinstance(room, str):
+                    await refresh_remote()
+                    await hub.broadcast_local(room, presence_frame(presence, room))
+                    await lobby.notify()
+                elif kind == "changed":
+                    await refresh_remote()
+                    app.state.public_slugs = await run_in_threadpool(public_slugs_main, session_factory)
+                    app.state.rooms_version += 1
+                    app.state.people_version += 1
+                    await lobby.notify()
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("on_cluster_event failed")
+                raise
 
-    async def start_cluster() -> None:
-        client = getattr(app.state, "cluster_client", None)
-        if client is None and clustering.enabled():
-            import redis.asyncio as aioredis
+        async def start_cluster() -> None:
+            try:
+                client = getattr(app.state, "cluster_client", None)
+                if client is None and clustering.enabled():
+                    import redis.asyncio as aioredis
 
-            client = aioredis.from_url(os.environ["REDIS_URL"])
-        if client is None:
-            return
-        cluster = clustering.Cluster(client)
-        app.state.cluster, hub.cluster = cluster, cluster
-        await cluster.start(on_cluster_event, lambda: {"rooms": presence.local_rooms(), "online": sorted(local_online())}, refresh_remote)
-    return people_changed, presence_changed, start_cluster
+                    client = aioredis.from_url(os.environ["REDIS_URL"])
+                if client is None:
+                    return
+                cluster = clustering.Cluster(client)
+                app.state.cluster, hub.cluster = cluster, cluster
+                await cluster.start(on_cluster_event, lambda: {"rooms": presence.local_rooms(), "online": sorted(local_online())}, refresh_remote)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("start_cluster failed")
+                raise
+        return people_changed, presence_changed, start_cluster
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("wire_cluster failed")
+        raise
 
 
 def create_app(database_url: str | None = None, clock: Callable[[], float] = time.monotonic) -> FastAPI:
-    require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
-    session_factory = open_database(database_url)
+    try:
+        require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
+        session_factory = open_database(database_url)
 
-    @asynccontextmanager
-    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        handle = start_consumer("chat", application.state.session_factory)
-        await start_cluster()
-        try:
-            yield
-        finally:
-            await lobby.close()
-            if application.state.cluster is not None:
-                await application.state.cluster.stop()
-            if handle is not None:
-                await stop_account_consumer(handle)
-
-    app = FastAPI(title="socialnetwork chat", lifespan=lifespan)
-    app.state.session_factory = session_factory
-    virtual_reply.bind(session_factory)
-    app.state.background = set()  # tasks of the virtual replies, kept alive until done
-    app.state.write_throttle = UserRateLimiter(max_events=60, window=10.0)  # one person may only write so often (reads are free)
-    hub = RoomHub()
-    presence = Presence()
-    app.state.rooms_version = 0
-    app.state.people_version = 0
-    with session_factory() as session:
-        app.state.public_slugs = service.public_slugs(session)
-    chat_sockets: Counter[int] = Counter()  # open /ws sockets per user id, over all rooms
-    lobby_sockets: Counter[int] = Counter()
-
-    remote_online: set[int] = set()  # online in the other copies of the chat
-
-    def local_online() -> set[int]:
-        return set(chat_sockets) | set(lobby_sockets)
-
-    def online_users() -> set[int]:
-        """Who has the chat open: a socket in a room, or the lobby the page itself keeps (in any copy of the chat)."""
-        return local_online() | remote_online
-
-    lobby = Lobby(
-        presence,
-        RoomHub(),
-        allow=lambda slug: slug in app.state.public_slugs,
-        extra=lambda: {"version": app.state.rooms_version, "people": app.state.people_version, "online": len(online_users())},
-    )
-    app.state.hub, app.state.presence, app.state.lobby, app.state.online_users = hub, presence, lobby, online_users
-
-    app.state.cluster = None
-
-    connections: dict[tuple[str, int], set[WebSocket]] = {}  # the sockets of one user in one room, to close on a ban
-
-    async def disconnect(slug: str, user_id: int, reason: str) -> None:
-        """Close the user's sockets in a room, in every copy of the chat (they were removed, banned, or the room is gone)."""
-        await close_sockets(slug, user_id, reason)
-        if app.state.cluster is not None:
-            await app.state.cluster.publish({"t": "close", "room": slug, "user_id": user_id, "reason": reason})
-
-    async def close_sockets(slug: str, user_id: int, reason: str) -> None:
-        for socket in list(connections.get((slug, user_id), ())):
+        @asynccontextmanager
+        async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+            handle = start_consumer("chat", application.state.session_factory)
+            await start_cluster()
             try:
-                await socket.close(code=status.WS_1008_POLICY_VIOLATION, reason=reason[:120])
-            except Exception:  # already closed
-                pass
+                yield
+            finally:
+                await lobby.close()
+                if application.state.cluster is not None:
+                    await application.state.cluster.stop()
+                if handle is not None:
+                    await stop_account_consumer(handle)
 
-    people_changed, presence_changed, start_cluster = wire_cluster(
-        app, hub, presence, lobby, session_factory, remote_online, local_online, close_sockets
-    )
-    app.state.disconnect = disconnect
-    include_routers(app)
-    mount_admin(app)
+        app = FastAPI(title="socialnetwork chat", lifespan=lifespan)
+        app.state.session_factory = session_factory
+        virtual_reply.bind(session_factory)
+        app.state.background = set()  # tasks of the virtual replies, kept alive until done
+        app.state.write_throttle = UserRateLimiter(max_events=60, window=10.0)  # one person may only write so often (reads are free)
+        hub = RoomHub()
+        presence = Presence()
+        app.state.rooms_version = 0
+        app.state.people_version = 0
+        with session_factory() as session:
+            app.state.public_slugs = service.public_slugs(session)
+        chat_sockets: Counter[int] = Counter()  # open /ws sockets per user id, over all rooms
+        lobby_sockets: Counter[int] = Counter()
 
-    async def announce_leave(room: str, user: TokenPayload) -> None:
-        await hub.broadcast(room, system_frame("leave", room, user.user_id, user.username))
-        await hub.broadcast_local(room, presence_frame(presence, room))
-        await presence_changed(room)
-        await lobby.notify()
+        remote_online: set[int] = set()  # online in the other copies of the chat
 
-    @app.get("/health", dependencies=access_dependencies(public=True))
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+        def local_online() -> set[int]:
+            try:
+                return set(chat_sockets) | set(lobby_sockets)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("local_online failed")
+                raise
 
-    rt = SimpleNamespace(app=app, hub=hub, presence=presence, lobby=lobby, lobby_sockets=lobby_sockets,
-                         chat_sockets=chat_sockets, connections=connections, online_users=online_users,
-                         people_changed=people_changed, presence_changed=presence_changed, announce_leave=announce_leave)
-    @app.websocket("/ws-lobby", dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    async def lobby_socket(websocket: WebSocket) -> None:
-        await serve_lobby(websocket, rt)
+        def online_users() -> set[int]:
+            """Who has the chat open: a socket in a room, or the lobby the page itself keeps (in any copy of the chat)."""
+            try:
+                return local_online() | remote_online
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("online_users failed")
+                raise
 
-    @app.websocket("/ws/{room}", dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    async def chat_socket(websocket: WebSocket, room: str) -> None:
-        await serve_room(websocket, room, rt)
+        lobby = Lobby(
+            presence,
+            RoomHub(),
+            allow=lambda slug: slug in app.state.public_slugs,
+            extra=lambda: {"version": app.state.rooms_version, "people": app.state.people_version, "online": len(online_users())},
+        )
+        app.state.hub, app.state.presence, app.state.lobby, app.state.online_users = hub, presence, lobby, online_users
 
-    return app
+        app.state.cluster = None
+
+        connections: dict[tuple[str, int], set[WebSocket]] = {}  # the sockets of one user in one room, to close on a ban
+
+        async def disconnect(slug: str, user_id: int, reason: str) -> None:
+            """Close the user's sockets in a room, in every copy of the chat (they were removed, banned, or the room is gone)."""
+            try:
+                await close_sockets(slug, user_id, reason)
+                if app.state.cluster is not None:
+                    await app.state.cluster.publish({"t": "close", "room": slug, "user_id": user_id, "reason": reason})
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("disconnect failed")
+                raise
+
+        async def close_sockets(slug: str, user_id: int, reason: str) -> None:
+            try:
+                for socket in list(connections.get((slug, user_id), ())):
+                    try:
+                        await socket.close(code=status.WS_1008_POLICY_VIOLATION, reason=reason[:120])
+                    except Exception:  # already closed
+                        pass
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("close_sockets failed")
+                raise
+
+        people_changed, presence_changed, start_cluster = wire_cluster(
+            app, hub, presence, lobby, session_factory, remote_online, local_online, close_sockets
+        )
+        app.state.disconnect = disconnect
+        include_routers(app)
+        mount_admin(app)
+
+        async def announce_leave(room: str, user: TokenPayload) -> None:
+            try:
+                await hub.broadcast(room, system_frame("leave", room, user.user_id, user.username))
+                await hub.broadcast_local(room, presence_frame(presence, room))
+                await presence_changed(room)
+                await lobby.notify()
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("announce_leave failed")
+                raise
+
+        @app.get("/health", dependencies=access_dependencies(public=True))
+        def health() -> dict[str, str]:
+            try:
+                return {"status": "ok"}
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("health failed")
+                raise
+
+        rt = SimpleNamespace(app=app, hub=hub, presence=presence, lobby=lobby, lobby_sockets=lobby_sockets,
+                             chat_sockets=chat_sockets, connections=connections, online_users=online_users,
+                             people_changed=people_changed, presence_changed=presence_changed, announce_leave=announce_leave)
+        @app.websocket("/ws-lobby", dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        async def lobby_socket(websocket: WebSocket) -> None:
+            try:
+                await serve_lobby(websocket, rt)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("lobby_socket failed")
+                raise
+
+        @app.websocket("/ws/{room}", dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        async def chat_socket(websocket: WebSocket, room: str) -> None:
+            try:
+                await serve_room(websocket, room, rt)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("chat_socket failed")
+                raise
+
+        return app
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("create_app failed")
+        raise
 

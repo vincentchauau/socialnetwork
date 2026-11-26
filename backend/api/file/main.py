@@ -15,6 +15,9 @@ from sn_shared.consumer import start_consumer, stop_consumer
 from sn_shared.jwtkeys import require_verification_keys
 from sn_shared.limits import UserRateLimiter
 
+import logging
+logger = logging.getLogger(__name__)
+
 DEFAULT_DATABASE_URL = "sqlite:///./file.db"
 MULTIPART_OVERHEAD_BYTES = 64 * 1024
 # POST path -> largest accepted Content-Length (the real file limits are checked again while reading).
@@ -25,55 +28,85 @@ stop_account_consumer = stop_consumer
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
-    require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
-    engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
-    Base.metadata.create_all(engine)
+    try:
+        require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
+        engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
+        Base.metadata.create_all(engine)
 
-    @asynccontextmanager
-    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        handle = start_consumer("file", application.state.session_factory)
-        try:
-            yield
-        finally:
-            if handle is not None:
-                await stop_account_consumer(handle)
+        @asynccontextmanager
+        async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+            handle = start_consumer("file", application.state.session_factory)
+            try:
+                yield
+            finally:
+                if handle is not None:
+                    await stop_account_consumer(handle)
 
-    app = FastAPI(title="socialnetwork file", lifespan=lifespan)
-    app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
-    app.state.limiter = UserRateLimiter()  # 60 writes per minute per user
+        app = FastAPI(title="socialnetwork file", lifespan=lifespan)
+        app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
+        app.state.limiter = UserRateLimiter()  # 60 writes per minute per user
 
-    @app.middleware("http")
-    async def ensure_upload_length(request: Request, call_next) -> Response:
-        # Chunked bodies carry no Content-Length and would bypass size checks.
-        path = request.scope.get("path", "")
-        root = request.scope.get("root_path", "")
-        if root and path.startswith(root):
-            path = path[len(root):]
-        limit = UPLOAD_LIMITS.get(path) if request.method == "POST" else None
-        if limit is not None:
-            declared = request.headers.get("content-length", "")
-            if not declared.isdigit():
-                return JSONResponse({"detail": "Cần có tiêu đề Content-Length"}, status_code=411)
-            if int(declared) > limit:
-                return JSONResponse({"detail": "Tệp quá lớn"}, status_code=413)
-        return await call_next(request)
+        @app.middleware("http")
+        async def ensure_upload_length(request: Request, call_next) -> Response:
+            # Chunked bodies carry no Content-Length and would bypass size checks.
+            try:
+                path = request.scope.get("path", "")
+                root = request.scope.get("root_path", "")
+                if root and path.startswith(root):
+                    path = path[len(root):]
+                limit = UPLOAD_LIMITS.get(path) if request.method == "POST" else None
+                if limit is not None:
+                    declared = request.headers.get("content-length", "")
+                    if not declared.isdigit():
+                        return JSONResponse({"detail": "Cần có tiêu đề Content-Length"}, status_code=411)
+                    if int(declared) > limit:
+                        return JSONResponse({"detail": "Tệp quá lớn"}, status_code=413)
+                return await call_next(request)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("ensure_upload_length failed")
+                raise
 
-    @app.exception_handler(PathError)
-    async def bad_path(_request: Request, error: PathError) -> JSONResponse:
-        return JSONResponse({"detail": str(error)}, status_code=400)
+        @app.exception_handler(PathError)
+        async def bad_path(_request: Request, error: PathError) -> JSONResponse:
+            try:
+                return JSONResponse({"detail": str(error)}, status_code=400)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("bad_path failed")
+                raise
 
-    @app.exception_handler(NotFound)
-    async def missing(_request: Request, _error: NotFound) -> JSONResponse:
-        return JSONResponse({"detail": "Không tìm thấy"}, status_code=404)
+        @app.exception_handler(NotFound)
+        async def missing(_request: Request, _error: NotFound) -> JSONResponse:
+            try:
+                return JSONResponse({"detail": "Không tìm thấy"}, status_code=404)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("missing failed")
+                raise
 
-    @app.exception_handler(store.Busy)
-    async def busy(_request: Request, _error: store.Busy) -> JSONResponse:
-        return JSONResponse({"detail": "Hệ thống đang bận, hãy thử lại sau"}, status_code=429)
+        @app.exception_handler(store.Busy)
+        async def busy(_request: Request, _error: store.Busy) -> JSONResponse:
+            try:
+                return JSONResponse({"detail": "Hệ thống đang bận, hãy thử lại sau"}, status_code=429)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("busy failed")
+                raise
 
-    @app.get("/health", dependencies=access_dependencies(public=True))
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+        @app.get("/health", dependencies=access_dependencies(public=True))
+        def health() -> dict[str, str]:
+            try:
+                return {"status": "ok"}
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("health failed")
+                raise
 
-    app.include_router(files.router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
-    app.include_router(sharing.router, dependencies=access_dependencies(public=True))
-    return app
+        app.include_router(files.router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
+        app.include_router(sharing.router, dependencies=access_dependencies(public=True))
+        return app
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("create_app failed")
+        raise

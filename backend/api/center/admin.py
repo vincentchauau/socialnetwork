@@ -32,40 +32,58 @@ from sn_shared import revocation
 from sn_shared.admincrud import TableSpec, records_router
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 SELF_DELETE = "You cannot delete your own account here"
 
 
 def delete_user(request: Request, db: Session, row, admin: TokenPayload) -> Callable[[], None]:
     """The account-deletion path of DELETE /auth/me, without the re-authentication and cookies."""
-    user_id = row["id"]
-    if user_id == admin.user_id:
-        raise HTTPException(status.HTTP_409_CONFLICT, SELF_DELETE)
-    user = db.get(User, user_id)
-    if user is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    username = user.username
-    add_event(db, USER_DELETED, user_id, {"old_username": username})  # same transaction as the delete
-    usernames.reserve(db, username, user_id)
-    bump_token_version(db, user)
-    min_version = user.token_version
-    db.delete(user)
-    settings = request.app.state.settings
-    relay = request.app.state.event_relay
+    try:
+        user_id = row["id"]
+        if user_id == admin.user_id:
+            raise HTTPException(status.HTTP_409_CONFLICT, SELF_DELETE)
+        user = db.get(User, user_id)
+        if user is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+        username = user.username
+        add_event(db, USER_DELETED, user_id, {"old_username": username})  # same transaction as the delete
+        usernames.reserve(db, username, user_id)
+        bump_token_version(db, user)
+        min_version = user.token_version
+        db.delete(user)
+        settings = request.app.state.settings
+        relay = request.app.state.event_relay
 
-    def after_commit() -> None:
-        publish_token_version(user_id, settings, min_version)
-        relay.publish_pending()
-        audit.info("account deleted by admin user=%r admin_id=%s", username, admin.user_id)
+        def after_commit() -> None:
+            try:
+                publish_token_version(user_id, settings, min_version)
+                relay.publish_pending()
+                audit.info("account deleted by admin user=%r admin_id=%s", username, admin.user_id)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("after_commit failed")
+                raise
 
-    return after_commit
+        return after_commit
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_user failed")
+        raise
 
 
 def delete_user_session(request: Request, db: Session, row, admin: TokenPayload) -> Callable[[], None]:
     """Delete the row and publish its sid as revoked, so the other apps reject its access token at once."""
-    sid = row["sid"]
-    db.execute(delete(UserSession).where(UserSession.sid == sid))
-    ttl = access_ttl_seconds(request.app.state.settings)
-    return lambda: revocation.publish_session_revoked(sid, ttl)
+    try:
+        sid = row["sid"]
+        db.execute(delete(UserSession).where(UserSession.sid == sid))
+        ttl = access_ttl_seconds(request.app.state.settings)
+        return lambda: revocation.publish_session_revoked(sid, ttl)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_user_session failed")
+        raise
 
 
 # What a person may see of their own account at /data/users: the public profile, nothing credential-like or internal.
@@ -79,26 +97,36 @@ USER_HIDDEN_COLUMNS = tuple(c.name for c in User.__table__.columns if c.name not
 def specs() -> list[TableSpec]:
     """Admin tables, plus the /data twin for a signed-in person: users (own row, read), user_sessions and passkeys
     (own rows, read + delete). The other tables have no owner, so people do not reach them."""
-    ro = "RD"
-    return [
-        TableSpec(
-            User, media={"avatar_url": {"kind": "image", "preview": "@self"}}, on_delete=delete_user, user_hidden_columns=USER_HIDDEN_COLUMNS,
-            secret_columns=(
-                "password_hash", "totp_secret", "totp_pending_secret", "totp_last_step",
-                "audio_embedding", "face_embedding",
+    try:
+        ro = "RD"
+        return [
+            TableSpec(
+                User, media={"avatar_url": {"kind": "image", "preview": "@self"}}, on_delete=delete_user, user_hidden_columns=USER_HIDDEN_COLUMNS,
+                secret_columns=(
+                    "password_hash", "totp_secret", "totp_pending_secret", "totp_last_step",
+                    "audio_embedding", "face_embedding",
+                ),
             ),
-        ),
-        TableSpec(UserSession, on_delete=delete_user_session, owner="user_id", groups=("admin",)),
-        TableSpec(
-            Passkey, secret_columns=("credential_id", "public_key", "user_handle"), owner="user_id", groups=("admin",)
-        ),
-        TableSpec(RecoveryCode, secret_columns=("code_hash",)),
-        TableSpec(VerificationCode, secret_columns=("token_hash", "code_hash")),
-        TableSpec(QrLogin, secret_columns=("poll_hash", "verify_code")),
-        TableSpec(ReservedUsername),
-        TableSpec(AccountEvent),
-    ]
+            TableSpec(UserSession, on_delete=delete_user_session, owner="user_id", groups=("admin",)),
+            TableSpec(
+                Passkey, secret_columns=("credential_id", "public_key", "user_handle"), owner="user_id", groups=("admin",)
+            ),
+            TableSpec(RecoveryCode, secret_columns=("code_hash",)),
+            TableSpec(VerificationCode, secret_columns=("token_hash", "code_hash")),
+            TableSpec(QrLogin, secret_columns=("poll_hash", "verify_code")),
+            TableSpec(ReservedUsername),
+            TableSpec(AccountEvent),
+        ]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("specs failed")
+        raise
 
 
 def records():
-    return records_router(specs(), database="center")
+    try:
+        return records_router(specs(), database="center")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("records failed")
+        raise

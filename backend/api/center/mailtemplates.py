@@ -6,6 +6,9 @@ Every interpolated value is HTML-escaped in the HTML body. A code is never part 
 from dataclasses import dataclass
 from html import escape
 
+import logging
+logger = logging.getLogger(__name__)
+
 APP_NAME = "Mạng xã hội"
 LINE_BREAK = chr(10)
 IGNORE = "Nếu không phải bạn, hãy bỏ qua email này."
@@ -86,47 +89,77 @@ _LINK_MAILS: dict[str, tuple[str, str, str]] = {
 
 
 def page_mailtemplates(body: str) -> str:
-    return f"<!doctype html><html><body><h2>{escape(APP_NAME)}</h2>{body}</body></html>"
+    try:
+        return f"<!doctype html><html><body><h2>{escape(APP_NAME)}</h2>{body}</body></html>"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("page_mailtemplates failed")
+        raise
 
 
 def p_mailtemplates(text: str) -> str:
-    return f"<p>{escape(text)}</p>"
+    try:
+        return f"<p>{escape(text)}</p>"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("p_mailtemplates failed")
+        raise
 
 
 def link_mail(kind: str, link: str, code: str | None) -> Rendered:
-    subject, intro, code_intro = _LINK_MAILS[kind]
-    text = [intro, link]
-    body = p_mailtemplates(intro) + f'<p><a href="{escape(link, quote=True)}">{escape(link)}</a></p>'
-    if code:
-        text += ["", code_intro, code]
-        body += p_mailtemplates(code_intro) + f"<p><strong>{escape(code)}</strong></p>"
-    text += ["", IGNORE]
-    body += p_mailtemplates(IGNORE)
-    return Rendered(subject=f"{subject} - {APP_NAME}", text=LINE_BREAK.join(text), html=page_mailtemplates(body))
+    try:
+        subject, intro, code_intro = _LINK_MAILS[kind]
+        text = [intro, link]
+        body = p_mailtemplates(intro) + f'<p><a href="{escape(link, quote=True)}">{escape(link)}</a></p>'
+        if code:
+            text += ["", code_intro, code]
+            body += p_mailtemplates(code_intro) + f"<p><strong>{escape(code)}</strong></p>"
+        text += ["", IGNORE]
+        body += p_mailtemplates(IGNORE)
+        return Rendered(subject=f"{subject} - {APP_NAME}", text=LINE_BREAK.join(text), html=page_mailtemplates(body))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("link_mail failed")
+        raise
 
 
 def code_mail(code: str) -> Rendered:
     """Re-authentication: a code only, never a link."""
-    intro = "Nhập mã này để xác nhận thao tác nhạy cảm trong tài khoản (có hiệu lực 10 phút):"
-    text = LINE_BREAK.join([intro, code, "", IGNORE])
-    body = p_mailtemplates(intro) + f"<p><strong>{escape(code)}</strong></p>" + p_mailtemplates(IGNORE)
-    return Rendered(subject=f"Xác nhận thao tác - {APP_NAME}", text=text, html=page_mailtemplates(body))
+    try:
+        intro = "Nhập mã này để xác nhận thao tác nhạy cảm trong tài khoản (có hiệu lực 10 phút):"
+        text = LINE_BREAK.join([intro, code, "", IGNORE])
+        body = p_mailtemplates(intro) + f"<p><strong>{escape(code)}</strong></p>" + p_mailtemplates(IGNORE)
+        return Rendered(subject=f"Xác nhận thao tác - {APP_NAME}", text=text, html=page_mailtemplates(body))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("code_mail failed")
+        raise
 
 
 def notice(kind: str, **ctx: str) -> Rendered:
-    subject, template = EVENTS[kind]
-    values = {"username": "", "phone": "", "new_email": "", "old_username": "", "new_username": "", "ip": "", "ua": "", **ctx}
-    what = template.format(**values)
-    text = f"{what}\n\n{SECURITY_TIP}"
-    escaped = {k: escape(str(v)) for k, v in values.items()}
-    html = page_mailtemplates(f"<p>{template.format(**escaped)}</p>" + p_mailtemplates(SECURITY_TIP))
-    return Rendered(subject=f"{subject} - {APP_NAME}", text=text, html=html)
+    try:
+        subject, template = EVENTS[kind]
+        values = {"username": "", "phone": "", "new_email": "", "old_username": "", "new_username": "", "ip": "", "ua": "", **ctx}
+        what = template.format(**values)
+        text = f"{what}\n\n{SECURITY_TIP}"
+        escaped = {k: escape(str(v)) for k, v in values.items()}
+        html = page_mailtemplates(f"<p>{template.format(**escaped)}</p>" + p_mailtemplates(SECURITY_TIP))
+        return Rendered(subject=f"{subject} - {APP_NAME}", text=text, html=html)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("notice failed")
+        raise
 
 
 def render(kind: str, **ctx: str | None) -> Rendered:
     """`reauth` needs only `code`; `verify`/`login`/`reset` need `link` (and `code` for verify/login); the others are notices."""
-    if kind == "reauth":
-        return code_mail(str(ctx["code"]))
-    if kind in _LINK_MAILS:
-        return link_mail(kind, str(ctx["link"]), ctx.get("code"))
-    return notice(kind, **{k: str(v) for k, v in ctx.items() if v is not None})
+    try:
+        if kind == "reauth":
+            return code_mail(str(ctx["code"]))
+        if kind in _LINK_MAILS:
+            return link_mail(kind, str(ctx["link"]), ctx.get("code"))
+        return notice(kind, **{k: str(v) for k, v in ctx.items() if v is not None})
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("render failed")
+        raise

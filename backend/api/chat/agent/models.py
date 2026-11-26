@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 
 from sn_shared.directory import Person
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class Persona:
@@ -23,8 +26,13 @@ class Persona:
 
 def persona_of(person: Person) -> Persona:
     """The script of a virtual person, from their row of `users`."""
-    view = person.view()
-    return Persona(
-        user_id=person.user_id, username=person.username, display_name=view.display_name, role=(person.persona_role or "").strip(),
-        style=(person.speaking_style or "").strip(), headline=view.headline, region=view.region, interests=view.interests,
-    )
+    try:
+        view = person.view()
+        return Persona(
+            user_id=person.user_id, username=person.username, display_name=view.display_name, role=(person.persona_role or "").strip(),
+            style=(person.speaking_style or "").strip(), headline=view.headline, region=view.region, interests=view.interests,
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("persona_of failed")
+        raise

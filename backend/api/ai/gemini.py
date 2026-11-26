@@ -75,30 +75,40 @@ Transport = Callable[[str, dict[str, Any]], dict[str, Any]]
 
 def http_post(path: str, payload: dict[str, Any], key: str) -> dict[str, Any]:
     """POST JSON to the API with retries on rate limits and server errors; raises AiError, never leaks the key."""
-    data = json.dumps(payload).encode("utf-8")
-    last = "no response"
-    for attempt in range(RETRIES + 1):
-        request = urllib.request.Request(BASE_URL + path, data=data, method="POST")
-        request.add_header("Content-Type", "application/json")
-        request.add_header("x-goog-api-key", key)
-        try:
-            with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310 (a fixed https URL)
-                return json.loads(response.read())
-        except urllib.error.HTTPError as error:
-            last = f"HTTP {error.code}"
-            if error.code not in RETRY_STATUS:
-                break
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
-            last = type(error).__name__
-        if attempt < RETRIES:
-            time.sleep(1 + attempt)
-    logger.warning("gemini request to %s failed: %s", path.split("?")[0], last)
-    raise AiError(f"The AI service did not answer ({last})")
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        last = "no response"
+        for attempt in range(RETRIES + 1):
+            request = urllib.request.Request(BASE_URL + path, data=data, method="POST")
+            request.add_header("Content-Type", "application/json")
+            request.add_header("x-goog-api-key", key)
+            try:
+                with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310 (a fixed https URL)
+                    return json.loads(response.read())
+            except urllib.error.HTTPError as error:
+                last = f"HTTP {error.code}"
+                if error.code not in RETRY_STATUS:
+                    break
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
+                last = type(error).__name__
+            if attempt < RETRIES:
+                time.sleep(1 + attempt)
+        logger.warning("gemini request to %s failed: %s", path.split("?")[0], last)
+        raise AiError(f"The AI service did not answer ({last})")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("http_post failed")
+        raise
 
 
 def normalize(vector: Sequence[float]) -> list[float]:
-    norm = sum(x * x for x in vector) ** 0.5
-    return [x / norm for x in vector] if norm else list(vector)
+    try:
+        norm = sum(x * x for x in vector) ** 0.5
+        return [x / norm for x in vector] if norm else list(vector)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("normalize failed")
+        raise
 
 
 class GeminiProvider:
@@ -106,12 +116,17 @@ class GeminiProvider:
     is_dummy = False
 
     def __init__(self, key: str, transport: Transport | None = None) -> None:
-        self.key_throttle = key
-        self._transport = transport or (lambda path, payload: http_post(path, payload, self.key_throttle))
-        self.llm_model = os.environ.get("GEMINI_LLM_MODEL", DEFAULT_LLM_MODEL)
-        self.embed_model = os.environ.get("GEMINI_EMBED_MODEL", DEFAULT_EMBED_MODEL)
-        self.dimensions = int(os.environ.get("GEMINI_EMBED_DIMENSIONS", DEFAULT_EMBED_DIMENSIONS))
-        self.min_similarity = float(os.environ.get("GEMINI_MIN_SIMILARITY", DEFAULT_MIN_SIMILARITY))
+        try:
+            self.key_throttle = key
+            self._transport = transport or (lambda path, payload: http_post(path, payload, self.key_throttle))
+            self.llm_model = os.environ.get("GEMINI_LLM_MODEL", DEFAULT_LLM_MODEL)
+            self.embed_model = os.environ.get("GEMINI_EMBED_MODEL", DEFAULT_EMBED_MODEL)
+            self.dimensions = int(os.environ.get("GEMINI_EMBED_DIMENSIONS", DEFAULT_EMBED_DIMENSIONS))
+            self.min_similarity = float(os.environ.get("GEMINI_MIN_SIMILARITY", DEFAULT_MIN_SIMILARITY))
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
     # -- text generation ---------------------------------------------------------------------------------------
     def generate_gemini(self, system: str, user: str, json_mode: bool = False, max_tokens: int = MAX_ANSWER_TOKENS) -> str:
@@ -136,45 +151,60 @@ class GeminiProvider:
         return text
 
     def answer(self, question: str, passages: Sequence[str] = ()) -> AgentAnswer:
-        if passages:
-            numbered = "\n\n".join(f"[{n}] {text}" for n, text in enumerate(passages, start=1))
-            user = f"Passages:\n{numbered}\n\nQuestion: {question.strip()}"
-            return AgentAnswer("text", self.generate_gemini(ANSWER_RULES, user))
-        return AgentAnswer("text", self.generate_gemini(NO_PASSAGES_RULES, f"Question: {question.strip()}"))
+        try:
+            if passages:
+                numbered = "\n\n".join(f"[{n}] {text}" for n, text in enumerate(passages, start=1))
+                user = f"Passages:\n{numbered}\n\nQuestion: {question.strip()}"
+                return AgentAnswer("text", self.generate_gemini(ANSWER_RULES, user))
+            return AgentAnswer("text", self.generate_gemini(NO_PASSAGES_RULES, f"Question: {question.strip()}"))
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("answer failed")
+            raise
 
     def run_agent(self, question: str, toolbox: Toolbox) -> AgentAnswer:
         """Let the model use the tools: ask, run the calls it makes, hand the results back, until it answers."""
-        path = f"/models/{self.llm_model}:generateContent"
-        tools = [{"functionDeclarations": toolbox.declarations}]
-        config = {"maxOutputTokens": MAX_ANSWER_TOKENS, "temperature": 0.2}
-        system = {"parts": [{"text": AGENT_RULES}]}
-        contents: list[dict[str, Any]] = [{"role": "user", "parts": [{"text": question.strip()}]}]
-        for step in range(MAX_TOOL_STEPS + 1):
-            payload: dict[str, Any] = {"systemInstruction": system, "contents": contents, "generationConfig": config, "tools": tools}
-            if step == MAX_TOOL_STEPS:  # out of rounds: answer now, no more tools
-                payload["toolConfig"] = {"functionCallingConfig": {"mode": "NONE"}}
-            body = self._transport(path, payload)
-            try:
-                content = body["candidates"][0]["content"]
-                parts = content.get("parts", [])
-            except (KeyError, IndexError, TypeError, AttributeError):
-                raise AiError("The AI service returned no text") from None
-            calls = [part["functionCall"] for part in parts if isinstance(part, dict) and "functionCall" in part]
-            if not calls:
-                text = "".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
-                if not text:
-                    raise AiError("The AI service returned no text")
-                return AgentAnswer("text", text)
-            contents.append(content)  # the model's own turn goes back as it came (it may carry signatures)
-            results = []
-            for call in calls:
-                outcome = toolbox.call(str(call.get("name", "")), call.get("args"))
-                results.append({"functionResponse": {"name": call.get("name", ""), "response": {"result": outcome}}})
-            contents.append({"role": "user", "parts": results})
-        raise AiError("The AI service kept calling tools")
+        try:
+            path = f"/models/{self.llm_model}:generateContent"
+            tools = [{"functionDeclarations": toolbox.declarations}]
+            config = {"maxOutputTokens": MAX_ANSWER_TOKENS, "temperature": 0.2}
+            system = {"parts": [{"text": AGENT_RULES}]}
+            contents: list[dict[str, Any]] = [{"role": "user", "parts": [{"text": question.strip()}]}]
+            for step in range(MAX_TOOL_STEPS + 1):
+                payload: dict[str, Any] = {"systemInstruction": system, "contents": contents, "generationConfig": config, "tools": tools}
+                if step == MAX_TOOL_STEPS:  # out of rounds: answer now, no more tools
+                    payload["toolConfig"] = {"functionCallingConfig": {"mode": "NONE"}}
+                body = self._transport(path, payload)
+                try:
+                    content = body["candidates"][0]["content"]
+                    parts = content.get("parts", [])
+                except (KeyError, IndexError, TypeError, AttributeError):
+                    raise AiError("The AI service returned no text") from None
+                calls = [part["functionCall"] for part in parts if isinstance(part, dict) and "functionCall" in part]
+                if not calls:
+                    text = "".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
+                    if not text:
+                        raise AiError("The AI service returned no text")
+                    return AgentAnswer("text", text)
+                contents.append(content)  # the model's own turn goes back as it came (it may carry signatures)
+                results = []
+                for call in calls:
+                    outcome = toolbox.call(str(call.get("name", "")), call.get("args"))
+                    results.append({"functionResponse": {"name": call.get("name", ""), "response": {"result": outcome}}})
+                contents.append({"role": "user", "parts": results})
+            raise AiError("The AI service kept calling tools")
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("run_agent failed")
+            raise
 
     def generate(self, prompt: str, max_tokens: int) -> str:
-        return self.generate_gemini(GENERAL_RULES, prompt, max_tokens=max(64, max_tokens))
+        try:
+            return self.generate_gemini(GENERAL_RULES, prompt, max_tokens=max(64, max_tokens))
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("generate failed")
+            raise
 
     def web_search(self, query: str, max_results: int) -> dict[str, Any]:
         """Gemini's own Google Search grounding: Google fetches the pages, this server touches none of them."""
@@ -232,7 +262,12 @@ class GeminiProvider:
         return normalize([float(x) for x in values])
 
     def embed(self, texts: Sequence[str], purpose: str = "document") -> list[list[float]]:
-        if len(texts) <= 1:
-            return [self.embed_one(text, purpose) for text in texts]
-        with ThreadPoolExecutor(max_workers=EMBED_WORKERS) as pool:
-            return list(pool.map(lambda text: self.embed_one(text, purpose), texts))
+        try:
+            if len(texts) <= 1:
+                return [self.embed_one(text, purpose) for text in texts]
+            with ThreadPoolExecutor(max_workers=EMBED_WORKERS) as pool:
+                return list(pool.map(lambda text: self.embed_one(text, purpose), texts))
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("embed failed")
+            raise

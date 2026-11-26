@@ -10,6 +10,9 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+import logging
+logger = logging.getLogger(__name__)
+
 MAX_NAME_LENGTH = 100
 MAX_DEPTH = 6
 MAX_RAW_PATH_LENGTH = 700
@@ -30,40 +33,55 @@ class NotFound(LookupError):
 
 def validate_name(raw: str) -> str:
     """One path component: NFC-normalised and checked; returns the normalised name."""
-    if not isinstance(raw, str):
-        raise PathError("Tên không hợp lệ")
-    name = unicodedata.normalize("NFC", raw)
-    if not 1 <= len(name) <= MAX_NAME_LENGTH:
-        raise PathError("Tên phải dài từ 1 đến 100 ký tự")
-    if name in (".", ".."):
-        raise PathError("Tên không hợp lệ")
-    if name[-1] in ". ":
-        raise PathError("Tên không được kết thúc bằng dấu chấm hoặc dấu cách")
-    for char in name:
-        if char in FORBIDDEN_NAME_CHARS or unicodedata.category(char) in FORBIDDEN_CATEGORIES:
-            raise PathError("Tên chứa ký tự không được phép")
-    if name.split(".", 1)[0].rstrip(" ").casefold() in RESERVED_WINDOWS:
-        raise PathError("Tên này là tên dành riêng của hệ thống")
-    return name
+    try:
+        if not isinstance(raw, str):
+            raise PathError("Tên không hợp lệ")
+        name = unicodedata.normalize("NFC", raw)
+        if not 1 <= len(name) <= MAX_NAME_LENGTH:
+            raise PathError("Tên phải dài từ 1 đến 100 ký tự")
+        if name in (".", ".."):
+            raise PathError("Tên không hợp lệ")
+        if name[-1] in ". ":
+            raise PathError("Tên không được kết thúc bằng dấu chấm hoặc dấu cách")
+        for char in name:
+            if char in FORBIDDEN_NAME_CHARS or unicodedata.category(char) in FORBIDDEN_CATEGORIES:
+                raise PathError("Tên chứa ký tự không được phép")
+        if name.split(".", 1)[0].rstrip(" ").casefold() in RESERVED_WINDOWS:
+            raise PathError("Tên này là tên dành riêng của hệ thống")
+        return name
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("validate_name failed")
+        raise
 
 
 def parse_virtual(raw: str) -> list[str]:
     """`/a/b` -> ['a', 'b']; `/` -> []. Must start with '/'; at most one trailing '/'."""
-    if not isinstance(raw, str) or len(raw) > MAX_RAW_PATH_LENGTH or not raw.startswith("/"):
-        raise PathError("Đường dẫn không hợp lệ")
-    if raw == "/":
-        return []
-    body = raw[1:]
-    if body.endswith("/"):
-        body = body[:-1]
-    parts = [validate_name(part) for part in body.split("/")]
-    if len(parts) > MAX_DEPTH:
-        raise PathError("Đường dẫn quá sâu (tối đa 6 cấp)")
-    return parts
+    try:
+        if not isinstance(raw, str) or len(raw) > MAX_RAW_PATH_LENGTH or not raw.startswith("/"):
+            raise PathError("Đường dẫn không hợp lệ")
+        if raw == "/":
+            return []
+        body = raw[1:]
+        if body.endswith("/"):
+            body = body[:-1]
+        parts = [validate_name(part) for part in body.split("/")]
+        if len(parts) > MAX_DEPTH:
+            raise PathError("Đường dẫn quá sâu (tối đa 6 cấp)")
+        return parts
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("parse_virtual failed")
+        raise
 
 
 def to_virtual(parts: list[str]) -> str:
-    return "/" + "/".join(parts)
+    try:
+        return "/" + "/".join(parts)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("to_virtual failed")
+        raise
 
 
 @dataclass(frozen=True)
@@ -73,7 +91,12 @@ class Resolved:
 
     @property
     def virtual(self) -> str:
-        return to_virtual(list(self.parts))
+        try:
+            return to_virtual(list(self.parts))
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("virtual failed")
+            raise
 
 
 def resolve(root: Path, raw: str, *, must_exist: bool = True) -> Resolved:

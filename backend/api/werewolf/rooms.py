@@ -27,6 +27,9 @@ from api.werewolf.engine import (
 )
 from api.werewolf.engine.chat import ChatMessage
 
+import logging
+logger = logging.getLogger(__name__)
+
 BOT_NAMES = [
     "An", "Bình", "Cường", "Dũng", "Phúc", "Giang", "Hùng", "Khoa", "Linh", "Minh",
     "Nam", "Oanh", "Phong", "Quân", "Sơn", "Tùng", "Uyên", "Việt", "Xuân", "Yến",
@@ -71,28 +74,38 @@ class CapacityError(GameError):
 
 
 def random_room_title(rng: random.Random | None = None) -> str:
-    chooser = rng or random
-    return f"{chooser.choice(ROOM_PLACES)} {chooser.choice(ROOM_THEMES)}"
+    try:
+        chooser = rng or random
+        return f"{chooser.choice(ROOM_PLACES)} {chooser.choice(ROOM_THEMES)}"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("random_room_title failed")
+        raise
 
 
 def pick_names(count: int, taken: set[str] | None = None) -> list[str]:
     """Random bot names, unique and not in `taken` (case-insensitive); numbered when the list runs out."""
-    used = {n.casefold() for n in (taken or set())}
-    available = [n for n in BOT_NAMES if n.casefold() not in used]
-    random.shuffle(available)
-    names: list[str] = []
-    for i in range(count):
-        if i < len(available):
-            names.append(available[i])
-            continue
-        n = i
-        while True:
-            candidate = f"{random.choice(BOT_NAMES)} {n}"
-            if candidate.casefold() not in used and candidate not in names:
-                break
-            n += 1
-        names.append(candidate)
-    return names
+    try:
+        used = {n.casefold() for n in (taken or set())}
+        available = [n for n in BOT_NAMES if n.casefold() not in used]
+        random.shuffle(available)
+        names: list[str] = []
+        for i in range(count):
+            if i < len(available):
+                names.append(available[i])
+                continue
+            n = i
+            while True:
+                candidate = f"{random.choice(BOT_NAMES)} {n}"
+                if candidate.casefold() not in used and candidate not in names:
+                    break
+                n += 1
+            names.append(candidate)
+        return names
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("pick_names failed")
+        raise
 
 
 @dataclass
@@ -106,7 +119,12 @@ class Seat:
 
     @property
     def is_bot(self) -> bool:
-        return self.user_id is None
+        try:
+            return self.user_id is None
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("is_bot failed")
+            raise
 
 
 @dataclass(frozen=True)
@@ -155,330 +173,505 @@ class Room:
     _recorded: Game | None = None
 
     def __post_init__(self) -> None:
-        self.last_active = self.clock()
+        try:
+            self.last_active = self.clock()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__post_init__ failed")
+            raise
 
     # ---- queries ----
     def touch(self) -> None:
-        self.last_active = self.clock()
+        try:
+            self.last_active = self.clock()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("touch failed")
+            raise
 
     def seat_index(self, user_id: int | None) -> int | None:
-        if user_id is None:
-            return None
-        return next((i for i, s in enumerate(self.seats) if s.user_id == user_id), None)
+        try:
+            if user_id is None:
+                return None
+            return next((i for i, s in enumerate(self.seats) if s.user_id == user_id), None)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("seat_index failed")
+            raise
 
     def seat_of(self, user_id: int | None) -> Seat | None:
-        index = self.seat_index(user_id)
-        return None if index is None else self.seats[index]
+        try:
+            index = self.seat_index(user_id)
+            return None if index is None else self.seats[index]
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("seat_of failed")
+            raise
 
     def player_id(self, user_id: int) -> int | None:
-        index = self.seat_index(user_id)
-        return None if index is None else index + 1
+        try:
+            index = self.seat_index(user_id)
+            return None if index is None else index + 1
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("player_id failed")
+            raise
 
     def humans(self) -> list[Seat]:
-        return [s for s in self.seats if s.user_id is not None]
+        try:
+            return [s for s in self.seats if s.user_id is not None]
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("humans failed")
+            raise
 
     @property
     def started(self) -> bool:
-        return self.game is not None
+        try:
+            return self.game is not None
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("started failed")
+            raise
 
     @property
     def finished(self) -> bool:
-        return self.game is not None and self.game.game_over
+        try:
+            return self.game is not None and self.game.game_over
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("finished failed")
+            raise
 
     @property
     def open_seats(self) -> int:
-        return sum(s.is_bot for s in self.seats) if self.game is None else 0
+        try:
+            return sum(s.is_bot for s in self.seats) if self.game is None else 0
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("open_seats failed")
+            raise
 
     def require_host(self, user_id: int) -> None:
-        if user_id != self.host_id:
-            raise Forbidden("Chỉ chủ phòng mới được thực hiện")
+        try:
+            if user_id != self.host_id:
+                raise Forbidden("Chỉ chủ phòng mới được thực hiện")
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("require_host failed")
+            raise
 
     def require_game(self) -> Game:
-        if self.game is None:
-            raise RoomError("Game chưa bắt đầu")
-        return self.game
+        try:
+            if self.game is None:
+                raise RoomError("Game chưa bắt đầu")
+            return self.game
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("require_game failed")
+            raise
 
     def require_pid(self, user_id: int) -> int:
-        pid = self.player_id(user_id)
-        if pid is None:
-            raise Forbidden("Bạn không ở trong phòng này")
-        return pid
+        try:
+            pid = self.player_id(user_id)
+            if pid is None:
+                raise Forbidden("Bạn không ở trong phòng này")
+            return pid
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("require_pid failed")
+            raise
 
     def taken_names(self) -> set[str]:
-        return {s.name for s in self.seats}
+        try:
+            return {s.name for s in self.seats}
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("taken_names failed")
+            raise
 
     # ---- lobby ----
     def join(self, user_id: int, username: str, rng: random.Random | None = None) -> None:
         """A human takes over one bot seat (the one with their name if any, else a random one) and its role."""
-        if self.game is not None:
-            raise GameStarted("Phòng đã bắt đầu chơi")
-        if self.seat_index(user_id) is not None:
-            raise RoomError("Bạn đã ở trong phòng này")
-        bots = [i for i, s in enumerate(self.seats) if s.is_bot]
-        if not bots:
-            raise RoomFull(f"Phòng đầy (tối đa {len(self.seats)} người)")
-        same = [i for i in bots if self.seats[i].name.casefold() == username.casefold()]
-        if not same and any(s.name.casefold() == username.casefold() for s in self.seats):
-            raise RoomError("Tên đã có người dùng trong phòng")
-        index = same[0] if same else (rng or random).choice(bots)
-        seat = self.seats[index]
-        seat.user_id, seat.name = user_id, username
-        self.touch()
+        try:
+            if self.game is not None:
+                raise GameStarted("Phòng đã bắt đầu chơi")
+            if self.seat_index(user_id) is not None:
+                raise RoomError("Bạn đã ở trong phòng này")
+            bots = [i for i, s in enumerate(self.seats) if s.is_bot]
+            if not bots:
+                raise RoomFull(f"Phòng đầy (tối đa {len(self.seats)} người)")
+            same = [i for i in bots if self.seats[i].name.casefold() == username.casefold()]
+            if not same and any(s.name.casefold() == username.casefold() for s in self.seats):
+                raise RoomError("Tên đã có người dùng trong phòng")
+            index = same[0] if same else (rng or random).choice(bots)
+            seat = self.seats[index]
+            seat.user_id, seat.name = user_id, username
+            self.touch()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("join failed")
+            raise
 
     def add_bots(self, user_id: int, count: int) -> None:
         """The host adds machine seats before the game starts (up to the limit of the room); the new seats have no role yet."""
-        self.require_host(user_id)
-        if self.game is not None:
-            raise RoomError("Phòng đã bắt đầu chơi")
-        if len(self.seats) + count > MAX_PLAYERS:
-            raise RoomFull(f"Phòng đầy (tối đa {MAX_PLAYERS} người)")
-        for _ in range(count):
-            self.seats.append(Seat(pick_names(1, self.taken_names())[0]))
-        self.touch()
+        try:
+            self.require_host(user_id)
+            if self.game is not None:
+                raise RoomError("Phòng đã bắt đầu chơi")
+            if len(self.seats) + count > MAX_PLAYERS:
+                raise RoomFull(f"Phòng đầy (tối đa {MAX_PLAYERS} người)")
+            for _ in range(count):
+                self.seats.append(Seat(pick_names(1, self.taken_names())[0]))
+            self.touch()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("add_bots failed")
+            raise
 
     def set_options(self, user_id: int, timer: int | None = None, events: bool | None = None, dead_talk: bool | None = None) -> None:
         """The host changes how the game is played before it starts: the seconds of a night turn (0 = no limit), the event cards, whether the dead chat with the living."""
-        self.require_host(user_id)
-        if self.game is not None:
-            raise RoomError("Phòng đã bắt đầu chơi")
-        if timer is not None:
-            if timer and not MIN_TIMER <= timer <= MAX_TIMER:
-                raise RoomError(f"Đồng hồ phải từ {MIN_TIMER} đến {MAX_TIMER} giây")
-            self.timer = timer
-        if events is not None:
-            self.events = events
-        if dead_talk is not None:
-            self.dead_talk = dead_talk
-        self.touch()
+        try:
+            self.require_host(user_id)
+            if self.game is not None:
+                raise RoomError("Phòng đã bắt đầu chơi")
+            if timer is not None:
+                if timer and not MIN_TIMER <= timer <= MAX_TIMER:
+                    raise RoomError(f"Đồng hồ phải từ {MIN_TIMER} đến {MAX_TIMER} giây")
+                self.timer = timer
+            if events is not None:
+                self.events = events
+            if dead_talk is not None:
+                self.dead_talk = dead_talk
+            self.touch()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("set_options failed")
+            raise
 
     def set_roles(self, user_id: int, roles: list[Role] | None, randomise: bool = False, banned: tuple[Ability, ...] = ()) -> None:
         """The host sets the role of every seat before the game starts: `randomise` deals a fresh balanced set to all the seats, `roles`
         is one (faction, ability) per seat (checked against the rules), and neither clears the setup (the roles are dealt when the game starts)."""
-        self.require_host(user_id)
-        if self.game is not None:
-            raise RoomError("Phòng đã bắt đầu chơi")
-        self.fill_to_minimum()
-        if randomise:
-            roles = suggest_roles(len(self.seats), banned)
-            self.banned = tuple(banned)  # a later change of the number of seats deals again without them
-        if roles is None:
-            for seat in self.seats:
-                seat.faction = seat.ability = None
-        else:
-            if len(roles) != len(self.seats):
-                raise RoomError(f"Cần đúng {len(self.seats)} vai, một vai cho mỗi ghế")
-            validate_roles(roles)
-            for seat, (faction, ability) in zip(self.seats, roles):
-                seat.faction, seat.ability = faction, ability
-        self.touch()
+        try:
+            self.require_host(user_id)
+            if self.game is not None:
+                raise RoomError("Phòng đã bắt đầu chơi")
+            self.fill_to_minimum()
+            if randomise:
+                roles = suggest_roles(len(self.seats), banned)
+                self.banned = tuple(banned)  # a later change of the number of seats deals again without them
+            if roles is None:
+                for seat in self.seats:
+                    seat.faction = seat.ability = None
+            else:
+                if len(roles) != len(self.seats):
+                    raise RoomError(f"Cần đúng {len(self.seats)} vai, một vai cho mỗi ghế")
+                validate_roles(roles)
+                for seat, (faction, ability) in zip(self.seats, roles):
+                    seat.faction, seat.ability = faction, ability
+            self.touch()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("set_roles failed")
+            raise
 
     def follow_chat(self, names: list[tuple[str, str]], seats: int) -> bool:
         """Before the game starts, the seats are the people of the chat room: one for each (5 at least), named after them (`names` are
         (name, kind) pairs, kind `virtual` or `human`). The seats of the people who have not sat in the game yet are played by the machine
         until they do (`join` gives a person the seat of their name); the seats nobody is named for are fillers with random names, and are
         taken away when there are more than the room needs. Returns whether anything changed."""
-        if self.game is not None:
-            return False
-        before = [(seat.name, seat.user_id, getattr(seat, "origin", "")) for seat in self.seats]
-        was_dealt = any(seat.faction for seat in self.seats)
-        count_before = len(self.seats)
-        wanted = min(max(seats, MIN_PLAYERS), MAX_PLAYERS)
-        named = {name.casefold() for name, _ in names}
-        extra = len(self.seats) - wanted
-        for seat in [s for s in reversed(self.seats) if s.is_bot and s.name.casefold() not in named]:
-            if extra <= 0:
-                break
-            self.seats.remove(seat)
-            extra -= 1
-        while len(self.seats) < wanted:
-            self.seats.append(Seat(pick_names(1, self.taken_names())[0]))
-        kinds = {name.casefold(): kind for name, kind in names}
-        seated = {seat.name.casefold() for seat in self.seats}
-        missing = [(name, kind) for name, kind in names if name.casefold() not in seated]
-        for seat in self.seats:
-            if seat.is_bot and seat.name.casefold() not in named and missing:
-                seat.name, seat.origin = missing.pop(0)
-        for seat in self.seats:  # who each machine seat is for (a seat that was named earlier keeps its name and gets its kind)
-            seat.origin = kinds.get(seat.name.casefold(), "") if seat.is_bot else ""
-        if was_dealt and len(self.seats) != count_before:  # the roles the host dealt were for another number of people: deal again for this one
-            for seat, (faction, ability) in zip(self.seats, suggest_roles(len(self.seats), getattr(self, "banned", ()))):
-                seat.faction, seat.ability = faction, ability
-        changed = before != [(seat.name, seat.user_id, getattr(seat, "origin", "")) for seat in self.seats]
-        if changed:
-            self.touch()
-        return changed
+        try:
+            if self.game is not None:
+                return False
+            before = [(seat.name, seat.user_id, getattr(seat, "origin", "")) for seat in self.seats]
+            was_dealt = any(seat.faction for seat in self.seats)
+            count_before = len(self.seats)
+            wanted = min(max(seats, MIN_PLAYERS), MAX_PLAYERS)
+            named = {name.casefold() for name, _ in names}
+            extra = len(self.seats) - wanted
+            for seat in [s for s in reversed(self.seats) if s.is_bot and s.name.casefold() not in named]:
+                if extra <= 0:
+                    break
+                self.seats.remove(seat)
+                extra -= 1
+            while len(self.seats) < wanted:
+                self.seats.append(Seat(pick_names(1, self.taken_names())[0]))
+            kinds = {name.casefold(): kind for name, kind in names}
+            seated = {seat.name.casefold() for seat in self.seats}
+            missing = [(name, kind) for name, kind in names if name.casefold() not in seated]
+            for seat in self.seats:
+                if seat.is_bot and seat.name.casefold() not in named and missing:
+                    seat.name, seat.origin = missing.pop(0)
+            for seat in self.seats:  # who each machine seat is for (a seat that was named earlier keeps its name and gets its kind)
+                seat.origin = kinds.get(seat.name.casefold(), "") if seat.is_bot else ""
+            if was_dealt and len(self.seats) != count_before:  # the roles the host dealt were for another number of people: deal again for this one
+                for seat, (faction, ability) in zip(self.seats, suggest_roles(len(self.seats), getattr(self, "banned", ()))):
+                    seat.faction, seat.ability = faction, ability
+            changed = before != [(seat.name, seat.user_id, getattr(seat, "origin", "")) for seat in self.seats]
+            if changed:
+                self.touch()
+            return changed
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("follow_chat failed")
+            raise
 
     def fill_to_minimum(self) -> None:
-        missing = MIN_PLAYERS - len(self.seats)
-        if missing > 0:
-            for name in pick_names(missing, self.taken_names()):
-                self.seats.append(Seat(name))
+        try:
+            missing = MIN_PLAYERS - len(self.seats)
+            if missing > 0:
+                for name in pick_names(missing, self.taken_names()):
+                    self.seats.append(Seat(name))
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("fill_to_minimum failed")
+            raise
 
     def start(self, user_id: int) -> None:
-        self.require_host(user_id)
-        if self.game is not None:
-            raise RoomError("Game đã bắt đầu")
-        self.begin()
+        try:
+            self.require_host(user_id)
+            if self.game is not None:
+                raise RoomError("Game đã bắt đầu")
+            self.begin()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("start failed")
+            raise
 
     def begin(self) -> None:
-        if len(self.seats) < MIN_PLAYERS:
-            raise RoomError(f"Cần ít nhất {MIN_PLAYERS} người (hiện có {len(self.seats)})")
-        if not self.humans():
-            raise RoomError("Cần ít nhất 1 người chơi thật")
-        preset = all(s.faction and s.ability for s in self.seats)
-        roles: list[Role] | None = [(s.faction, s.ability) for s in self.seats] if preset else None  # type: ignore[misc]
-        if roles:
-            validate_roles(roles)
-        game = Game([(s.name, s.is_bot) for s in self.seats], roles=roles, events=self.events,
-                    timer=self.timer or None, dead_talk=self.dead_talk, clock=self.clock)
-        game.start()
-        self.game = game
-        for seat in self.seats:
-            seat.started_by = seat.user_id
-        self.touch()
+        try:
+            if len(self.seats) < MIN_PLAYERS:
+                raise RoomError(f"Cần ít nhất {MIN_PLAYERS} người (hiện có {len(self.seats)})")
+            if not self.humans():
+                raise RoomError("Cần ít nhất 1 người chơi thật")
+            preset = all(s.faction and s.ability for s in self.seats)
+            roles: list[Role] | None = [(s.faction, s.ability) for s in self.seats] if preset else None  # type: ignore[misc]
+            if roles:
+                validate_roles(roles)
+            game = Game([(s.name, s.is_bot) for s in self.seats], roles=roles, events=self.events,
+                        timer=self.timer or None, dead_talk=self.dead_talk, clock=self.clock)
+            game.start()
+            self.game = game
+            for seat in self.seats:
+                seat.started_by = seat.user_id
+            self.touch()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("begin failed")
+            raise
 
     # ---- result / rematch / reset ----
     def collect_result(self) -> GameRecord | None:
         """The record of the game that just ended (exactly once per game), or None."""
-        game = self.game
-        if game is None or not game.game_over or self._recorded is game:
-            return None
-        self._recorded = game
-        winner = game.winner.name if game.winner else "DRAW"
-        self.history["games"] += 1
-        self.history[game.winner.name if game.winner else "draw"] += 1
-        players = []
-        for seat, p in zip(self.seats, game.players):
-            if seat.started_by is None:
-                continue
-            outcome = "draw" if game.winner is None else ("won" if p.faction == game.winner else "lost")
-            players.append(PlayerRecord(
-                seat.started_by, seat.name, p.faction.name, p.ability.name, outcome, p.alive,
-                game.night if p.died_on is None else p.died_on))
-        record = GameRecord(self.code, winner, game.night, len(game.players), tuple(players), *self.public_lines(game))
-        self.records.append(record)
-        return record
+        try:
+            game = self.game
+            if game is None or not game.game_over or self._recorded is game:
+                return None
+            self._recorded = game
+            winner = game.winner.name if game.winner else "DRAW"
+            self.history["games"] += 1
+            self.history[game.winner.name if game.winner else "draw"] += 1
+            players = []
+            for seat, p in zip(self.seats, game.players):
+                if seat.started_by is None:
+                    continue
+                outcome = "draw" if game.winner is None else ("won" if p.faction == game.winner else "lost")
+                players.append(PlayerRecord(
+                    seat.started_by, seat.name, p.faction.name, p.ability.name, outcome, p.alive,
+                    game.night if p.died_on is None else p.died_on))
+            record = GameRecord(self.code, winner, game.night, len(game.players), tuple(players), *self.public_lines(game))
+            self.records.append(record)
+            return record
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("collect_result failed")
+            raise
 
     def public_lines(self, game) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """The roles of everybody (a finished game shows them) and the lines of the log that were for everybody. A line that was for a
         few (what a wolf or a seer learned alone) is not here: the log keeps its audience."""
-        roles = tuple(f"{seat.name}: {p.faction.value} · {p.ability.value}" for seat, p in zip(self.seats, game.players))
-        seen = tuple(event.text for event in game.events if event.audience is None)
-        return roles, seen
+        try:
+            roles = tuple(f"{seat.name}: {p.faction.value} · {p.ability.value}" for seat, p in zip(self.seats, game.players))
+            seen = tuple(event.text for event in game.events if event.audience is None)
+            return roles, seen
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("public_lines failed")
+            raise
 
     def rematch(self, user_id: int) -> None:
-        self.require_host(user_id)
-        if self.game is None or not self.game.game_over:
-            raise RoomError("Chỉ chơi lại được khi ván đã kết thúc")
-        self.collect_result()
-        for seat in self.seats:
-            seat.faction = seat.ability = None
-        self.game = None
-        self.begin()
+        try:
+            self.require_host(user_id)
+            if self.game is None or not self.game.game_over:
+                raise RoomError("Chỉ chơi lại được khi ván đã kết thúc")
+            self.collect_result()
+            for seat in self.seats:
+                seat.faction = seat.ability = None
+            self.game = None
+            self.begin()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("rematch failed")
+            raise
 
     def reset(self, user_id: int) -> None:
-        self.require_host(user_id)
-        self.collect_result()
-        self.game = None
-        self.seats = [s for s in self.seats if not s.is_bot]
-        for seat in self.seats:
-            seat.faction = seat.ability = seat.started_by = None
-        self.fill_to_minimum()
-        self.touch()
+        try:
+            self.require_host(user_id)
+            self.collect_result()
+            self.game = None
+            self.seats = [s for s in self.seats if not s.is_bot]
+            for seat in self.seats:
+                seat.faction = seat.ability = seat.started_by = None
+            self.fill_to_minimum()
+            self.touch()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("reset failed")
+            raise
 
     def force(self, user_id: int) -> None:
-        self.require_host(user_id)
-        self.require_game().force()
-        self.touch()
+        try:
+            self.require_host(user_id)
+            self.require_game().force()
+            self.touch()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("force failed")
+            raise
 
     def tick(self) -> bool:
-        return self.game is not None and self.game.tick()
+        try:
+            return self.game is not None and self.game.tick()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("tick failed")
+            raise
 
     # ---- leaving ----
     def leave(self, user_id: int) -> bool:
         """The user leaves; their seat goes to a bot. Returns True when no human is left (room is dead)."""
-        index = self.seat_index(user_id)
-        if index is None:
-            raise RoomError("Bạn không ở trong phòng này")
-        seat = self.seats[index]
-        if self.game is None:
-            seat.user_id, seat.name = None, pick_names(1, self.taken_names())[0]
-        else:
-            seat.user_id = None  # keeps its name; the engine now plays it as a bot
-            if not self.game.game_over:
-                self.game.take_over(index + 1)
-        humans = self.humans()
-        if user_id == self.host_id and humans:
-            self.host_id = humans[0].user_id  # type: ignore[assignment]
-        self.touch()
-        return not humans
+        try:
+            index = self.seat_index(user_id)
+            if index is None:
+                raise RoomError("Bạn không ở trong phòng này")
+            seat = self.seats[index]
+            if self.game is None:
+                seat.user_id, seat.name = None, pick_names(1, self.taken_names())[0]
+            else:
+                seat.user_id = None  # keeps its name; the engine now plays it as a bot
+                if not self.game.game_over:
+                    self.game.take_over(index + 1)
+            humans = self.humans()
+            if user_id == self.host_id and humans:
+                self.host_id = humans[0].user_id  # type: ignore[assignment]
+            self.touch()
+            return not humans
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("leave failed")
+            raise
 
     # ---- in game ----
     def submit(self, user_id: int, target: int, kind: str = "ability") -> None:
-        game = self.require_game()
-        game.submit(self.require_pid(user_id), target, kind)
-        self.touch()
+        try:
+            game = self.require_game()
+            game.submit(self.require_pid(user_id), target, kind)
+            self.touch()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("submit failed")
+            raise
 
     def chat(self, user_id: int, text: str, target: int = 0) -> ChatMessage:
-        game = self.require_game()
-        message = game.post_chat(self.require_pid(user_id), text, target)
-        self.touch()
-        return message
+        try:
+            game = self.require_game()
+            message = game.post_chat(self.require_pid(user_id), text, target)
+            self.touch()
+            return message
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("chat failed")
+            raise
 
     def chat_recipients(self, message: ChatMessage) -> list[int]:
         """User ids that may read `message` (same visibility rule as the state snapshot)."""
-        game = self.require_game()
-        return [seat.user_id for i, seat in enumerate(self.seats)
-                if seat.user_id is not None and game.message_visible(game.players[i], message, game.game_over)]
+        try:
+            game = self.require_game()
+            return [seat.user_id for i, seat in enumerate(self.seats)
+                    if seat.user_id is not None and game.message_visible(game.players[i], message, game.game_over)]
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("chat_recipients failed")
+            raise
 
     def chat_payload(self, message: ChatMessage) -> dict[str, Any]:
-        return self.require_game().chat_entry(message)
+        try:
+            return self.require_game().chat_entry(message)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("chat_payload failed")
+            raise
 
     def perspective(self, user_id: int, seat_no: int) -> dict[str, Any]:
         """What seat `seat_no` knows. Only for dead players, or for everyone once the game is over."""
-        game = self.require_game()
-        if not game.can_see_everything(self.require_pid(user_id)):
-            raise Forbidden("Chỉ người đã chết hoặc khi ván kết thúc mới xem được góc nhìn người khác")
-        if not 1 <= seat_no <= len(game.players):
-            raise RoomNotFound("Người chơi không tồn tại")
-        return game.view_for(seat_no, perspective=True)
+        try:
+            game = self.require_game()
+            if not game.can_see_everything(self.require_pid(user_id)):
+                raise Forbidden("Chỉ người đã chết hoặc khi ván kết thúc mới xem được góc nhìn người khác")
+            if not 1 <= seat_no <= len(game.players):
+                raise RoomNotFound("Người chơi không tồn tại")
+            return game.view_for(seat_no, perspective=True)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("perspective failed")
+            raise
 
     # ---- views ----
     def summary(self) -> dict[str, Any]:
-        host = self.seat_of(self.host_id)
-        return {"id": self.code, "title": self.title, "host": host.name if host else "",
-                "players": len(self.humans()), "seats": len(self.seats), "open_seats": self.open_seats,
-                "max_players": MAX_PLAYERS, "timer": self.timer, "events": self.events}
+        try:
+            host = self.seat_of(self.host_id)
+            return {"id": self.code, "title": self.title, "host": host.name if host else "",
+                    "players": len(self.humans()), "seats": len(self.seats), "open_seats": self.open_seats,
+                    "max_players": MAX_PLAYERS, "timer": self.timer, "events": self.events}
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("summary failed")
+            raise
 
     def state_for(self, user_id: int | None) -> dict[str, Any]:
         """The room as `user_id` may see it. A role (faction/ability) is only ever shown for the caller's own seat."""
-        index = self.seat_index(user_id)
-        game = self.game
-        members = []
-        for i, seat in enumerate(self.seats):
-            member: dict[str, Any] = {"seat": i + 1, "name": seat.name, "isBot": seat.is_bot, "origin": getattr(seat, "origin", "") if seat.is_bot else "",
-                                      "isHost": seat.user_id is not None and seat.user_id == self.host_id,
-                                      "isYou": i == index, "faction": None, "ability": None}
-            if i == index and game is None and seat.faction and seat.ability:
-                member["faction"] = {"code": seat.faction.name, "label": seat.faction.value}
-                member["ability"] = {"code": seat.ability.name, "label": seat.ability.value}
-            members.append(member)
-        host_sees = user_id is not None and user_id == self.host_id and game is None
-        return {
-            "code": self.code,
-            "title": self.title,
-            "isHost": user_id is not None and user_id == self.host_id,
-            "you": None if index is None else {"username": self.seats[index].name, "seat": index + 1},
-            "minPlayers": MIN_PLAYERS,
-            "maxPlayers": MAX_PLAYERS,
-            "members": members,
-            "timer": self.timer,
-            "events": self.events,
-            "deadTalk": self.dead_talk,
-            "listed": self.listed,
-            "history": dict(self.history),
-            "started": game is not None,
-            # what only the host sees before the game: the role set for each seat (None where it is left to be dealt at the start)
-            **({"setup": [None if not (s.faction and s.ability) else {"faction": {"code": s.faction.name, "label": s.faction.value}, "ability": {"code": s.ability.name, "label": s.ability.value}} for s in self.seats]} if host_sees else {}),
-            "game": game.view_for(index + 1) if game is not None and index is not None else None,
-        }
+        try:
+            index = self.seat_index(user_id)
+            game = self.game
+            members = []
+            for i, seat in enumerate(self.seats):
+                member: dict[str, Any] = {"seat": i + 1, "name": seat.name, "isBot": seat.is_bot, "origin": getattr(seat, "origin", "") if seat.is_bot else "",
+                                          "isHost": seat.user_id is not None and seat.user_id == self.host_id,
+                                          "isYou": i == index, "faction": None, "ability": None}
+                if i == index and game is None and seat.faction and seat.ability:
+                    member["faction"] = {"code": seat.faction.name, "label": seat.faction.value}
+                    member["ability"] = {"code": seat.ability.name, "label": seat.ability.value}
+                members.append(member)
+            host_sees = user_id is not None and user_id == self.host_id and game is None
+            return {
+                "code": self.code,
+                "title": self.title,
+                "isHost": user_id is not None and user_id == self.host_id,
+                "you": None if index is None else {"username": self.seats[index].name, "seat": index + 1},
+                "minPlayers": MIN_PLAYERS,
+                "maxPlayers": MAX_PLAYERS,
+                "members": members,
+                "timer": self.timer,
+                "events": self.events,
+                "deadTalk": self.dead_talk,
+                "listed": self.listed,
+                "history": dict(self.history),
+                "started": game is not None,
+                # what only the host sees before the game: the role set for each seat (None where it is left to be dealt at the start)
+                **({"setup": [None if not (s.faction and s.ability) else {"faction": {"code": s.faction.name, "label": s.faction.value}, "ability": {"code": s.ability.name, "label": s.ability.value}} for s in self.seats]} if host_sees else {}),
+                "game": game.view_for(index + 1) if game is not None and index is not None else None,
+            }
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("state_for failed")
+            raise

@@ -21,19 +21,27 @@ from sn_shared import comments
 
 from api.job.models import JobApplicant, JobDescription
 
+import logging
+logger = logging.getLogger(__name__)
+
 DELETED_USER_ID = 0
 
 
 def on_user_deleted(db: Session, user_id: int) -> None:
-    if user_id == DELETED_USER_ID:
-        return
-    db.execute(delete(JobApplicant).where(JobApplicant.user_id == user_id))
-    comments.forget_user(db, user_id, ["job"])
-    db.execute(
-        update(JobDescription)
-        .where(JobDescription.owner_id == user_id)
-        .values(owner_id=DELETED_USER_ID, status="closed")
-    )
+    try:
+        if user_id == DELETED_USER_ID:
+            return
+        db.execute(delete(JobApplicant).where(JobApplicant.user_id == user_id))
+        comments.forget_user(db, user_id, ["job"])
+        db.execute(
+            update(JobDescription)
+            .where(JobDescription.owner_id == user_id)
+            .values(owner_id=DELETED_USER_ID, status="closed")
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("on_user_deleted failed")
+        raise
 
 
 def on_user_renamed(db: Session, user_id: int, new_username: str) -> None:

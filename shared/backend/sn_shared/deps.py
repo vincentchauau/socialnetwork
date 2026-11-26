@@ -12,6 +12,9 @@ from starlette.requests import HTTPConnection
 
 from sn_shared.security import AuthError, TokenPayload, payload_from_cookies
 
+import logging
+logger = logging.getLogger(__name__)
+
 GROUP_USER = "user"
 GROUP_MODERATOR = "moderator"
 GROUP_ADMIN = "admin"
@@ -31,8 +34,13 @@ def get_current_user(request: HTTPConnection) -> TokenPayload:
 
 def action_of(connection: HTTPConnection) -> str:
     """The CRUD letter a request asks for: C, R, U or D."""
-    method = getattr(connection, "method", None)
-    return ACTION_BY_METHOD.get(method, WEBSOCKET_ACTION) if method else WEBSOCKET_ACTION
+    try:
+        method = getattr(connection, "method", None)
+        return ACTION_BY_METHOD.get(method, WEBSOCKET_ACTION) if method else WEBSOCKET_ACTION
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("action_of failed")
+        raise
 
 
 def require_groups(*, admin: bool = False, moderator: bool = False, user: bool | str = False, public: bool = False) -> Callable[..., object]:
@@ -43,50 +51,80 @@ def require_groups(*, admin: bool = False, moderator: bool = False, user: bool |
     so tests can read the rule of every route. A group that may call a route may use every method of it: the handler decides
     what a person may change.
     """
-    allowed = frozenset(group for group, on in ((GROUP_ADMIN, admin), (GROUP_MODERATOR, moderator), (GROUP_USER, bool(user))) if on)
-    # The letters a person may use on this route: True means every letter, a string such as "RU" picks some (set per app and route).
-    user_letters = "CRUD" if user is True else (user or "")
+    try:
+        allowed = frozenset(group for group, on in ((GROUP_ADMIN, admin), (GROUP_MODERATOR, moderator), (GROUP_USER, bool(user))) if on)
+        # The letters a person may use on this route: True means every letter, a string such as "RU" picks some (set per app and route).
+        user_letters = "CRUD" if user is True else (user or "")
 
-    def dependency(connection: HTTPConnection) -> TokenPayload | None:
-        if public:
-            return None
-        user_payload = get_current_user(connection)
-        if user_payload.group not in allowed:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Forbidden")
-        if user_payload.group == GROUP_MODERATOR and action_of(connection) == "D":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "A moderator may create, read and update, not delete")
-        if user_payload.group == GROUP_USER and action_of(connection) not in user_letters:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "This route does not allow that for a person")
-        return user_payload
+        def dependency(connection: HTTPConnection) -> TokenPayload | None:
+            try:
+                if public:
+                    return None
+                user_payload = get_current_user(connection)
+                if user_payload.group not in allowed:
+                    raise HTTPException(status.HTTP_403_FORBIDDEN, "Forbidden")
+                if user_payload.group == GROUP_MODERATOR and action_of(connection) == "D":
+                    raise HTTPException(status.HTTP_403_FORBIDDEN, "A moderator may create, read and update, not delete")
+                if user_payload.group == GROUP_USER and action_of(connection) not in user_letters:
+                    raise HTTPException(status.HTTP_403_FORBIDDEN, "This route does not allow that for a person")
+                return user_payload
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("dependency failed")
+                raise
 
-    dependency.access_groups = allowed  # type: ignore[attr-defined]
-    dependency.public = public  # type: ignore[attr-defined]
-    return dependency
+        dependency.access_groups = allowed  # type: ignore[attr-defined]
+        dependency.public = public  # type: ignore[attr-defined]
+        return dependency
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("require_groups failed")
+        raise
 
 
 def require_users(*user_ids: int) -> Callable[..., object]:
     """Dependency factory: only these user ids may call. No ids (the default) means every signed-in user may."""
-    allowed = frozenset(user_ids)
+    try:
+        allowed = frozenset(user_ids)
 
-    def dependency(connection: HTTPConnection) -> TokenPayload | None:
-        if not allowed:
-            return None
-        user_payload = get_current_user(connection)
-        if user_payload.user_id not in allowed:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Forbidden")
-        return user_payload
+        def dependency(connection: HTTPConnection) -> TokenPayload | None:
+            try:
+                if not allowed:
+                    return None
+                user_payload = get_current_user(connection)
+                if user_payload.user_id not in allowed:
+                    raise HTTPException(status.HTTP_403_FORBIDDEN, "Forbidden")
+                return user_payload
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("dependency failed")
+                raise
 
-    dependency.access_users = allowed  # type: ignore[attr-defined]
-    return dependency
+        dependency.access_users = allowed  # type: ignore[attr-defined]
+        return dependency
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("require_users failed")
+        raise
 
 
 def access_dependencies(*, admin: bool = False, moderator: bool = False, user: bool = False, public: bool = False) -> list:
     """The two gates every route carries, ready for `include_router(..., dependencies=...)`."""
-    return [Depends(require_groups(admin=admin, moderator=moderator, user=user, public=public)), Depends(require_users())]
+    try:
+        return [Depends(require_groups(admin=admin, moderator=moderator, user=user, public=public)), Depends(require_users())]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("access_dependencies failed")
+        raise
 
 
 def ensure_group(user: TokenPayload, *groups: str, detail: str = "Forbidden") -> TokenPayload:
     """The user when the token group is one of `groups`, else 403 (for a check inside a handler)."""
-    if user.group not in groups:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail)
-    return user
+    try:
+        if user.group not in groups:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail)
+        return user
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_group failed")
+        raise

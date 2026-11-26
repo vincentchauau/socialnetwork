@@ -17,41 +17,74 @@ from api.center.tokens import csrf_valid
 from sn_shared import COOKIE_NAME
 from sn_shared.security import AuthError, decode_token
 
+import logging
+logger = logging.getLogger(__name__)
+
 UNSAFE_METHODS = ("POST", "PUT", "DELETE", "PATCH")
 BAD_REAUTH = "Incorrect password"
 
 
 def settings_of(request: Request) -> Settings:
-    return request.app.state.settings
+    try:
+        return request.app.state.settings
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("settings_of failed")
+        raise
 
 
 def biometrics_available(request: Request) -> bool:
-    return settings_of(request).biometrics_enabled and request.app.state.biometrics is not None
+    try:
+        return settings_of(request).biometrics_enabled and request.app.state.biometrics is not None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("biometrics_available failed")
+        raise
 
 
 def client_ip(request: Request) -> str:
     # Behind the gateway uvicorn runs with --proxy-headers, so this is the real client.
-    return request.client.host if request.client else "unknown"
+    try:
+        return request.client.host if request.client else "unknown"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("client_ip failed")
+        raise
 
 
 def ensure_email(request: Request) -> None:
     """503 first when mail is not configured (SMTP_HOST empty), then the Origin check."""
-    if not settings_of(request).email_enabled:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Email is not available")
+    try:
+        if not settings_of(request).email_enabled:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Email is not available")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_email failed")
+        raise
 
 
 def too_many() -> HTTPException:
-    return HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many attempts, try later")
+    try:
+        return HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many attempts, try later")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("too_many failed")
+        raise
 
 
 def check_origin(request: Request) -> None:
     """Block cross-site writes: when an Origin header is present it must be allowed."""
-    if request.method not in UNSAFE_METHODS:
-        return
-    origin = request.headers.get("origin")
-    if origin and origin not in settings_of(request).allowed_origins:
-        audit.warning("blocked origin=%s ip=%s", origin, client_ip(request))
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Origin not allowed")
+    try:
+        if request.method not in UNSAFE_METHODS:
+            return
+        origin = request.headers.get("origin")
+        if origin and origin not in settings_of(request).allowed_origins:
+            audit.warning("blocked origin=%s ip=%s", origin, client_ip(request))
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Origin not allowed")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("check_origin failed")
+        raise
 
 
 @dataclass(frozen=True)
@@ -86,10 +119,15 @@ def csrf_session(
     session: AuthSession = Depends(current_session),
     x_csrf_token: Annotated[str | None, Header()] = None,
 ) -> AuthSession:
-    if not csrf_valid(x_csrf_token, session.token):
-        audit.warning("csrf failed user=%r ip=%s", session.user.username, client_ip(request))
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing or invalid CSRF token")
-    return session
+    try:
+        if not csrf_valid(x_csrf_token, session.token):
+            audit.warning("csrf failed user=%r ip=%s", session.user.username, client_ip(request))
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing or invalid CSRF token")
+        return session
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("csrf_session failed")
+        raise
 
 
 def ensure_reauth(request: Request, user: User, password: str | None) -> None:
@@ -100,18 +138,23 @@ def ensure_reauth(request: Request, user: User, password: str | None) -> None:
       An account with no way to produce a proof at all (e.g. voice/webcam only) is let through: it could
       never act otherwise.
     """
-    if has_fresh_proof(request, user):
-        return
-    if not user.has_password:
-        methods = available_methods(request, user)
-        if methods:
-            raise ReauthRequired(methods)
-        return
-    throttle = request.app.state.reauth_throttle
-    key = str(user.id)
-    if throttle.is_blocked(key):
-        raise too_many()
-    if not verify_password(password or "", user.password_hash):
-        throttle.record(key)
-        audit.warning("reauth failed user=%r ip=%s", user.username, client_ip(request))
-        raise HTTPException(status.HTTP_403_FORBIDDEN, BAD_REAUTH)
+    try:
+        if has_fresh_proof(request, user):
+            return
+        if not user.has_password:
+            methods = available_methods(request, user)
+            if methods:
+                raise ReauthRequired(methods)
+            return
+        throttle = request.app.state.reauth_throttle
+        key = str(user.id)
+        if throttle.is_blocked(key):
+            raise too_many()
+        if not verify_password(password or "", user.password_hash):
+            throttle.record(key)
+            audit.warning("reauth failed user=%r ip=%s", user.username, client_ip(request))
+            raise HTTPException(status.HTTP_403_FORBIDDEN, BAD_REAUTH)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_reauth failed")
+        raise

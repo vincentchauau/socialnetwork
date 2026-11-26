@@ -14,6 +14,9 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
+import logging
+logger = logging.getLogger(__name__)
+
 ROW_LIMIT_DEFAULT = 20
 ROW_LIMIT_MAX = 100
 QUERY_MAX = 1000
@@ -38,28 +41,43 @@ class QueryResult:
 
 def describe(schema: dict[str, str]) -> str:
     """The tables the model may query (`{name: "column TYPE, ..."}`), for its description of the tool."""
-    return "; ".join(f"{name}({columns})" for name, columns in schema.items())
+    try:
+        return "; ".join(f"{name}({columns})" for name, columns in schema.items())
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("describe failed")
+        raise
 
 
 def authorizer_sandbox_sql(action: int, arg1: str | None, arg2: str | None, db: str | None, source: str | None) -> int:
-    if action in (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_RECURSIVE):
-        return sqlite3.SQLITE_OK
-    if action == sqlite3.SQLITE_FUNCTION and (arg2 or "").lower() in ALLOWED_FUNCTIONS:
-        return sqlite3.SQLITE_OK
-    return sqlite3.SQLITE_DENY
+    try:
+        if action in (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_RECURSIVE):
+            return sqlite3.SQLITE_OK
+        if action == sqlite3.SQLITE_FUNCTION and (arg2 or "").lower() in ALLOWED_FUNCTIONS:
+            return sqlite3.SQLITE_OK
+        return sqlite3.SQLITE_DENY
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("authorizer_sandbox_sql failed")
+        raise
 
 
 def check_query(query: str) -> str:
-    text = query.strip().rstrip(";").strip()
-    if not text:
-        raise QueryError("The query is empty")
-    if len(text) > QUERY_MAX:
-        raise QueryError(f"The query is longer than {QUERY_MAX} characters")
-    if ";" in text:
-        raise QueryError("Only one statement is allowed")
-    if not re.match(r"(?is)^(select|with)\b", text):
-        raise QueryError("Only SELECT queries are allowed")
-    return text
+    try:
+        text = query.strip().rstrip(";").strip()
+        if not text:
+            raise QueryError("The query is empty")
+        if len(text) > QUERY_MAX:
+            raise QueryError(f"The query is longer than {QUERY_MAX} characters")
+        if ";" in text:
+            raise QueryError("Only one statement is allowed")
+        if not re.match(r"(?is)^(select|with)\b", text):
+            raise QueryError("Only SELECT queries are allowed")
+        return text
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("check_query failed")
+        raise
 
 
 def run_query(tables: dict[str, list[tuple]], query: str, limit: int, schema: dict[str, str]) -> QueryResult:
@@ -78,8 +96,13 @@ def run_query(tables: dict[str, list[tuple]], query: str, limit: int, schema: di
         steps = {"n": 0}
 
         def budget() -> int:
-            steps["n"] += 1000
-            return 1 if steps["n"] > STEP_BUDGET else 0
+            try:
+                steps["n"] += 1000
+                return 1 if steps["n"] > STEP_BUDGET else 0
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("budget failed")
+                raise
 
         connection.set_progress_handler(budget, 1000)
         try:
@@ -95,8 +118,13 @@ def run_query(tables: dict[str, list[tuple]], query: str, limit: int, schema: di
 
 
 def cell(value: Any) -> Any:
-    if isinstance(value, str):
-        return value[:CELL_CHARS]
-    if isinstance(value, bytes):
-        return "<binary>"
-    return value
+    try:
+        if isinstance(value, str):
+            return value[:CELL_CHARS]
+        if isinstance(value, bytes):
+            return "<binary>"
+        return value
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("cell failed")
+        raise

@@ -28,6 +28,9 @@ from typing import Any, Protocol
 from api.ai.agent import mcp, netguard, sandbox_sql, shell
 from api.ai.provider import AiProvider
 
+import logging
+logger = logging.getLogger(__name__)
+
 PASSAGE_CHARS = 700
 QUERY_MAX = 500
 MAX_CALLS_PER_REQUEST = 10
@@ -96,28 +99,38 @@ class Tool:
 
 
 def text_arg(arguments: dict[str, Any], key: str, required: bool = False, limit: int = QUERY_MAX) -> str | None:
-    value = arguments.get(key)
-    if value is None or value == "":
-        if required:
+    try:
+        value = arguments.get(key)
+        if value is None or value == "":
+            if required:
+                raise ToolError(f"{key} is required")
+            return None
+        if not isinstance(value, str):
+            raise ToolError(f"{key} must be text")
+        value = value.strip()
+        if not value and required:
             raise ToolError(f"{key} is required")
-        return None
-    if not isinstance(value, str):
-        raise ToolError(f"{key} must be text")
-    value = value.strip()
-    if not value and required:
-        raise ToolError(f"{key} is required")
-    if len(value) > limit:
-        raise ToolError(f"{key} is longer than {limit} characters")
-    return value or None
+        if len(value) > limit:
+            raise ToolError(f"{key} is longer than {limit} characters")
+        return value or None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("text_arg failed")
+        raise
 
 
 def count_arg(arguments: dict[str, Any], key: str, default: int, maximum: int) -> int:
-    value = arguments.get(key, default)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:
-        raise ToolError(f"{key} must be a whole number")
-    if not 1 <= int(value) <= maximum:
-        raise ToolError(f"{key} must be between 1 and {maximum}")
-    return int(value)
+    try:
+        value = arguments.get(key, default)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:
+            raise ToolError(f"{key} must be a whole number")
+        if not 1 <= int(value) <= maximum:
+            raise ToolError(f"{key} must be between 1 and {maximum}")
+        return int(value)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("count_arg failed")
+        raise
 
 
 class ToolBox:
@@ -132,18 +145,28 @@ class ToolBox:
         max_calls: int = MAX_CALLS_PER_REQUEST,
         tools: Collection[str] | None = None,
     ) -> None:
-        self.scope = scope
-        self.provider_seed_other = provider
-        self._spend = spend_model_call or (lambda: None)  # called before llm_tool and web_tool use the model
-        self._max_calls = max_calls
-        self.passages: list[Passage] = []
-        self.calls: list[ToolCall] = []
-        every = tools_for(scope.schema)
-        self.tools = {tool.name: tool for tool in every if tools is None or tool.name in tools}
+        try:
+            self.scope = scope
+            self.provider_seed_other = provider
+            self._spend = spend_model_call or (lambda: None)  # called before llm_tool and web_tool use the model
+            self._max_calls = max_calls
+            self.passages: list[Passage] = []
+            self.calls: list[ToolCall] = []
+            every = tools_for(scope.schema)
+            self.tools = {tool.name: tool for tool in every if tools is None or tool.name in tools}
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
     @property
     def declarations(self) -> list[dict[str, Any]]:
-        return [{"name": t.name, "description": t.description, "parameters": t.parameters} for t in self.tools.values()]
+        try:
+            return [{"name": t.name, "description": t.description, "parameters": t.parameters} for t in self.tools.values()]
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("declarations failed")
+            raise
 
     def call(self, name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         """Run a tool. A bad name or bad arguments come back as {"error": ...} for the model; nothing is raised."""
@@ -164,115 +187,175 @@ class ToolBox:
         return result
 
     def model(self) -> AiProvider:
-        if self.provider_seed_other is None:
-            raise ToolError("No AI service is available for this tool")
-        self._spend()
-        return self.provider_seed_other
+        try:
+            if self.provider_seed_other is None:
+                raise ToolError("No AI service is available for this tool")
+            self._spend()
+            return self.provider_seed_other
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("model failed")
+            raise
 
 
 def shown(arguments: dict[str, Any]) -> dict[str, Any]:
     """The arguments as the user sees them: short text and numbers only."""
-    pairs = list(arguments.items())[:6]
-    return {str(k)[:30]: (v[:80] if isinstance(v, str) else v) for k, v in pairs if isinstance(v, (str, int, float)) and not isinstance(v, bool)}
+    try:
+        pairs = list(arguments.items())[:6]
+        return {str(k)[:30]: (v[:80] if isinstance(v, str) else v) for k, v in pairs if isinstance(v, (str, int, float)) and not isinstance(v, bool)}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("shown failed")
+        raise
 
 
 def summary(result: dict[str, Any]) -> str:
-    if "exit_code" in result:
-        return f"exit {result['exit_code']}"
-    if "status" in result and "body" in result:
-        return f"HTTP {result['status']}"
-    if "text" in result and "count" not in result and "name" not in result:
-        return f"{len(result['text'])} characters"
-    if "text" in result:
-        return f"{result.get('characters', 0)} characters"
-    return f"{result.get('count', 0)} found"
+    try:
+        if "exit_code" in result:
+            return f"exit {result['exit_code']}"
+        if "status" in result and "body" in result:
+            return f"HTTP {result['status']}"
+        if "text" in result and "count" not in result and "name" not in result:
+            return f"{len(result['text'])} characters"
+        if "text" in result:
+            return f"{result.get('characters', 0)} characters"
+        return f"{result.get('count', 0)} found"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("summary failed")
+        raise
 
 
 def schema_of(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
-    schema: dict[str, Any] = {"type": "object", "properties": properties}
-    if required:
-        schema["required"] = required
-    return schema
+    try:
+        schema: dict[str, Any] = {"type": "object", "properties": properties}
+        if required:
+            schema["required"] = required
+        return schema
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("schema_of failed")
+        raise
 
 
 # -- the tools ------------------------------------------------------------------------------------------------
 def rag_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
-    query = text_arg(arguments, "query", required=True)
-    top_k = count_arg(arguments, "top_k", TOP_K_DEFAULT, TOP_K_MAX)
-    numbered = []
-    for passage in box.scope.search(query or "", top_k):
-        box.passages.append(passage)
-        numbered.append(
-            {
-                "n": len(box.passages),  # the number to cite, counted over every search of this request
-                "document": passage.filename,
-                "position": passage.position + 1,
-                "text": passage.text[:PASSAGE_CHARS],
-            }
-        )
-    return {"count": len(numbered), "passages": numbered}
+    try:
+        query = text_arg(arguments, "query", required=True)
+        top_k = count_arg(arguments, "top_k", TOP_K_DEFAULT, TOP_K_MAX)
+        numbered = []
+        for passage in box.scope.search(query or "", top_k):
+            box.passages.append(passage)
+            numbered.append(
+                {
+                    "n": len(box.passages),  # the number to cite, counted over every search of this request
+                    "document": passage.filename,
+                    "position": passage.position + 1,
+                    "text": passage.text[:PASSAGE_CHARS],
+                }
+            )
+        return {"count": len(numbered), "passages": numbered}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("rag_tool failed")
+        raise
 
 
 def docs_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
-    documents = box.scope.documents()
-    return {"count": len(documents), "documents": documents}
+    try:
+        documents = box.scope.documents()
+        return {"count": len(documents), "documents": documents}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("docs_tool failed")
+        raise
 
 
 def llm_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
     """A second, tool-less call of the model for a sub-task (summarize, translate, rewrite some text)."""
-    prompt = text_arg(arguments, "prompt", required=True, limit=4000)
-    tokens = count_arg(arguments, "max_tokens", LLM_TOKENS_DEFAULT, LLM_TOKENS_MAX)
-    return {"text": box.model().generate(prompt or "", tokens)}
+    try:
+        prompt = text_arg(arguments, "prompt", required=True, limit=4000)
+        tokens = count_arg(arguments, "max_tokens", LLM_TOKENS_DEFAULT, LLM_TOKENS_MAX)
+        return {"text": box.model().generate(prompt or "", tokens)}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("llm_tool failed")
+        raise
 
 
 def web_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
     """Search the public web through the model provider's own search; this server fetches no page itself."""
-    query = text_arg(arguments, "query", required=True)
-    results = count_arg(arguments, "max_results", WEB_RESULTS_DEFAULT, WEB_RESULTS_MAX)
-    found = box.model().web_search(query or "", results)
-    return {"count": len(found.get("sources", [])), **found}
+    try:
+        query = text_arg(arguments, "query", required=True)
+        results = count_arg(arguments, "max_results", WEB_RESULTS_DEFAULT, WEB_RESULTS_MAX)
+        found = box.model().web_search(query or "", results)
+        return {"count": len(found.get("sources", [])), **found}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("web_tool failed")
+        raise
 
 
 def file_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
     """Read one of the person's own documents, or search its lines for words. It reaches no other file."""
-    name = text_arg(arguments, "name", required=True, limit=NAME_MAX)
-    query = text_arg(arguments, "query", limit=200)
-    text = box.scope.read(name or "")
-    if text is None:
-        raise ToolError("No document with that name; docs_tool lists the names")
-    if not query:
-        return {"name": name, "characters": len(text), "text": text[:FILE_CHARS], "truncated": len(text) > FILE_CHARS}
-    words = re.findall(r"\w+", query.lower())
-    if not words:
-        raise ToolError("query has no words")
-    matches = [{"line": number, "text": line[:300]} for number, line in enumerate(text.split("\n"), start=1) if all(word in line.lower() for word in words)]
-    return {"name": name, "count": len(matches[:FILE_MATCHES]), "matches": matches[:FILE_MATCHES], "truncated": len(matches) > FILE_MATCHES}
+    try:
+        name = text_arg(arguments, "name", required=True, limit=NAME_MAX)
+        query = text_arg(arguments, "query", limit=200)
+        text = box.scope.read(name or "")
+        if text is None:
+            raise ToolError("No document with that name; docs_tool lists the names")
+        if not query:
+            return {"name": name, "characters": len(text), "text": text[:FILE_CHARS], "truncated": len(text) > FILE_CHARS}
+        words = re.findall(r"\w+", query.lower())
+        if not words:
+            raise ToolError("query has no words")
+        matches = [{"line": number, "text": line[:300]} for number, line in enumerate(text.split("\n"), start=1) if all(word in line.lower() for word in words)]
+        return {"name": name, "count": len(matches[:FILE_MATCHES]), "matches": matches[:FILE_MATCHES], "truncated": len(matches) > FILE_MATCHES}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("file_tool failed")
+        raise
 
 
 def db_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
     """A SELECT on a throwaway copy of the person's own data (never on the real database)."""
-    query = text_arg(arguments, "query", required=True, limit=sandbox_sql.QUERY_MAX)
-    limit = count_arg(arguments, "limit", sandbox_sql.ROW_LIMIT_DEFAULT, sandbox_sql.ROW_LIMIT_MAX)
-    result = sandbox_sql.run_query(box.scope.snapshot(), query or "", limit, box.scope.schema)
-    return {"columns": result.columns, "rows": result.rows, "count": len(result.rows), "truncated": result.truncated}
+    try:
+        query = text_arg(arguments, "query", required=True, limit=sandbox_sql.QUERY_MAX)
+        limit = count_arg(arguments, "limit", sandbox_sql.ROW_LIMIT_DEFAULT, sandbox_sql.ROW_LIMIT_MAX)
+        result = sandbox_sql.run_query(box.scope.snapshot(), query or "", limit, box.scope.schema)
+        return {"columns": result.columns, "rows": result.rows, "count": len(result.rows), "truncated": result.truncated}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("db_tool failed")
+        raise
 
 
 def http_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
     """One GET or HEAD to a host the operator allowed (none by default)."""
-    url = text_arg(arguments, "url", required=True, limit=netguard.MAX_URL)
-    method = (text_arg(arguments, "method", limit=8) or "GET").upper()
-    fetched = netguard.fetch(url or "", method)
-    return {"status": fetched.status, "content_type": fetched.content_type, "body": fetched.body, "truncated": fetched.truncated}
+    try:
+        url = text_arg(arguments, "url", required=True, limit=netguard.MAX_URL)
+        method = (text_arg(arguments, "method", limit=8) or "GET").upper()
+        fetched = netguard.fetch(url or "", method)
+        return {"status": fetched.status, "content_type": fetched.content_type, "body": fetched.body, "truncated": fetched.truncated}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("http_tool failed")
+        raise
 
 
 def command_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
     """One program the operator allowed, run without a shell (none by default)."""
-    command = arguments.get("command")
-    if command is None or command == "":
-        raise ToolError("command is required")
-    timeout = count_arg(arguments, "timeout", shell.TIMEOUT_DEFAULT, shell.TIMEOUT_MAX)
-    ran = shell.run(command, timeout)
-    return {"exit_code": ran.exit_code, "stdout": ran.stdout, "stderr": ran.stderr, "truncated": ran.truncated}
+    try:
+        command = arguments.get("command")
+        if command is None or command == "":
+            raise ToolError("command is required")
+        timeout = count_arg(arguments, "timeout", shell.TIMEOUT_DEFAULT, shell.TIMEOUT_MAX)
+        ran = shell.run(command, timeout)
+        return {"exit_code": ran.exit_code, "stdout": ran.stdout, "stderr": ran.stderr, "truncated": ran.truncated}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("command_tool failed")
+        raise
 
 
 def mcp_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -292,123 +375,138 @@ def mcp_tool(box: ToolBox, arguments: dict[str, Any]) -> dict[str, Any]:
 
 def text_tools() -> tuple[Tool, ...]:
     """The tools that read the user's documents, ask the model and search the web."""
-    return (
-        Tool(
-            "rag_tool",
-            "Search the user's own documents. Returns the best matching passages, each with a number n to cite as [n] in the "
-            "answer. Search by meaning and by words together; the question may be in any language.",
-            schema_of(
-                {
-                    "query": {"type": "string", "description": "What to look for, in the user's words."},
-                    "top_k": {"type": "integer", "description": f"How many passages, 1 to {TOP_K_MAX}. Default {TOP_K_DEFAULT}."},
-                },
-                ["query"],
+    try:
+        return (
+            Tool(
+                "rag_tool",
+                "Search the user's own documents. Returns the best matching passages, each with a number n to cite as [n] in the "
+                "answer. Search by meaning and by words together; the question may be in any language.",
+                schema_of(
+                    {
+                        "query": {"type": "string", "description": "What to look for, in the user's words."},
+                        "top_k": {"type": "integer", "description": f"How many passages, 1 to {TOP_K_MAX}. Default {TOP_K_DEFAULT}."},
+                    },
+                    ["query"],
+                ),
+                rag_tool,
             ),
-            rag_tool,
-        ),
-        Tool("docs_tool", "List the documents the user has added (name, number of chunks). Use it to see what can be searched.", schema_of({}), docs_tool),
-        Tool(
-            "llm_tool",
-            "Ask the language model for a sub-task on text you give it (summarize, translate, rewrite, extract). It has no tools "
-            "and no access to the user's data except what is in the prompt.",
-            schema_of(
-                {
-                    "prompt": {"type": "string", "description": "The task and the text to work on."},
-                    "max_tokens": {"type": "integer", "description": f"Length of the reply, 1 to {LLM_TOKENS_MAX}. Default {LLM_TOKENS_DEFAULT}."},
-                },
-                ["prompt"],
+            Tool("docs_tool", "List the documents the user has added (name, number of chunks). Use it to see what can be searched.", schema_of({}), docs_tool),
+            Tool(
+                "llm_tool",
+                "Ask the language model for a sub-task on text you give it (summarize, translate, rewrite, extract). It has no tools "
+                "and no access to the user's data except what is in the prompt.",
+                schema_of(
+                    {
+                        "prompt": {"type": "string", "description": "The task and the text to work on."},
+                        "max_tokens": {"type": "integer", "description": f"Length of the reply, 1 to {LLM_TOKENS_MAX}. Default {LLM_TOKENS_DEFAULT}."},
+                    },
+                    ["prompt"],
+                ),
+                llm_tool,
             ),
-            llm_tool,
-        ),
-        Tool(
-            "web_tool",
-            "Search the public web for current information. Returns a short answer and the sources it used.",
-            schema_of(
-                {
-                    "query": {"type": "string", "description": "What to search for."},
-                    "max_results": {"type": "integer", "description": f"How many sources, 1 to {WEB_RESULTS_MAX}. Default {WEB_RESULTS_DEFAULT}."},
-                },
-                ["query"],
+            Tool(
+                "web_tool",
+                "Search the public web for current information. Returns a short answer and the sources it used.",
+                schema_of(
+                    {
+                        "query": {"type": "string", "description": "What to search for."},
+                        "max_results": {"type": "integer", "description": f"How many sources, 1 to {WEB_RESULTS_MAX}. Default {WEB_RESULTS_DEFAULT}."},
+                    },
+                    ["query"],
+                ),
+                web_tool,
             ),
-            web_tool,
-        ),
-        Tool(
-            "file_tool",
-            "Read one of the user's own documents by name (the first part of it), or find the lines of it that hold all the "
-            "given words. docs_tool lists the names. No other file can be read.",
-            schema_of(
-                {
-                    "name": {"type": "string", "description": "The document name, as docs_tool gives it."},
-                    "query": {"type": "string", "description": "Words that every returned line must contain. Leave out to read the document."},
-                },
-                ["name"],
+            Tool(
+                "file_tool",
+                "Read one of the user's own documents by name (the first part of it), or find the lines of it that hold all the "
+                "given words. docs_tool lists the names. No other file can be read.",
+                schema_of(
+                    {
+                        "name": {"type": "string", "description": "The document name, as docs_tool gives it."},
+                        "query": {"type": "string", "description": "Words that every returned line must contain. Leave out to read the document."},
+                    },
+                    ["name"],
+                ),
+                file_tool,
             ),
-            file_tool,
-        ),
-    )
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("text_tools failed")
+        raise
 
 
 def system_tools(schema: dict[str, str]) -> tuple[Tool, ...]:
     """The tools that read the user's data (a copy), the network and the programs the operator allows."""
-    return (
-        Tool(
-            "db_tool",
-            "Run one read-only SQL SELECT on a copy of the user's own data. Tables: " + sandbox_sql.describe(schema) + ". Use it to count "
-            "and total things (how many items, how many views, what is about to expire).",
-            schema_of(
-                {
-                    "query": {"type": "string", "description": "One SELECT (or WITH ... SELECT) statement."},
-                    "limit": {"type": "integer", "description": f"Rows to return, 1 to {sandbox_sql.ROW_LIMIT_MAX}. Default {sandbox_sql.ROW_LIMIT_DEFAULT}."},
-                },
-                ["query"],
+    try:
+        return (
+            Tool(
+                "db_tool",
+                "Run one read-only SQL SELECT on a copy of the user's own data. Tables: " + sandbox_sql.describe(schema) + ". Use it to count "
+                "and total things (how many items, how many views, what is about to expire).",
+                schema_of(
+                    {
+                        "query": {"type": "string", "description": "One SELECT (or WITH ... SELECT) statement."},
+                        "limit": {"type": "integer", "description": f"Rows to return, 1 to {sandbox_sql.ROW_LIMIT_MAX}. Default {sandbox_sql.ROW_LIMIT_DEFAULT}."},
+                    },
+                    ["query"],
+                ),
+                db_tool,
             ),
-            db_tool,
-        ),
-        Tool(
-            "http_tool",
-            "Fetch a text page or a JSON document with one GET from a host the operator allowed. Most addresses are refused; "
-            "the error lists the allowed hosts. Redirects are not followed.",
-            schema_of(
-                {
-                    "url": {"type": "string", "description": "The full https URL."},
-                    "method": {"type": "string", "enum": ["GET", "HEAD"], "description": "GET (default) or HEAD."},
-                },
-                ["url"],
+            Tool(
+                "http_tool",
+                "Fetch a text page or a JSON document with one GET from a host the operator allowed. Most addresses are refused; "
+                "the error lists the allowed hosts. Redirects are not followed.",
+                schema_of(
+                    {
+                        "url": {"type": "string", "description": "The full https URL."},
+                        "method": {"type": "string", "enum": ["GET", "HEAD"], "description": "GET (default) or HEAD."},
+                    },
+                    ["url"],
+                ),
+                http_tool,
             ),
-            http_tool,
-        ),
-        Tool(
-            "command_tool",
-            "Run one program the operator allowed, without a shell (no pipes or redirects). Disabled unless the operator lists "
-            "programs; the error says which are allowed.",
-            schema_of(
-                {
-                    "command": {"type": "string", "description": "The program and its arguments, like: date +%Y."},
-                    "timeout": {"type": "integer", "description": f"Seconds before it is stopped, 1 to {shell.TIMEOUT_MAX}. Default {shell.TIMEOUT_DEFAULT}."},
-                },
-                ["command"],
+            Tool(
+                "command_tool",
+                "Run one program the operator allowed, without a shell (no pipes or redirects). Disabled unless the operator lists "
+                "programs; the error says which are allowed.",
+                schema_of(
+                    {
+                        "command": {"type": "string", "description": "The program and its arguments, like: date +%Y."},
+                        "timeout": {"type": "integer", "description": f"Seconds before it is stopped, 1 to {shell.TIMEOUT_MAX}. Default {shell.TIMEOUT_DEFAULT}."},
+                    },
+                    ["command"],
+                ),
+                command_tool,
             ),
-            command_tool,
-        ),
-        Tool(
-            "mcp_tool",
-            "Call one tool of an MCP server the operator allowed. Disabled unless the operator lists servers; the error says "
-            "which server and tools are allowed.",
-            schema_of(
-                {
-                    "server": {"type": "string", "description": "The server name."},
-                    "tool": {"type": "string", "description": "The tool name on that server."},
-                    "input": {"type": "string", "description": "The tool's arguments as a JSON object text, like {\"query\": \"x\"}."},
-                },
-                ["server", "tool"],
+            Tool(
+                "mcp_tool",
+                "Call one tool of an MCP server the operator allowed. Disabled unless the operator lists servers; the error says "
+                "which server and tools are allowed.",
+                schema_of(
+                    {
+                        "server": {"type": "string", "description": "The server name."},
+                        "tool": {"type": "string", "description": "The tool name on that server."},
+                        "input": {"type": "string", "description": "The tool's arguments as a JSON object text, like {\"query\": \"x\"}."},
+                    },
+                    ["server", "tool"],
+                ),
+                mcp_tool,
             ),
-            mcp_tool,
-        ),
-    )
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("system_tools failed")
+        raise
 
 
 def tools_for(schema: dict[str, str]) -> tuple[Tool, ...]:
     """Every tool, described for a scope whose db_tool can read the tables in `schema`."""
-    return text_tools() + system_tools(schema)
+    try:
+        return text_tools() + system_tools(schema)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("tools_for failed")
+        raise
 
 

@@ -20,6 +20,9 @@ from api.center.models import User, VerificationCode
 from sn_shared.security import get_jwt_secret
 from sn_shared.tokens import hash_token
 
+import logging
+logger = logging.getLogger(__name__)
+
 VERIFY = "verify"
 LOGIN = "login"
 RESET = "reset"
@@ -43,23 +46,43 @@ class Issued:
 
 
 def code_key() -> bytes:
-    return hmac.new(get_jwt_secret().encode(), b"email-code-subkey", hashlib.sha256).digest()
+    try:
+        return hmac.new(get_jwt_secret().encode(), b"email-code-subkey", hashlib.sha256).digest()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("code_key failed")
+        raise
 
 
 def code_mac(row_id: int, code: str) -> str:
-    return hmac.new(code_key(), f"{row_id}:{code}".encode(), hashlib.sha256).hexdigest()
+    try:
+        return hmac.new(code_key(), f"{row_id}:{code}".encode(), hashlib.sha256).hexdigest()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("code_mac failed")
+        raise
 
 
 def new_code() -> str:
-    return f"{secrets.randbelow(10**CODE_DIGITS):0{CODE_DIGITS}d}"
+    try:
+        return f"{secrets.randbelow(10**CODE_DIGITS):0{CODE_DIGITS}d}"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("new_code failed")
+        raise
 
 
 def store_emailtokens(db: Session, user_id: int, purpose: str, email: str, token: str, code: str | None) -> None:
-    codes.insert(
-        db, user_id, codes.EMAIL, purpose, email, TTL_emailtokens[purpose],
-        token_hash=hash_token(token), code=code, mac=code_mac,
-    )  # fmt: skip
-    codes.trim_live(db, user_id, codes.EMAIL, purpose, MAX_LIVE_TOKENS)
+    try:
+        codes.insert(
+            db, user_id, codes.EMAIL, purpose, email, TTL_emailtokens[purpose],
+            token_hash=hash_token(token), code=code, mac=code_mac,
+        )  # fmt: skip
+        codes.trim_live(db, user_id, codes.EMAIL, purpose, MAX_LIVE_TOKENS)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("store_emailtokens failed")
+        raise
 
 
 def issue(db: Session, user: User | None, purpose: str, email: str, *, with_code: bool) -> Issued:
@@ -69,32 +92,52 @@ def issue(db: Session, user: User | None, purpose: str, email: str, *, with_code
     (an insert under a savepoint that is rolled back) and nothing is stored, so the caller's response
     does not depend on the account existing.
     """
-    purge(db)
-    token = secrets.token_urlsafe(TOKEN_BYTES)
-    code = new_code() if with_code else None
-    if user is None:
-        codes.rehearse(db, lambda owner: store_emailtokens(db, owner, purpose, email, token, code))
-    else:
-        store_emailtokens(db, user.id, purpose, email, token, code)
-    db.commit()
-    return Issued(token, code)
+    try:
+        purge(db)
+        token = secrets.token_urlsafe(TOKEN_BYTES)
+        code = new_code() if with_code else None
+        if user is None:
+            codes.rehearse(db, lambda owner: store_emailtokens(db, owner, purpose, email, token, code))
+        else:
+            store_emailtokens(db, user.id, purpose, email, token, code)
+        db.commit()
+        return Issued(token, code)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("issue failed")
+        raise
 
 
 def find_by_token(db: Session, token: str, purpose: str) -> VerificationCode | None:
-    if not token or len(token) > 200:
-        return None
-    return db.scalar(
-        select(VerificationCode).where(
-            VerificationCode.token_hash == hash_token(token), *codes.live(codes.EMAIL, purpose)
+    try:
+        if not token or len(token) > 200:
+            return None
+        return db.scalar(
+            select(VerificationCode).where(
+                VerificationCode.token_hash == hash_token(token), *codes.live(codes.EMAIL, purpose)
+            )
         )
-    )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("find_by_token failed")
+        raise
 
 
 def find_for_user(db: Session, user_id: int, purpose: str, email: str | None = None) -> VerificationCode | None:
     """The user's live token whose CODE can still be tried (newest first), optionally for one address."""
-    return codes.find_for_user(db, user_id, codes.EMAIL, purpose, email)
+    try:
+        return codes.find_for_user(db, user_id, codes.EMAIL, purpose, email)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("find_for_user failed")
+        raise
 
 
 def check_code(db: Session, row: VerificationCode | None, code: str) -> bool:
     """Count one attempt and compare the code; after MAX_CODE_ATTEMPTS the CODE is dead (the link lives to the TTL)."""
-    return codes.check_code(db, row, code, code_mac)
+    try:
+        return codes.check_code(db, row, code, code_mac)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("check_code failed")
+        raise

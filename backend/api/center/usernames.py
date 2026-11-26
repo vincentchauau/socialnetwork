@@ -9,16 +9,24 @@ from api.center.handles import key_of
 from api.center.models import ReservedUsername, User, utcnow
 from api.center.usersessions import as_utc
 
+import logging
+logger = logging.getLogger(__name__)
+
 RENAME_INTERVAL = timedelta(days=30)  # at most one rename per account in this window
 RESERVATION = timedelta(days=30)  # how long a released name stays reserved for its previous owner
 
 
 def can_rename_after(user: User) -> datetime | None:
     """When the user may rename again, or None when they may do so now."""
-    if user.username_changed_at is None:
-        return None
-    moment = as_utc(user.username_changed_at) + RENAME_INTERVAL
-    return moment if moment > utcnow() else None
+    try:
+        if user.username_changed_at is None:
+            return None
+        moment = as_utc(user.username_changed_at) + RENAME_INTERVAL
+        return moment if moment > utcnow() else None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("can_rename_after failed")
+        raise
 
 
 # Names that look official; never given to a user (generated `user-xxxxxx` handles are unaffected).
@@ -31,23 +39,38 @@ SYSTEM_NAMES = frozenset(
 def unavailable(db: Session, username: str, user_id: int | None = None) -> bool:
     """True when `username` is a system name, belongs to another account, or is reserved for another one
     (`user_id` may use its own reservation). Compared by key, so capitalisation never matters."""
-    key = key_of(username)
-    if key in SYSTEM_NAMES:
-        return True
-    taken = select(User.id).where(func.lower(User.username) == key)
-    if user_id is not None:
-        taken = taken.where(User.id != user_id)
-    if db.scalar(taken) is not None:
-        return True
-    reserved = select(ReservedUsername.user_id).where(ReservedUsername.username == key, ReservedUsername.until > utcnow())
-    owner = db.scalar(reserved)
-    return owner is not None and owner != user_id
+    try:
+        key = key_of(username)
+        if key in SYSTEM_NAMES:
+            return True
+        taken = select(User.id).where(func.lower(User.username) == key)
+        if user_id is not None:
+            taken = taken.where(User.id != user_id)
+        if db.scalar(taken) is not None:
+            return True
+        reserved = select(ReservedUsername.user_id).where(ReservedUsername.username == key, ReservedUsername.until > utcnow())
+        owner = db.scalar(reserved)
+        return owner is not None and owner != user_id
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("unavailable failed")
+        raise
 
 
 def reserve(db: Session, username: str, user_id: int) -> None:
     """Reserve the KEY of `username` for `user_id` (replacing an expired or own earlier reservation). Caller commits."""
-    db.merge(ReservedUsername(username=key_of(username), user_id=user_id, until=utcnow() + RESERVATION))
+    try:
+        db.merge(ReservedUsername(username=key_of(username), user_id=user_id, until=utcnow() + RESERVATION))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("reserve failed")
+        raise
 
 
 def release(db: Session, username: str) -> None:
-    db.execute(delete(ReservedUsername).where(ReservedUsername.username == key_of(username)))
+    try:
+        db.execute(delete(ReservedUsername).where(ReservedUsername.username == key_of(username)))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("release failed")
+        raise

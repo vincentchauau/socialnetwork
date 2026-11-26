@@ -23,6 +23,8 @@ from api.chat.agent import service as agent
 from api.chat.models import CARD_PREFIX, Message
 from api.chat.schemas import MessageOut
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 60  # the agent may wait for a model
@@ -54,61 +56,81 @@ USAGE = (
 
 def parse(content: str) -> tuple[str, dict[str, Any]] | None:
     """The tool and its arguments for a line like `/market lamp`, or None when the line is not a command (a plain message)."""
-    if not content.startswith("/"):
-        return None
-    word, _, rest = content[1:].partition(" ")
-    rest = rest.strip()
-    command = word.lower()
-    if command in SEARCHES:
-        return (SEARCHES[command], {"q": rest[:64]}) if rest else ("", {})
-    if command in SHOWS or command in ASKS:
-        return ({**SHOWS, **ASKS}[command], {}) if not rest else ("", {})
-    if command == "help":
-        return "", {}  # the usage is the help
-    if command in WITH_NUMBER:
-        tool, key = WITH_NUMBER[command]
-        return (tool, {key: int(rest)}) if rest.isdigit() and int(rest) > 0 else ("", {})
-    if command == "addcart":
-        first, _, count = rest.partition(" ")
-        if first.isdigit() and int(first) > 0 and (not count or (count.strip().isdigit() and 0 < int(count) <= 99)):
-            return "market.addcart", {"product_id": int(first), "quantity": int(count) if count else 1}
-        return "", {}
-    if command == "sell":
-        match = SELL.match(rest)
-        if match is None:
+    try:
+        if not content.startswith("/"):
+            return None
+        word, _, rest = content[1:].partition(" ")
+        rest = rest.strip()
+        command = word.lower()
+        if command in SEARCHES:
+            return (SEARCHES[command], {"q": rest[:64]}) if rest else ("", {})
+        if command in SHOWS or command in ASKS:
+            return ({**SHOWS, **ASKS}[command], {}) if not rest else ("", {})
+        if command == "help":
+            return "", {}  # the usage is the help
+        if command in WITH_NUMBER:
+            tool, key = WITH_NUMBER[command]
+            return (tool, {key: int(rest)}) if rest.isdigit() and int(rest) > 0 else ("", {})
+        if command == "addcart":
+            first, _, count = rest.partition(" ")
+            if first.isdigit() and int(first) > 0 and (not count or (count.strip().isdigit() and 0 < int(count) <= 99)):
+                return "market.addcart", {"product_id": int(first), "quantity": int(count) if count else 1}
             return "", {}
-        cents = round(float(match["price"].replace(",", ".")) * 100)
-        return "market.sell", {"name": match["name"].strip()[:80], "price_cents": cents}
-    if command == "apply":
-        return ("jobs.apply", {"job_id": int(rest)}) if rest.isdigit() and int(rest) > 0 else ("", {})
-    return None
+        if command == "sell":
+            match = SELL.match(rest)
+            if match is None:
+                return "", {}
+            cents = round(float(match["price"].replace(",", ".")) * 100)
+            return "market.sell", {"name": match["name"].strip()[:80], "price_cents": cents}
+        if command == "apply":
+            return ("jobs.apply", {"job_id": int(rest)}) if rest.isdigit() and int(rest) > 0 else ("", {})
+        return None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("parse failed")
+        raise
 
 
 def ask_tool(tool: str, args: dict[str, Any], caller_id: int, token: str, confirmed: bool) -> dict[str, Any] | None:
     """The card from the agent, or None when it cannot run the tool (the room is then told it did not work)."""
-    if not virtual_reply.agent_ready():
-        return None
-    card = agent.run_tool(tool, args, caller_id, token, confirmed)
-    return card if isinstance(card, dict) and isinstance(card.get("type"), str) else None
+    try:
+        if not virtual_reply.agent_ready():
+            return None
+        card = agent.run_tool(tool, args, caller_id, token, confirmed)
+        return card if isinstance(card, dict) and isinstance(card.get("type"), str) else None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ask_tool failed")
+        raise
 
 
 def without_links(card: dict[str, Any]) -> dict[str, Any]:
     """The pages the old apps had are gone (everything is done in the chat), so a card does not point to them."""
-    clean = {key: value for key, value in card.items() if key != "href"}
-    if "items" in clean:
-        clean["items"] = [{key: value for key, value in item.items() if key != "href"} for item in clean["items"] or []]
-    return clean
+    try:
+        clean = {key: value for key, value in card.items() if key != "href"}
+        if "items" in clean:
+            clean["items"] = [{key: value for key, value in item.items() if key != "href"} for item in clean["items"] or []]
+        return clean
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("without_links failed")
+        raise
 
 
 def encode(card: dict[str, Any]) -> str:
     """The card as the text of a message, never longer than a message may be (list items are dropped from the end)."""
-    card = without_links(card)
-    items = list(card.get("items") or [])
-    while True:
-        text = json.dumps({**card, **({"items": items} if "items" in card else {})}, ensure_ascii=False, separators=(",", ":"))
-        if len(text) <= CARD_CHARS or not items:
-            return CARD_PREFIX + (text[:CARD_CHARS] if len(text) > CARD_CHARS else text)
-        items.pop()
+    try:
+        card = without_links(card)
+        items = list(card.get("items") or [])
+        while True:
+            text = json.dumps({**card, **({"items": items} if "items" in card else {})}, ensure_ascii=False, separators=(",", ":"))
+            if len(text) <= CARD_CHARS or not items:
+                return CARD_PREFIX + (text[:CARD_CHARS] if len(text) > CARD_CHARS else text)
+            items.pop()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("encode failed")
+        raise
 
 
 def decode(message: Message) -> dict[str, Any] | None:
@@ -122,18 +144,33 @@ def decode(message: Message) -> dict[str, Any] | None:
 
 
 def failure(summary: str = "The assistant could not do that right now") -> dict[str, Any]:
-    return {"type": "error", "summary": summary}
+    try:
+        return {"type": "error", "summary": summary}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("failure failed")
+        raise
 
 
 def has_buttons(card: dict[str, Any]) -> bool:
-    return bool(card.get("actions")) or any(item.get("actions") for item in card.get("items") or [])
+    try:
+        return bool(card.get("actions")) or any(item.get("actions") for item in card.get("items") or [])
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("has_buttons failed")
+        raise
 
 
 def for_person(card: dict[str, Any], caller_id: int) -> dict[str, Any]:
     """A card that asks (a question, a form) gets its state and the one person who may answer it; so does a card with buttons."""
-    if card.get("type") in ("confirm", "form", "camera"):
-        return {**card, "status": "pending", "for": caller_id}
-    return {**card, "for": caller_id} if has_buttons(card) else card
+    try:
+        if card.get("type") in ("confirm", "form", "camera"):
+            return {**card, "status": "pending", "for": caller_id}
+        return {**card, "for": caller_id} if has_buttons(card) else card
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("for_person failed")
+        raise
 
 
 def action_of(card: dict[str, Any], item: int | None, index: int) -> dict[str, Any] | None:
@@ -147,32 +184,52 @@ def action_of(card: dict[str, Any], item: int | None, index: int) -> dict[str, A
 
 
 def token_of(cookies: dict[str, str]) -> str:
-    return cookies.get(COOKIE_NAME, "")
+    try:
+        return cookies.get(COOKIE_NAME, "")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("token_of failed")
+        raise
 
 
 def save_card(factory: sessionmaker, slug: str, virtual_id: int, username: str, card: dict[str, Any]) -> MessageOut | None:
     """Save the card as a message of the virtual person, by the rules of the room; None when the room does not take it."""
-    with factory() as db:
-        room = service.room_by_slug(db, slug)
-        if room is None or service.posting_problem(room, service.member_of(db, room.id, virtual_id)) is not None:
-            return None
-        message = Message(room_id=room.id, user_id=virtual_id, content=encode(card))
-        db.add(message)
-        db.commit()
-        return MessageOut.model_validate(service.show_one(db, message))
+    try:
+        with factory() as db:
+            room = service.room_by_slug(db, slug)
+            if room is None or service.posting_problem(room, service.member_of(db, room.id, virtual_id)) is not None:
+                return None
+            message = Message(room_id=room.id, user_id=virtual_id, content=encode(card))
+            db.add(message)
+            db.commit()
+            return MessageOut.model_validate(service.show_one(db, message))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("save_card failed")
+        raise
 
 
 def has_assistant(factory: sessionmaker, slug: str, author_id: int) -> bool:
-    with factory() as db:
-        return bool(virtual_reply.speakers(db, slug, author_id))
+    try:
+        with factory() as db:
+            return bool(virtual_reply.speakers(db, slug, author_id))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("has_assistant failed")
+        raise
 
 
 async def run_command(factory: sessionmaker, broadcast, slug: str, author, tool: str, args: dict[str, Any], token: str) -> None:
     """Called after the line of a person was saved and told to the room: the card comes back as a message of a virtual person."""
     try:
         def who() -> list[tuple[int, str]]:
-            with factory() as db:
-                return virtual_reply.speakers(db, slug, author.user_id)[:1]
+            try:
+                with factory() as db:
+                    return virtual_reply.speakers(db, slug, author.user_id)[:1]
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("who failed")
+                raise
 
         speaker = await run_in_threadpool(who)
         if not speaker:

@@ -22,6 +22,9 @@ from api.chat.schemas_people import (
     ReportReview,
 )
 
+import logging
+logger = logging.getLogger(__name__)
+
 LIST_LIMIT = 100
 router = new_router()
 
@@ -30,41 +33,61 @@ Me = Annotated[TokenPayload, Depends(get_current_user)]
 
 
 def refuse(error: service.Refused) -> HTTPException:
-    return HTTPException(error.status, str(error))
+    try:
+        return HTTPException(error.status, str(error))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("refuse failed")
+        raise
 
 
 def person_out(db: Session, me: int, person: Person, *, friends: set[int] | None = None) -> PersonOut:
     """A person as `me` may see them: the username to everyone, and of the profile only what its owner made public (a virtual person
     shows all of it); the summary is for friends too, unless its owner made it public. Nobody sees more of themselves than they chose
     to show others, except themselves."""
-    friend = person.user_id in friends if friends is not None else service.relation(db, me, person.user_id) == service.FRIENDS
-    view = person.view(own=person.user_id == me)
-    readable = person.user_id == me or friend or view.summary_public
-    return PersonOut(
-        user_id=person.user_id, username=person.username, display_name=view.display_name, headline=view.headline,
-        region=view.region, avatar=view.avatar, summary=view.summary if readable else None,
-        relation=service.relation(db, me, person.user_id) if person.user_id != me else service.NONE,
-        blocked=service.blocked_by(db, me, person.user_id),
-        virtual=person.is_virtual,
-        age=date.today().year - view.birth_year if view.birth_year else None,
-        interests=view.interests,
-        companion=person.is_virtual and companions.is_companion(db, me, person.user_id),
-    )  # fmt: skip
+    try:
+        friend = person.user_id in friends if friends is not None else service.relation(db, me, person.user_id) == service.FRIENDS
+        view = person.view(own=person.user_id == me)
+        readable = person.user_id == me or friend or view.summary_public
+        return PersonOut(
+            user_id=person.user_id, username=person.username, display_name=view.display_name, headline=view.headline,
+            region=view.region, avatar=view.avatar, summary=view.summary if readable else None,
+            relation=service.relation(db, me, person.user_id) if person.user_id != me else service.NONE,
+            blocked=service.blocked_by(db, me, person.user_id),
+            virtual=person.is_virtual,
+            age=date.today().year - view.birth_year if view.birth_year else None,
+            interests=view.interests,
+            companion=person.is_virtual and companions.is_companion(db, me, person.user_id),
+        )  # fmt: skip
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("person_out failed")
+        raise
 
 
 def known(db: Session, user_id: int) -> Person:
-    person = db.get(Person, user_id)
-    if person is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Person not found")
-    return person
+    try:
+        person = db.get(Person, user_id)
+        if person is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Person not found")
+        return person
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("known failed")
+        raise
 
 
 def other_person(db: Session, me: TokenPayload, user_id: int) -> Person:
     """The other person of an action, who must exist and not have blocked me (it looks like they do not exist)."""
-    person = known(db, user_id)
-    if service.blocked_between(db, me.user_id, user_id) and not service.blocked_by(db, me.user_id, user_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Person not found")
-    return person
+    try:
+        person = known(db, user_id)
+        if service.blocked_between(db, me.user_id, user_id) and not service.blocked_by(db, me.user_id, user_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Person not found")
+        return person
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("other_person failed")
+        raise
 
 
 # ---- me --------------------------------------------------------------------------------------------------------
@@ -75,17 +98,27 @@ def other_person(db: Session, me: TokenPayload, user_id: int) -> Person:
 
 @router.get("/people/{username}", response_model=PersonOut)
 def read_person(username: str, request: Request, user: Me, db: Db) -> PersonOut:
-    person = service.person_by_name(db, username)
-    if person is None or (person.user_id != user.user_id and service.blocked_between(db, user.user_id, person.user_id) and not service.blocked_by(db, user.user_id, person.user_id)):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Person not found")
-    return person_out(db, user.user_id, person)
+    try:
+        person = service.person_by_name(db, username)
+        if person is None or (person.user_id != user.user_id and service.blocked_between(db, user.user_id, person.user_id) and not service.blocked_by(db, user.user_id, person.user_id)):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Person not found")
+        return person_out(db, user.user_id, person)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("read_person failed")
+        raise
 
 
 # ---- friends ---------------------------------------------------------------------------------------------------
 
 
 def mine_routes_people(db: Session, user: TokenPayload) -> Person:
-    return service.actor_of(db, user.user_id, user.username)  # type: ignore[return-value]
+    try:
+        return service.actor_of(db, user.user_id, user.username)  # type: ignore[return-value]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("mine_routes_people failed")
+        raise
 
 
 @router.post("/friends/{user_id}", response_model=PersonOut)
@@ -128,8 +161,13 @@ def decline(user_id: int, user: Me, db: Db) -> None:
 @router.delete("/friends/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def unfriend(user_id: int, user: Me, db: Db) -> None:
     """Stop being friends, or take back a request I made. (Nothing to do if there was nothing.)"""
-    service.drop_relationship(db, user.user_id, user_id)
-    db.commit()
+    try:
+        service.drop_relationship(db, user.user_id, user_id)
+        db.commit()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("unfriend failed")
+        raise
 
 
 # ---- blocks ----------------------------------------------------------------------------------------------------
@@ -137,17 +175,27 @@ def unfriend(user_id: int, user: Me, db: Db) -> None:
 
 @router.post("/blocks/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def block(user_id: int, user: Me, db: Db) -> None:
-    if user_id == user.user_id:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose someone else")
-    known(db, user_id)
-    service.block(db, user.user_id, user_id)
-    db.commit()
+    try:
+        if user_id == user.user_id:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose someone else")
+        known(db, user_id)
+        service.block(db, user.user_id, user_id)
+        db.commit()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("block failed")
+        raise
 
 
 @router.delete("/blocks/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def unblock(user_id: int, user: Me, db: Db) -> None:
-    service.unblock(db, user.user_id, user_id)
-    db.commit()
+    try:
+        service.unblock(db, user.user_id, user_id)
+        db.commit()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("unblock failed")
+        raise
 
 
 # ---- reports ---------------------------------------------------------------------------------------------------
@@ -167,19 +215,29 @@ def report(body: ReportIn, user: Me, db: Db) -> Report:
 @router.get("/reports/mine", response_model=list[ReportOut])
 def my_reports(user: Me, db: Db, limit: Annotated[int, Query(ge=1, le=LIST_LIMIT)] = 50) -> list[Report]:
     """The reports I made that nobody has looked at yet: each can be taken back."""
-    return list(db.scalars(select(Report).where(Report.reporter_id == user.user_id, Report.status == "open").order_by(Report.id.desc()).limit(limit)))
+    try:
+        return list(db.scalars(select(Report).where(Report.reporter_id == user.user_id, Report.status == "open").order_by(Report.id.desc()).limit(limit)))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("my_reports failed")
+        raise
 
 
 @router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
 def unreport(report_id: int, user: Me, db: Db) -> None:
     """Take back my own report, while it is still open (one that was looked at stays as it was)."""
-    row = db.get(Report, report_id)
-    if row is None or row.reporter_id != user.user_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
-    if row.status != "open":
-        raise HTTPException(status.HTTP_409_CONFLICT, "The report was looked at already")
-    db.delete(row)
-    db.commit()
+    try:
+        row = db.get(Report, report_id)
+        if row is None or row.reporter_id != user.user_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
+        if row.status != "open":
+            raise HTTPException(status.HTTP_409_CONFLICT, "The report was looked at already")
+        db.delete(row)
+        db.commit()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("unreport failed")
+        raise
 
 
 administrator = require_groups(admin=True, moderator=True)  # the reports queue: only admins and moderators; users are refused here too
@@ -191,17 +249,27 @@ def reports(
     status_filter: Annotated[str, Query(alias="status", pattern="^(open|reviewed|actioned)$")] = "open",
     limit: Annotated[int, Query(ge=1, le=LIST_LIMIT)] = 50,
 ) -> list[Report]:
-    return list(db.scalars(select(Report).where(Report.status == status_filter).order_by(Report.id.desc()).limit(limit)))
+    try:
+        return list(db.scalars(select(Report).where(Report.status == status_filter).order_by(Report.id.desc()).limit(limit)))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("reports failed")
+        raise
 
 
 @router.patch("/reports/{report_id}", response_model=ReportOut)
 def review(report_id: int, body: ReportReview, db: Db, admin_livekit_tickets: Annotated[TokenPayload, Depends(administrator)]) -> Report:
-    row = db.get(Report, report_id)
-    if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
-    row.status = body.status
-    db.commit()
-    return row
+    try:
+        row = db.get(Report, report_id)
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
+        row.status = body.status
+        db.commit()
+        return row
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("review failed")
+        raise
 
 
 # ---- notifications ---------------------------------------------------------------------------------------------

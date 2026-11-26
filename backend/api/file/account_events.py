@@ -7,10 +7,23 @@ from sqlalchemy.orm import Session
 
 from api.file.store import erase_user
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def on_user_deleted(db: Session, user_id: int) -> None:
-    erase_user(user_id)
+    try:
+        erase_user(user_id)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("on_user_deleted failed")
+        raise
 
 
 def on_user_renamed(db: Session, user_id: int, new_username: str) -> None:
-    return None
+    try:
+        return None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("on_user_renamed failed")
+        raise

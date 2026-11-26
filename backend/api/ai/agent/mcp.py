@@ -17,6 +17,9 @@ from urllib.parse import urlsplit
 
 from api.ai.agent import netguard
 
+import logging
+logger = logging.getLogger(__name__)
+
 MAX_ARGUMENT_BYTES = 4000
 MAX_TEXT = 8000
 
@@ -33,26 +36,46 @@ class McpResult:
 
 
 def servers() -> dict[str, str]:
-    found: dict[str, str] = {}
-    for entry in os.environ.get("MCP_TOOL_SERVERS", "").split(","):
-        name, _, url = entry.strip().partition("=")
-        if name.strip() and url.strip():
-            found[name.strip()] = url.strip()
-    return found
+    try:
+        found: dict[str, str] = {}
+        for entry in os.environ.get("MCP_TOOL_SERVERS", "").split(","):
+            name, _, url = entry.strip().partition("=")
+            if name.strip() and url.strip():
+                found[name.strip()] = url.strip()
+        return found
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("servers failed")
+        raise
 
 
 def allowed_tools() -> set[str]:
-    return {t.strip() for t in os.environ.get("MCP_TOOL_ALLOWED", "").split(",") if t.strip()}
+    try:
+        return {t.strip() for t in os.environ.get("MCP_TOOL_ALLOWED", "").split(",") if t.strip()}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("allowed_tools failed")
+        raise
 
 
 def hosts(urls: dict[str, str]) -> set[str]:
-    return {(urlsplit(url).hostname or "").lower().rstrip(".") for url in urls.values()} - {""}
+    try:
+        return {(urlsplit(url).hostname or "").lower().rstrip(".") for url in urls.values()} - {""}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("hosts failed")
+        raise
 
 
 def event_data(body: str) -> str:
     """A streamable HTTP server may answer as text/event-stream: the JSON-RPC message is in the `data:` lines."""
-    datas = [line[5:].strip() for line in body.splitlines() if line.startswith("data:")]
-    return datas[-1] if datas else body
+    try:
+        datas = [line[5:].strip() for line in body.splitlines() if line.startswith("data:")]
+        return datas[-1] if datas else body
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("event_data failed")
+        raise
 
 
 def call(server: str, tool: str, arguments: dict[str, Any]) -> McpResult:

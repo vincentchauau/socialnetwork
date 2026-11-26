@@ -34,6 +34,9 @@ from api.center.kv import Kv
 from api.center.models import Passkey, User
 from sn_shared.security import INTERNAL_ALGORITHM, ISSUER, get_jwt_secret
 
+import logging
+logger = logging.getLogger(__name__)
+
 CHALLENGE_TTL_SECONDS = 5 * 60
 CHALLENGE_TYP = "webauthn"
 SIGNUP, LINK, LOGIN, REAUTH = "signup", "link", "login", "reauth"
@@ -58,13 +61,23 @@ class ChallengeStore:
     """Consumed challenge ids, kept until their token would have expired anyway (shared when the Kv is)."""
 
     def __init__(self, kv: Kv, now=time.time) -> None:
-        self._kv = kv
-        self.now_totp = now
+        try:
+            self._kv = kv
+            self.now_totp = now
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
     def consume(self, jti: str, expires_at: float) -> bool:
         """True the first time `jti` is seen. Fails closed (False) when the token is expired or the store is full."""
-        ttl = expires_at - self.now_totp()
-        return ttl > 0 and self._kv.set_if_absent(f"{CONSUMED_PREFIX}{jti}", ttl)
+        try:
+            ttl = expires_at - self.now_totp()
+            return ttl > 0 and self._kv.set_if_absent(f"{CONSUMED_PREFIX}{jti}", ttl)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("consume failed")
+            raise
 
 
 @dataclass(frozen=True)
@@ -82,19 +95,24 @@ def mint_challenge(
     purpose: str, challenge: bytes, *, user_id: int | None = None, user_handle: bytes | None = None,
     username: str | None = None, ttl_seconds: int = CHALLENGE_TTL_SECONDS,
 ) -> str:  # fmt: skip
-    now = int(time.time())
-    claims: dict[str, Any] = {
-        "iss": ISSUER, "typ": CHALLENGE_TYP, "purpose": purpose, "chal": bytes_to_base64url(challenge),
-        "jti": secrets.token_urlsafe(16), "iat": now, "exp": now + ttl_seconds,
-    }  # fmt: skip
-    # No `sub`: this token can never pass as an access token.
-    if user_id is not None:
-        claims["uid"] = user_id
-    if user_handle is not None:
-        claims["uh"] = bytes_to_base64url(user_handle)
-    if username is not None:
-        claims["uname"] = username
-    return jwt.encode(claims, get_jwt_secret(), algorithm=INTERNAL_ALGORITHM)
+    try:
+        now = int(time.time())
+        claims: dict[str, Any] = {
+            "iss": ISSUER, "typ": CHALLENGE_TYP, "purpose": purpose, "chal": bytes_to_base64url(challenge),
+            "jti": secrets.token_urlsafe(16), "iat": now, "exp": now + ttl_seconds,
+        }  # fmt: skip
+        # No `sub`: this token can never pass as an access token.
+        if user_id is not None:
+            claims["uid"] = user_id
+        if user_handle is not None:
+            claims["uh"] = bytes_to_base64url(user_handle)
+        if username is not None:
+            claims["uname"] = username
+        return jwt.encode(claims, get_jwt_secret(), algorithm=INTERNAL_ALGORITHM)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("mint_challenge failed")
+        raise
 
 
 def read_challenge(token: str, purpose: str, store: ChallengeStore) -> Challenge:
@@ -126,19 +144,39 @@ def read_challenge(token: str, purpose: str, store: ChallengeStore) -> Challenge
 
 
 def new_user_handle() -> bytes:
-    return secrets.token_bytes(USER_HANDLE_BYTES)
+    try:
+        return secrets.token_bytes(USER_HANDLE_BYTES)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("new_user_handle failed")
+        raise
 
 
 def user_handle_of(user: User) -> bytes | None:
-    return user.passkeys[0].user_handle if user.passkeys else None
+    try:
+        return user.passkeys[0].user_handle if user.passkeys else None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("user_handle_of failed")
+        raise
 
 
 def descriptor(passkey: Passkey) -> PublicKeyCredentialDescriptor:
-    return PublicKeyCredentialDescriptor(id=passkey.credential_id, transports=transports_of(passkey) or None)
+    try:
+        return PublicKeyCredentialDescriptor(id=passkey.credential_id, transports=transports_of(passkey) or None)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("descriptor failed")
+        raise
 
 
 def transports_of(passkey: Passkey) -> list[AuthenticatorTransport]:
-    return [AuthenticatorTransport(v) for v in (passkey.transports or "").split(",") if v in TRANSPORT_VALUES]
+    try:
+        return [AuthenticatorTransport(v) for v in (passkey.transports or "").split(",") if v in TRANSPORT_VALUES]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("transports_of failed")
+        raise
 
 
 def creation_options(
@@ -146,41 +184,56 @@ def creation_options(
     existing: list[Passkey] | None = None,
 ) -> tuple[dict, bytes]:  # fmt: skip
     """(PublicKeyCredentialCreationOptionsJSON, challenge)."""
-    options = generate_registration_options(
-        rp_id=settings.webauthn_rp_id,
-        rp_name=settings.webauthn_rp_name,
-        user_name=user_name,
-        user_display_name=display_name,
-        user_id=user_handle,
-        attestation=AttestationConveyancePreference.NONE,
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.REQUIRED,
-            user_verification=UserVerificationRequirement.REQUIRED,
-        ),
-        exclude_credentials=[descriptor(p) for p in existing or []],
-        supported_pub_key_algs=SUPPORTED_ALGORITHMS,
-    )
-    return options_to_json_dict(options), options.challenge
+    try:
+        options = generate_registration_options(
+            rp_id=settings.webauthn_rp_id,
+            rp_name=settings.webauthn_rp_name,
+            user_name=user_name,
+            user_display_name=display_name,
+            user_id=user_handle,
+            attestation=AttestationConveyancePreference.NONE,
+            authenticator_selection=AuthenticatorSelectionCriteria(
+                resident_key=ResidentKeyRequirement.REQUIRED,
+                user_verification=UserVerificationRequirement.REQUIRED,
+            ),
+            exclude_credentials=[descriptor(p) for p in existing or []],
+            supported_pub_key_algs=SUPPORTED_ALGORITHMS,
+        )
+        return options_to_json_dict(options), options.challenge
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("creation_options failed")
+        raise
 
 
 def request_options(settings: Settings) -> tuple[dict, bytes]:
     """(PublicKeyCredentialRequestOptionsJSON with an empty allowCredentials, challenge)."""
-    options = generate_authentication_options(
-        rp_id=settings.webauthn_rp_id,
-        allow_credentials=[],
-        user_verification=UserVerificationRequirement.REQUIRED,
-    )
-    return options_to_json_dict(options), options.challenge
+    try:
+        options = generate_authentication_options(
+            rp_id=settings.webauthn_rp_id,
+            allow_credentials=[],
+            user_verification=UserVerificationRequirement.REQUIRED,
+        )
+        return options_to_json_dict(options), options.challenge
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("request_options failed")
+        raise
 
 
 def sanitized_transports(credential: Any) -> str | None:
-    response = credential.get("response") if isinstance(credential, dict) else None
-    raw = response.get("transports") if isinstance(response, dict) else None
-    if not isinstance(raw, list):
-        return None
-    kept = [t for t in dict.fromkeys(raw) if isinstance(t, str) and t in TRANSPORT_VALUES]
-    joined = ",".join(kept)
-    return joined[:MAX_TRANSPORTS_LENGTH].rstrip(",") or None
+    try:
+        response = credential.get("response") if isinstance(credential, dict) else None
+        raw = response.get("transports") if isinstance(response, dict) else None
+        if not isinstance(raw, list):
+            return None
+        kept = [t for t in dict.fromkeys(raw) if isinstance(t, str) and t in TRANSPORT_VALUES]
+        joined = ",".join(kept)
+        return joined[:MAX_TRANSPORTS_LENGTH].rstrip(",") or None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("sanitized_transports failed")
+        raise
 
 
 def verify_registration(settings: Settings, credential: Any, challenge: Challenge) -> dict:
@@ -254,4 +307,9 @@ def verify_assertion(settings: Settings, credential: Any, challenge: Challenge, 
 
 def sign_count_regressed(stored: int, new: int) -> bool:
     """Many passkeys always report 0 (allowed); otherwise the counter must strictly increase."""
-    return (stored > 0 or new > 0) and new <= stored
+    try:
+        return (stored > 0 or new > 0) and new <= stored
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("sign_count_regressed failed")
+        raise

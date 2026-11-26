@@ -23,6 +23,8 @@ from api.chat.agent import tools
 from api.chat.agent.models import persona_of
 from api.chat.agent.providers import AgentError, Line, Provider, Usage, get_provider
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger("chat.agent")
 
 REPLIES_PER_CALLER_PER_HOUR = 120
@@ -40,20 +42,30 @@ class Limiter:
     """At most `limit` calls per caller per window."""
 
     def __init__(self, limit: int, window: float = HOUR_SECONDS) -> None:
-        self.limit_routes, self._window = limit, window
-        self._seen: dict[int, deque[float]] = defaultdict(deque)
-        self.guard = threading.Lock()
+        try:
+            self.limit_routes, self._window = limit, window
+            self._seen: dict[int, deque[float]] = defaultdict(deque)
+            self.guard = threading.Lock()
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("__init__ failed")
+            raise
 
     def allow(self, key: int, now: float | None = None) -> bool:
-        moment = now if now is not None else time.monotonic()
-        with self.guard:
-            seen = self._seen[key]
-            while seen and moment - seen[0] > self._window:
-                seen.popleft()
-            if len(seen) >= self.limit_routes:
-                return False
-            seen.append(moment)
-            return True
+        try:
+            moment = now if now is not None else time.monotonic()
+            with self.guard:
+                seen = self._seen[key]
+                while seen and moment - seen[0] > self._window:
+                    seen.popleft()
+                if len(seen) >= self.limit_routes:
+                    return False
+                seen.append(moment)
+                return True
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("allow failed")
+            raise
 
 
 limiter_service = Limiter(int(os.environ.get("AGENT_REPLIES_PER_HOUR", REPLIES_PER_CALLER_PER_HOUR)))
@@ -62,10 +74,15 @@ provider_seed_other: Provider | None = None
 
 def provider() -> Provider:
     """The model, chosen by `AI_PROVIDER` (dummy by default); built once."""
-    global provider_seed_other
-    if provider_seed_other is None:
-        provider_seed_other = get_provider()
-    return provider_seed_other
+    try:
+        global provider_seed_other
+        if provider_seed_other is None:
+            provider_seed_other = get_provider()
+        return provider_seed_other
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("provider failed")
+        raise
 
 
 def reply(db: Session, virtual_id: int, caller_id: int, caller: str, history: list[Line]) -> Reply | None:

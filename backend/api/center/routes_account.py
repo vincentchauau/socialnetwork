@@ -20,6 +20,9 @@ from api.center.schemas import ChangePasswordBody, DeleteAccountBody, LinkGoogle
 from api.center.sessions import clear_session_cookies, reissue_session
 from api.center.tokenversion import bump_token_version, publish_token_version
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth/me", tags=["account"], dependencies=[Depends(check_origin)])
 
 GOOGLE_NOT_LINKED = "Google is not linked"
@@ -36,20 +39,25 @@ def change_password(
     session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> SessionOut:
-    user = session.user
-    # Google-only accounts may set a first password without one; every other session is revoked below.
-    ensure_reauth(request, user, body.current_password)
-    problem = password_problem(body.new_password)
-    if problem:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
-    user.password_hash = hash_password(body.new_password)
-    settings = settings_of(request)
-    bump_token_version(db, user, keep_sid=session.sid)  # revokes all other sessions and refresh tokens
-    db.commit()
-    publish_token_version(user, settings)
-    audit.info("password changed user=%r ip=%s", user.username, client_ip(request))
-    notify(request, background, user, "password_changed")
-    return reissue_session(response, request, db, user, settings, session.sid)
+    try:
+        user = session.user
+        # Google-only accounts may set a first password without one; every other session is revoked below.
+        ensure_reauth(request, user, body.current_password)
+        problem = password_problem(body.new_password)
+        if problem:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
+        user.password_hash = hash_password(body.new_password)
+        settings = settings_of(request)
+        bump_token_version(db, user, keep_sid=session.sid)  # revokes all other sessions and refresh tokens
+        db.commit()
+        publish_token_version(user, settings)
+        audit.info("password changed user=%r ip=%s", user.username, client_ip(request))
+        notify(request, background, user, "password_changed")
+        return reissue_session(response, request, db, user, settings, session.sid)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("change_password failed")
+        raise
 
 
 @router.post("/google", response_model=MeOut)
@@ -90,23 +98,28 @@ def unlink_google(
     db: Session = Depends(get_db),
 ) -> MeOut:
     """Google may be dropped only while another sign-in method (password, voice, webcam) remains."""
-    user = session.user
-    ensure_reauth(request, user, body.password if body else None)
-    if user.google_sub is None:
-        raise HTTPException(status.HTTP_409_CONFLICT, GOOGLE_NOT_LINKED)
-    # Unlinking clears the address only when Google supplied it; an address the user verified survives.
-    if usable_methods(user, without=methods_lost_on_unlink(user)) == 0:
-        raise HTTPException(status.HTTP_409_CONFLICT, KEEP_ONE)
-    notice_to = user.email if has_verified_email(user) else None
-    user.google_sub = None
-    if user.email_from_google:
-        user.email = None
-        user.email_verified = False
-        user.email_from_google = False
-    db.commit()
-    audit.info("google unlinked user=%r ip=%s", user.username, client_ip(request))
-    notify(request, background, user, "google_unlinked", to=notice_to)
-    return me_out(user, session.token)
+    try:
+        user = session.user
+        ensure_reauth(request, user, body.password if body else None)
+        if user.google_sub is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, GOOGLE_NOT_LINKED)
+        # Unlinking clears the address only when Google supplied it; an address the user verified survives.
+        if usable_methods(user, without=methods_lost_on_unlink(user)) == 0:
+            raise HTTPException(status.HTTP_409_CONFLICT, KEEP_ONE)
+        notice_to = user.email if has_verified_email(user) else None
+        user.google_sub = None
+        if user.email_from_google:
+            user.email = None
+            user.email_verified = False
+            user.email_from_google = False
+        db.commit()
+        audit.info("google unlinked user=%r ip=%s", user.username, client_ip(request))
+        notify(request, background, user, "google_unlinked", to=notice_to)
+        return me_out(user, session.token)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("unlink_google failed")
+        raise
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
@@ -118,29 +131,39 @@ def delete_account(
     session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> None:
-    user = session.user
-    ensure_reauth(request, user, body.password if body else None)
-    username = user.username
-    notice_to = user.email if has_verified_email(user) else None
-    settings = settings_of(request)
-    user_id = user.id
-    add_event(db, USER_DELETED, user_id, {"old_username": username})  # same transaction as the delete
-    usernames.reserve(db, username, user_id)  # nobody can impersonate the old name for 30 days
-    bump_token_version(db, user)  # every access token and refresh token of the account ends, in every app
-    min_version = user.token_version
-    db.delete(user)
-    db.commit()
-    publish_token_version(user_id, settings, min_version)
-    background.add_task(request.app.state.event_relay.publish_pending)
-    clear_session_cookies(response, settings)
-    audit.info("account deleted user=%r ip=%s", username, client_ip(request))
-    if notice_to:
-        notify(request, background, user, "account_deleted", to=notice_to)
+    try:
+        user = session.user
+        ensure_reauth(request, user, body.password if body else None)
+        username = user.username
+        notice_to = user.email if has_verified_email(user) else None
+        settings = settings_of(request)
+        user_id = user.id
+        add_event(db, USER_DELETED, user_id, {"old_username": username})  # same transaction as the delete
+        usernames.reserve(db, username, user_id)  # nobody can impersonate the old name for 30 days
+        bump_token_version(db, user)  # every access token and refresh token of the account ends, in every app
+        min_version = user.token_version
+        db.delete(user)
+        db.commit()
+        publish_token_version(user_id, settings, min_version)
+        background.add_task(request.app.state.event_relay.publish_pending)
+        clear_session_cookies(response, settings)
+        audit.info("account deleted user=%r ip=%s", username, client_ip(request))
+        if notice_to:
+            notify(request, background, user, "account_deleted", to=notice_to)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_account failed")
+        raise
 
 
 def too_soon(after) -> HTTPException:
-    when = f" after {after.date().isoformat()}" if after is not None else " later"
-    return HTTPException(status.HTTP_409_CONFLICT, f"Username can be changed again{when}")
+    try:
+        when = f" after {after.date().isoformat()}" if after is not None else " later"
+        return HTTPException(status.HTTP_409_CONFLICT, f"Username can be changed again{when}")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("too_soon failed")
+        raise
 
 
 @router.post("/username", response_model=SessionOut)

@@ -8,6 +8,8 @@ import time
 
 from api.center import liveness as lv
 
+logger = logging.getLogger(__name__)
+
 audit = logging.getLogger("auth.audit")
 
 TARGET_FPS = 12
@@ -20,14 +22,24 @@ TIME_BUDGET = 20.0
 
 
 def points(landmark) -> list[tuple[float, float]]:
-    return [(float(x), float(y)) for x, y in landmark]
+    try:
+        return [(float(x), float(y)) for x, y in landmark]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("points failed")
+        raise
 
 
 def frame_features(marks: dict) -> tuple[float, float, float]:
     """(ear, mar, yaw) of one face's face_recognition landmarks."""
-    ear = (lv.eye_aspect_ratio(points(marks["left_eye"])) + lv.eye_aspect_ratio(points(marks["right_eye"]))) / 2
-    mar = lv.mouth_aspect_ratio(points(marks["top_lip"]), points(marks["bottom_lip"]))
-    return ear, mar, lv.yaw_proxy(points(marks["nose_bridge"]), points(marks["chin"]))
+    try:
+        ear = (lv.eye_aspect_ratio(points(marks["left_eye"])) + lv.eye_aspect_ratio(points(marks["right_eye"]))) / 2
+        mar = lv.mouth_aspect_ratio(points(marks["top_lip"]), points(marks["bottom_lip"]))
+        return ear, mar, lv.yaw_proxy(points(marks["nose_bridge"]), points(marks["chin"]))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("frame_features failed")
+        raise
 
 
 def liveness_actions(raw: bytes, clock=time.monotonic) -> list[str]:

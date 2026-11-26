@@ -21,6 +21,9 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
+import logging
+logger = logging.getLogger(__name__)
+
 TIMEOUT_SECONDS = 10
 MAX_BYTES = 100 * 1024
 MAX_URL = 500
@@ -41,40 +44,55 @@ class Fetched:
 
 
 def allowed_hosts() -> set[str]:
-    return {h.strip().lower().rstrip(".") for h in os.environ.get("HTTP_TOOL_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    try:
+        return {h.strip().lower().rstrip(".") for h in os.environ.get("HTTP_TOOL_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("allowed_hosts failed")
+        raise
 
 
 def is_public(address: str) -> bool:
-    ip = ipaddress.ip_address(address)
-    return ip.is_global and not (ip.is_multicast or ip.is_reserved or ip.is_loopback or ip.is_link_local or ip.is_private)
+    try:
+        ip = ipaddress.ip_address(address)
+        return ip.is_global and not (ip.is_multicast or ip.is_reserved or ip.is_loopback or ip.is_link_local or ip.is_private)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("is_public failed")
+        raise
 
 
 def check_url(url: str, hosts: set[str] | None = None) -> tuple[str, str, int, str]:
     """(scheme, host, port, path with query) of an allowed URL, or FetchError. `hosts` replaces the http_tool list."""
-    if len(url) > MAX_URL:
-        raise FetchError(f"The URL is longer than {MAX_URL} characters")
-    parts = urllib.parse.urlsplit(url)
-    scheme = parts.scheme.lower()
-    allow_http = os.environ.get("HTTP_TOOL_ALLOW_HTTP") == "1"
-    if scheme != "https" and not (scheme == "http" and allow_http):
-        raise FetchError("Only https URLs are allowed")
-    if parts.username or parts.password:
-        raise FetchError("A URL with a user name or password is not allowed")
-    host = (parts.hostname or "").lower().rstrip(".")
-    if not host:
-        raise FetchError("The URL has no host")
-    hosts = allowed_hosts() if hosts is None else hosts
-    if not hosts:
-        raise FetchError("This tool is not enabled on this server")
-    if host not in hosts:
-        raise FetchError(f"The host is not allowed. Allowed: {', '.join(sorted(hosts))}")
-    port = parts.port or (443 if scheme == "https" else 80)
-    if port not in (80, 443):
-        raise FetchError("Only ports 80 and 443 are allowed")
-    path = parts.path or "/"
-    if parts.query:
-        path += "?" + parts.query
-    return scheme, host, port, path
+    try:
+        if len(url) > MAX_URL:
+            raise FetchError(f"The URL is longer than {MAX_URL} characters")
+        parts = urllib.parse.urlsplit(url)
+        scheme = parts.scheme.lower()
+        allow_http = os.environ.get("HTTP_TOOL_ALLOW_HTTP") == "1"
+        if scheme != "https" and not (scheme == "http" and allow_http):
+            raise FetchError("Only https URLs are allowed")
+        if parts.username or parts.password:
+            raise FetchError("A URL with a user name or password is not allowed")
+        host = (parts.hostname or "").lower().rstrip(".")
+        if not host:
+            raise FetchError("The URL has no host")
+        hosts = allowed_hosts() if hosts is None else hosts
+        if not hosts:
+            raise FetchError("This tool is not enabled on this server")
+        if host not in hosts:
+            raise FetchError(f"The host is not allowed. Allowed: {', '.join(sorted(hosts))}")
+        port = parts.port or (443 if scheme == "https" else 80)
+        if port not in (80, 443):
+            raise FetchError("Only ports 80 and 443 are allowed")
+        path = parts.path or "/"
+        if parts.query:
+            path += "?" + parts.query
+        return scheme, host, port, path
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("check_url failed")
+        raise
 
 
 def resolve_public(host: str, port: int) -> str:
@@ -90,17 +108,27 @@ def resolve_public(host: str, port: int) -> str:
 
 
 def fetch(url: str, method: str = "GET") -> Fetched:
-    scheme, host, port, path = check_url(url)
-    if method.upper() not in ("GET", "HEAD"):
-        raise FetchError("Only GET and HEAD are allowed")
-    return send(scheme, host, port, path, method.upper(), {"Accept": "text/*, application/json"}, None)
+    try:
+        scheme, host, port, path = check_url(url)
+        if method.upper() not in ("GET", "HEAD"):
+            raise FetchError("Only GET and HEAD are allowed")
+        return send(scheme, host, port, path, method.upper(), {"Accept": "text/*, application/json"}, None)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("fetch failed")
+        raise
 
 
 def post_json(url: str, payload: bytes, hosts: set[str]) -> Fetched:
     """One POST of a JSON body to a URL on `hosts` (the MCP servers the operator named), under the same rules."""
-    scheme, host, port, path = check_url(url, hosts)
-    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
-    return send(scheme, host, port, path, "POST", headers, payload)
+    try:
+        scheme, host, port, path = check_url(url, hosts)
+        headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+        return send(scheme, host, port, path, "POST", headers, payload)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("post_json failed")
+        raise
 
 
 def send(scheme: str, host: str, port: int, path: str, method: str, headers: dict[str, str], body: bytes | None) -> Fetched:
@@ -132,4 +160,9 @@ def send(scheme: str, host: str, port: int, path: str, method: str, headers: dic
 
 
 def describe() -> dict[str, Any]:
-    return {"hosts": sorted(allowed_hosts())}
+    try:
+        return {"hosts": sorted(allowed_hosts())}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("describe failed")
+        raise

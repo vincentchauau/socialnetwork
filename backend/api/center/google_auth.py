@@ -3,6 +3,9 @@
 from dataclasses import dataclass
 from typing import Callable
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class GoogleAuthError(Exception):
     """The Google token is invalid."""
@@ -21,18 +24,23 @@ Verifier = Callable[[str], GoogleIdentity]
 def make_google_verifier(client_id: str) -> Verifier:
     """Return a function that verifies an ID token (signature, audience, expiry, verified email)."""
 
-    def verify(token: str) -> GoogleIdentity:
-        try:
-            from google.auth.transport import requests as google_requests
-            from google.oauth2 import id_token
+    try:
+        def verify(token: str) -> GoogleIdentity:
+            try:
+                from google.auth.transport import requests as google_requests
+                from google.oauth2 import id_token
 
-            claims = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
-        except Exception as exc:  # the library raises many types; all mean "bad token"
-            raise GoogleAuthError("Invalid Google token") from exc
-        if not claims.get("email_verified") or not claims.get("email") or not claims.get("sub"):
-            raise GoogleAuthError("Google email is not verified")
-        return GoogleIdentity(
-            sub=str(claims["sub"])[:64], email=str(claims["email"]).lower()[:254], exp=int(claims.get("exp") or 0) or None
-        )
+                claims = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
+            except Exception as exc:  # the library raises many types; all mean "bad token"
+                raise GoogleAuthError("Invalid Google token") from exc
+            if not claims.get("email_verified") or not claims.get("email") or not claims.get("sub"):
+                raise GoogleAuthError("Google email is not verified")
+            return GoogleIdentity(
+                sub=str(claims["sub"])[:64], email=str(claims["email"]).lower()[:254], exp=int(claims.get("exp") or 0) or None
+            )
 
-    return verify
+        return verify
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("make_google_verifier failed")
+        raise

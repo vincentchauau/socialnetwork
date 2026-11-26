@@ -14,6 +14,8 @@ import time
 import urllib.error
 import urllib.request
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 TICKET_SECONDS = 2 * 60 * 60  # long enough for a meeting; one who is sent away loses the room at once (see `close_room`)
@@ -25,46 +27,81 @@ MIN_SECRET_CHARS = 16
 
 
 def settings() -> tuple[str, str] | None:
-    key, secret = os.environ.get("LIVEKIT_API_KEY", ""), os.environ.get("LIVEKIT_API_SECRET", "")
-    return (key, secret) if key and len(secret) >= MIN_SECRET_CHARS else None
+    try:
+        key, secret = os.environ.get("LIVEKIT_API_KEY", ""), os.environ.get("LIVEKIT_API_SECRET", "")
+        return (key, secret) if key and len(secret) >= MIN_SECRET_CHARS else None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("settings failed")
+        raise
 
 
 def configured() -> bool:
-    return settings() is not None
+    try:
+        return settings() is not None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("configured failed")
+        raise
 
 
 def server_url() -> str:
     """Where the browsers reach LiveKit."""
-    return os.environ.get("LIVEKIT_URL", "").strip().rstrip("/") or DEFAULT_URL
+    try:
+        return os.environ.get("LIVEKIT_URL", "").strip().rstrip("/") or DEFAULT_URL
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("server_url failed")
+        raise
 
 
 def b64(data: bytes) -> bytes:
-    return base64.urlsafe_b64encode(data).rstrip(b"=")
+    try:
+        return base64.urlsafe_b64encode(data).rstrip(b"=")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("b64 failed")
+        raise
 
 
 def sign(claims: dict) -> str:
-    found = settings()
-    if found is None:
-        raise RuntimeError("LiveKit is not set up")
-    key, secret = found
-    head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
-    body = b64(json.dumps({"iss": key, **claims}).encode())
-    signature = b64(hmac.new(secret.encode(), head + b"." + body, hashlib.sha256).digest())
-    return (head + b"." + body + b"." + signature).decode()
+    try:
+        found = settings()
+        if found is None:
+            raise RuntimeError("LiveKit is not set up")
+        key, secret = found
+        head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+        body = b64(json.dumps({"iss": key, **claims}).encode())
+        signature = b64(hmac.new(secret.encode(), head + b"." + body, hashlib.sha256).digest())
+        return (head + b"." + body + b"." + signature).decode()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("sign failed")
+        raise
 
 
 def ticket(identity: str, name: str, room: str, now: float | None = None) -> str:
     """The ticket for this person to join this room: they may publish (microphone, camera, screen) and listen."""
-    moment = int(now if now is not None else time.time())
-    return sign({
-        "sub": identity, "name": name, "nbf": moment - 5, "exp": moment + TICKET_SECONDS,
-        "video": {"room": room, "roomJoin": True, "canPublish": True, "canSubscribe": True},
-    })
+    try:
+        moment = int(now if now is not None else time.time())
+        return sign({
+            "sub": identity, "name": name, "nbf": moment - 5, "exp": moment + TICKET_SECONDS,
+            "video": {"room": room, "roomJoin": True, "canPublish": True, "canSubscribe": True},
+        })
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ticket failed")
+        raise
 
 
 def admin_livekit_tickets(room: str, now: float | None = None) -> str:
-    moment = int(now if now is not None else time.time())
-    return sign({"sub": "chat", "nbf": moment - 5, "exp": moment + ADMIN_SECONDS, "video": {"roomAdmin": True, "room": room}})
+    try:
+        moment = int(now if now is not None else time.time())
+        return sign({"sub": "chat", "nbf": moment - 5, "exp": moment + ADMIN_SECONDS, "video": {"roomAdmin": True, "room": room}})
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("admin_livekit_tickets failed")
+        raise
 
 
 def close_room(room: str) -> bool:

@@ -17,31 +17,49 @@ from api.center.schemas import RevokedOut, SessionItem
 from api.center.sessions import clear_session_cookies
 from api.center.tokenversion import access_ttl_seconds
 
+import logging
+logger = logging.getLogger(__name__)
+
 NOT_FOUND = "Session not found"
 
 router = APIRouter(prefix="/auth", tags=["sessions"], dependencies=[Depends(check_origin)])
 
 
 def item(row: UserSession, current_sid: str | None) -> SessionItem:
-    return SessionItem(
-        id=row.sid, current=row.sid == current_sid, created_at=usersessions.as_utc(row.created_at),
-        last_seen_at=usersessions.as_utc(row.last_seen_at), ip=row.ip, user_agent=row.user_agent, method=row.method,
-    )  # fmt: skip
+    try:
+        return SessionItem(
+            id=row.sid, current=row.sid == current_sid, created_at=usersessions.as_utc(row.created_at),
+            last_seen_at=usersessions.as_utc(row.last_seen_at), ip=row.ip, user_agent=row.user_agent, method=row.method,
+        )  # fmt: skip
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("item failed")
+        raise
 
 
 @router.get("/sessions", response_model=list[SessionItem])
 def list_sessions(session: AuthSession = Depends(current_session), db: Session = Depends(get_db)) -> list[SessionItem]:
-    return [item(row, session.sid) for row in usersessions.active_sessions(db, session.user.id)]
+    try:
+        return [item(row, session.sid) for row in usersessions.active_sessions(db, session.user.id)]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("list_sessions failed")
+        raise
 
 
 @router.post("/sessions/revoke-others", response_model=RevokedOut)
 def revoke_other_sessions(
     request: Request, session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db)
 ) -> RevokedOut:
-    others = [row for row in usersessions.active_sessions(db, session.user.id) if row.sid != session.sid]
-    count = usersessions.revoke(db, others, access_ttl_seconds(settings_of(request)))
-    audit.info("sessions revoked user=%r count=%d ip=%s", session.user.username, count, client_ip(request))
-    return RevokedOut(revoked=count)
+    try:
+        others = [row for row in usersessions.active_sessions(db, session.user.id) if row.sid != session.sid]
+        count = usersessions.revoke(db, others, access_ttl_seconds(settings_of(request)))
+        audit.info("sessions revoked user=%r count=%d ip=%s", session.user.username, count, client_ip(request))
+        return RevokedOut(revoked=count)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("revoke_other_sessions failed")
+        raise
 
 
 @router.delete("/sessions/{sid}", status_code=status.HTTP_204_NO_CONTENT)
@@ -49,11 +67,16 @@ def revoke_session(
     sid: str, request: Request, response: Response, session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> None:
-    row = usersessions.live_session(db, sid, session.user.id)
-    if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
-    settings = settings_of(request)
-    usersessions.revoke(db, [row], access_ttl_seconds(settings))
-    if sid == session.sid:
-        clear_session_cookies(response, settings)
-    audit.info("session revoked user=%r ip=%s", session.user.username, client_ip(request))
+    try:
+        row = usersessions.live_session(db, sid, session.user.id)
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+        settings = settings_of(request)
+        usersessions.revoke(db, [row], access_ttl_seconds(settings))
+        if sid == session.sid:
+            clear_session_cookies(response, settings)
+        audit.info("session revoked user=%r ip=%s", session.user.username, client_ip(request))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("revoke_session failed")
+        raise

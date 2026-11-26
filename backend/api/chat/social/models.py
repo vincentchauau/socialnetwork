@@ -8,10 +8,18 @@ from datetime import datetime, timezone
 from sqlalchemy import JSON, DateTime, Engine, Index, Integer, String, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    try:
+        return datetime.now(timezone.utc)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("utcnow failed")
+        raise
 
 
 class Base(DeclarativeBase):
@@ -19,23 +27,33 @@ class Base(DeclarativeBase):
 
 
 def ensure_tables(engine: Engine) -> None:
-    Base.metadata.create_all(engine)
-    copy_old_edges(engine)
+    try:
+        Base.metadata.create_all(engine)
+        copy_old_edges(engine)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_tables failed")
+        raise
 
 
 def copy_old_edges(engine: Engine) -> None:
     """Fill `edges` from the three tables it replaced (`social_relationships`, `social_blocks`, `social_companions`), only while it is empty.
     The old tables stay where they are: drop them by hand once this has run."""
-    names = set(inspect(engine).get_table_names())
-    with engine.begin() as conn:
-        if conn.execute(text("SELECT 1 FROM edges LIMIT 1")).first() is not None:
-            return
-        if "social_relationships" in names:
-            conn.execute(text("INSERT INTO edges (src_id, dst_id, kind, status) SELECT requester_id, addressee_id, 'friend', status FROM social_relationships"))
-        if "social_blocks" in names:
-            conn.execute(text("INSERT INTO edges (src_id, dst_id, kind, status) SELECT user_id, blocked_id, 'block', '' FROM social_blocks"))
-        if "social_companions" in names:
-            conn.execute(text("INSERT INTO edges (src_id, dst_id, kind, status, released_at) SELECT owner_id, virtual_id, 'companion', '', released_at FROM social_companions"))
+    try:
+        names = set(inspect(engine).get_table_names())
+        with engine.begin() as conn:
+            if conn.execute(text("SELECT 1 FROM edges LIMIT 1")).first() is not None:
+                return
+            if "social_relationships" in names:
+                conn.execute(text("INSERT INTO edges (src_id, dst_id, kind, status) SELECT requester_id, addressee_id, 'friend', status FROM social_relationships"))
+            if "social_blocks" in names:
+                conn.execute(text("INSERT INTO edges (src_id, dst_id, kind, status) SELECT user_id, blocked_id, 'block', '' FROM social_blocks"))
+            if "social_companions" in names:
+                conn.execute(text("INSERT INTO edges (src_id, dst_id, kind, status, released_at) SELECT owner_id, virtual_id, 'companion', '', released_at FROM social_companions"))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("copy_old_edges failed")
+        raise
 
 
 class Edge(Base):

@@ -14,6 +14,9 @@ from api.center.handles import key_of
 from api.center.models import User
 from api.center.passwords import NO_PASSWORD
 
+import logging
+logger = logging.getLogger(__name__)
+
 VIRTUAL = "virtual"
 
 
@@ -23,9 +26,14 @@ class NameTaken(Exception):
 
 def create_virtual(db: Session, username: str, **profile: object) -> User:
     """A virtual person with this name and profile (the caller commits). Raises NameTaken when the name is used."""
-    if db.scalar(select(User.id).where(func.lower(User.username) == key_of(username))) is not None:
-        raise NameTaken(username)
-    user = User(username=username, password_hash=NO_PASSWORD, kind=VIRTUAL, **profile)
-    db.add(user)
-    db.flush()
-    return user
+    try:
+        if db.scalar(select(User.id).where(func.lower(User.username) == key_of(username))) is not None:
+            raise NameTaken(username)
+        user = User(username=username, password_hash=NO_PASSWORD, kind=VIRTUAL, **profile)
+        db.add(user)
+        db.flush()
+        return user
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("create_virtual failed")
+        raise

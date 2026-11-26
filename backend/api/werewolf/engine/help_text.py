@@ -4,6 +4,9 @@ from __future__ import annotations
 from api.werewolf.engine.events import ALL_EVENTS
 from api.werewolf.engine.roles import Ability
 
+import logging
+logger = logging.getLogger(__name__)
+
 ABILITY_HELP: dict[Ability, str] = {
     Ability.NONE: "Người thường: không có chức năng đặc biệt. Chỉ có vote ban ngày, hãy quan sát và thuyết phục mọi người.",
     Ability.KILL: "Mỗi đêm chọn 1 người để giết. Bị chặn nếu mục tiêu được bảo vệ; nếu mục tiêu có phản đòn thì bạn chết thay.",
@@ -34,4 +37,9 @@ RULES: list[dict[str, str]] = [
 
 def help_payload() -> dict[str, object]:
     """Dữ liệu trợ giúp gửi cho client: luật chung và danh sách thẻ sự kiện."""
-    return {"rules": RULES, "events": [e.view() for e in ALL_EVENTS]}
+    try:
+        return {"rules": RULES, "events": [e.view() for e in ALL_EVENTS]}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("help_payload failed")
+        raise

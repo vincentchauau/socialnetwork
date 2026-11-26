@@ -8,6 +8,9 @@ import unicodedata
 
 from sn_shared.security import verify_password as verify_bcrypt
 
+import logging
+logger = logging.getLogger(__name__)
+
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**15, 8, 1  # about 32 MB of memory per hash
 SCRYPT_MAXMEM = 128 * 1024 * 1024
 SALT_BYTES = 16
@@ -27,55 +30,90 @@ COMMON_PASSWORDS = frozenset(
 
 
 def alphanumeric(text: str) -> str:
-    return "".join(c for c in text if c.isalnum())
+    try:
+        return "".join(c for c in text if c.isalnum())
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("alphanumeric failed")
+        raise
 
 
 def missing_character_classes(password: str) -> list[str]:
     """Which of the four classes (lower, upper, digit, special) the password lacks."""
-    present = {
-        "lower": any(c.islower() for c in password),
-        "upper": any(c.isupper() for c in password),
-        "digit": any(c.isdigit() for c in password),
-        "special": any(not c.isalnum() for c in password),
-    }
-    return [name for name, ok in present.items() if not ok]
+    try:
+        present = {
+            "lower": any(c.islower() for c in password),
+            "upper": any(c.isupper() for c in password),
+            "digit": any(c.isdigit() for c in password),
+            "special": any(not c.isalnum() for c in password),
+        }
+        return [name for name, ok in present.items() if not ok]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("missing_character_classes failed")
+        raise
 
 
 def password_problem(password: str) -> str | None:
     """Why the password is rejected, or None when acceptable."""
-    if len(password) < MIN_PASSWORD:
-        return f"Password must be at least {MIN_PASSWORD} characters"
-    if len(password) > MAX_PASSWORD:
-        return f"Password must be at most {MAX_PASSWORD} characters"
-    if missing_character_classes(password):
-        return CLASS_RULE_MESSAGE
-    lowered = password.lower()
-    if lowered in COMMON_PASSWORDS or alphanumeric(lowered) in COMMON_PASSWORDS:  # "Password1!" is still "password1"
-        return "Password is too common"
-    return None
+    try:
+        if len(password) < MIN_PASSWORD:
+            return f"Password must be at least {MIN_PASSWORD} characters"
+        if len(password) > MAX_PASSWORD:
+            return f"Password must be at most {MAX_PASSWORD} characters"
+        if missing_character_classes(password):
+            return CLASS_RULE_MESSAGE
+        lowered = password.lower()
+        if lowered in COMMON_PASSWORDS or alphanumeric(lowered) in COMMON_PASSWORDS:  # "Password1!" is still "password1"
+            return "Password is too common"
+        return None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("password_problem failed")
+        raise
 
 
 def scrypt_passwords(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
-    normalized = unicodedata.normalize("NFKC", password)
-    return hashlib.scrypt(normalized.encode(), salt=salt, n=n, r=r, p=p, maxmem=SCRYPT_MAXMEM, dklen=DIGEST_BYTES)
+    try:
+        normalized = unicodedata.normalize("NFKC", password)
+        return hashlib.scrypt(normalized.encode(), salt=salt, n=n, r=r, p=p, maxmem=SCRYPT_MAXMEM, dklen=DIGEST_BYTES)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("scrypt_passwords failed")
+        raise
 
 
 def hash_password(password: str) -> str:
     """Self-describing 'scrypt$n$r$p$salt$hash' so the cost can be raised later."""
-    salt = os.urandom(SALT_BYTES)
-    digest = scrypt_passwords(password, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P)
-    return "$".join(
-        ["scrypt", str(SCRYPT_N), str(SCRYPT_R), str(SCRYPT_P),
-         base64.b64encode(salt).decode(), base64.b64encode(digest).decode()]
-    )  # fmt: skip
+    try:
+        salt = os.urandom(SALT_BYTES)
+        digest = scrypt_passwords(password, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P)
+        return "$".join(
+            ["scrypt", str(SCRYPT_N), str(SCRYPT_R), str(SCRYPT_P),
+             base64.b64encode(salt).decode(), base64.b64encode(digest).decode()]
+        )  # fmt: skip
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("hash_password failed")
+        raise
 
 
 def is_legacy_bcrypt(stored: str) -> bool:
-    return stored.startswith("$2")
+    try:
+        return stored.startswith("$2")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("is_legacy_bcrypt failed")
+        raise
 
 
 def has_password(stored: str) -> bool:
-    return stored != NO_PASSWORD
+    try:
+        return stored != NO_PASSWORD
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("has_password failed")
+        raise
 
 
 def verify_password(password: str, stored: str | None) -> bool:

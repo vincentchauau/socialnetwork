@@ -28,6 +28,9 @@ from sn_shared.deps import get_current_user
 from sn_shared.facets import Facet, facets
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 MAX_OPEN_JOBS_PER_USER = 50
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 50
@@ -40,18 +43,28 @@ router = APIRouter()
 
 def index_skills(db: Session, job: JobDescription) -> None:
     """The skills of the job go into the catalog (for suggestions) and their keys into the row (for search by skill)."""
-    names = [item["name"] for item in (job.skills_required or []) + (job.skills_preferred or [])]
-    shared_skills.register(db, names)
-    job.skill_keys = shared_skills.keys_of(names)
+    try:
+        names = [item["name"] for item in (job.skills_required or []) + (job.skills_preferred or [])]
+        shared_skills.register(db, names)
+        job.skill_keys = shared_skills.keys_of(names)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("index_skills failed")
+        raise
 
 
 def plain_job_descriptions(changes: dict) -> dict:
     """The lists of the job as the plain data that goes into the row."""
-    plain = dict(changes)
-    for name in LIST_FIELDS:
-        if plain.get(name) is not None:
-            plain[name] = [item if isinstance(item, dict) else item.model_dump() for item in plain[name]]
-    return plain
+    try:
+        plain = dict(changes)
+        for name in LIST_FIELDS:
+            if plain.get(name) is not None:
+                plain[name] = [item if isinstance(item, dict) else item.model_dump() for item in plain[name]]
+        return plain
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("plain_job_descriptions failed")
+        raise
 
 
 @router.post("/jobs", response_model=JobDescriptionDetail, status_code=status.HTTP_201_CREATED)
@@ -60,20 +73,25 @@ def create_job_description(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JobDescriptionDetail:
-    open_count = db.scalar(
-        select(func.count()).select_from(JobDescription).where(
-            JobDescription.owner_id == user.user_id, JobDescription.status == "open"
+    try:
+        open_count = db.scalar(
+            select(func.count()).select_from(JobDescription).where(
+                JobDescription.owner_id == user.user_id, JobDescription.status == "open"
+            )
         )
-    )
-    if body.status == "open" and (open_count or 0) >= MAX_OPEN_JOBS_PER_USER:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Too many open jobs; close one first")
-    fields = plain_job_descriptions(body.model_dump())
-    job = JobDescription(owner_id=user.user_id, **fields)
-    db.add(job)
-    db.flush()
-    index_skills(db, job)
-    db.commit()
-    return detail(db, user, job)
+        if body.status == "open" and (open_count or 0) >= MAX_OPEN_JOBS_PER_USER:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Too many open jobs; close one first")
+        fields = plain_job_descriptions(body.model_dump())
+        job = JobDescription(owner_id=user.user_id, **fields)
+        db.add(job)
+        db.flush()
+        index_skills(db, job)
+        db.commit()
+        return detail(db, user, job)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("create_job_description failed")
+        raise
 
 
 @router.get("/jobs", response_model=JobDescriptionPage)
@@ -90,19 +108,24 @@ def list_job_descriptions(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JobDescriptionPage:
-    params = SearchParams(
-        q=q.strip() if q else None,
-        location=location.strip() if location else None,
-        remote=remote,
-        employment_type=type,
-        min_salary=min_salary,
-        tag=tag.lower() if tag else None,
-        skill=skill.strip() if skill and skill.strip() else None,
-        cursor=cursor,
-        limit=limit,
-    )
-    jobs, next_cursor = search_job_descriptions(db, params)
-    return JobDescriptionPage(items=summaries(db, user, jobs), next_cursor=next_cursor)
+    try:
+        params = SearchParams(
+            q=q.strip() if q else None,
+            location=location.strip() if location else None,
+            remote=remote,
+            employment_type=type,
+            min_salary=min_salary,
+            tag=tag.lower() if tag else None,
+            skill=skill.strip() if skill and skill.strip() else None,
+            cursor=cursor,
+            limit=limit,
+        )
+        jobs, next_cursor = search_job_descriptions(db, params)
+        return JobDescriptionPage(items=summaries(db, user, jobs), next_cursor=next_cursor)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("list_job_descriptions failed")
+        raise
 
 
 @router.get("/facets", response_model=dict[str, list[Facet]])
@@ -110,24 +133,34 @@ def job_facets(
     _user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> dict[str, list[Facet]]:
     """What the open jobs are made of: how many of each employment type and of each place."""
-    open_now = select(JobDescription).where(is_visible(now_utc()))
-    return {
-        "types": facets(db, JobDescription.employment_type, open_now),
-        "locations": facets(db, JobDescription.location, open_now),
-    }
+    try:
+        open_now = select(JobDescription).where(is_visible(now_utc()))
+        return {
+            "types": facets(db, JobDescription.employment_type, open_now),
+            "locations": facets(db, JobDescription.location, open_now),
+        }
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("job_facets failed")
+        raise
 
 
 @router.get("/me/jobs", response_model=list[JobDescriptionSummary])
 def my_job_descriptions(
     user: TokenPayload = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[JobDescriptionSummary]:
-    jobs = db.scalars(
-        select(JobDescription)
-        .where(JobDescription.owner_id == user.user_id)
-        .order_by(JobDescription.id.desc())
-        .limit(MAX_LIST_ITEMS)
-    ).all()
-    return summaries(db, user, list(jobs))
+    try:
+        jobs = db.scalars(
+            select(JobDescription)
+            .where(JobDescription.owner_id == user.user_id)
+            .order_by(JobDescription.id.desc())
+            .limit(MAX_LIST_ITEMS)
+        ).all()
+        return summaries(db, user, list(jobs))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("my_job_descriptions failed")
+        raise
 
 
 @router.get("/jobs/{job_id}", response_model=JobDescriptionDetail)
@@ -136,7 +169,12 @@ def read_job_description(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JobDescriptionDetail:
-    return detail(db, user, get_visible_job_description(db, job_id, user))
+    try:
+        return detail(db, user, get_visible_job_description(db, job_id, user))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("read_job_description failed")
+        raise
 
 
 @router.patch("/jobs/{job_id}", response_model=JobDescriptionDetail)
@@ -176,9 +214,14 @@ def delete_job_description(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Response:
-    job = ensure_owner(get_job_description(db, job_id), user)
-    db.execute(delete(JobApplicant).where(JobApplicant.job_description_id == job.id))
-    comments.forget_object(db, "job", job.id)
-    db.delete(job)
-    db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        job = ensure_owner(get_job_description(db, job_id), user)
+        db.execute(delete(JobApplicant).where(JobApplicant.job_description_id == job.id))
+        comments.forget_object(db, "job", job.id)
+        db.delete(job)
+        db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_job_description failed")
+        raise

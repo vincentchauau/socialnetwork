@@ -3,6 +3,9 @@
 import re
 from typing import Callable
 
+import logging
+logger = logging.getLogger(__name__)
+
 MAX_LEN = 32
 MIN_LEN = 3
 # Besides ASCII letters and digits. '@' is allowed: email flows look users up by users.email only, never by name.
@@ -17,27 +20,47 @@ INVALID = re.compile(r"[^a-z0-9._-]")  # generated handles stay within the conse
 
 def is_valid_username(name: str) -> bool:
     """3-32 allowed characters, at least one of them a letter or digit ('...' or '!!!' are refused)."""
-    return HANDLE_RE.fullmatch(name) is not None and ALNUM.search(name) is not None
+    try:
+        return HANDLE_RE.fullmatch(name) is not None and ALNUM.search(name) is not None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("is_valid_username failed")
+        raise
 
 
 def key_of(name: str) -> str:
     """The case-insensitive identity of a username: what uniqueness, lookups, reservations and throttles use."""
-    return name.strip().lower()
+    try:
+        return name.strip().lower()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("key_of failed")
+        raise
 
 
 def base_handle(email: str) -> str:
-    local = INVALID.sub("", email.split("@", 1)[0].lower())[:MAX_LEN]
-    return local.ljust(MIN_LEN, "0")
+    try:
+        local = INVALID.sub("", email.split("@", 1)[0].lower())[:MAX_LEN]
+        return local.ljust(MIN_LEN, "0")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("base_handle failed")
+        raise
 
 
 def unique_handle(email: str, is_taken: Callable[[str], bool]) -> str:
-    base = base_handle(email)
-    if not is_taken(base):
-        return base
-    suffix = 2
-    while True:
-        tail = str(suffix)
-        candidate = base[: MAX_LEN - len(tail)] + tail
-        if not is_taken(candidate):
-            return candidate
-        suffix += 1
+    try:
+        base = base_handle(email)
+        if not is_taken(base):
+            return base
+        suffix = 2
+        while True:
+            tail = str(suffix)
+            candidate = base[: MAX_LEN - len(tail)] + tail
+            if not is_taken(candidate):
+                return candidate
+            suffix += 1
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("unique_handle failed")
+        raise

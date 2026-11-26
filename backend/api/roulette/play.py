@@ -14,6 +14,9 @@ from api.roulette.schemas import LeaderOut, NumberCount, SpinIn, SpinOut, StatsO
 from sn_shared.limits import reader, writer
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 HISTORY_LIMIT = 50
@@ -24,78 +27,113 @@ STATS_TOP = 5
 
 
 def wallet_play(db: Session, user: TokenPayload, lock: bool = False) -> Wallet:
-    query = select(Wallet).where(Wallet.user_id == user.user_id)
-    if lock:
-        query = query.with_for_update()  # two spins at once cannot spend the same chips
-    wallet = db.scalars(query).first()
-    if wallet is None:
-        wallet = Wallet(user_id=user.user_id, chips=START_CHIPS)
-        db.add(wallet)
-        db.flush()
-    return wallet
+    try:
+        query = select(Wallet).where(Wallet.user_id == user.user_id)
+        if lock:
+            query = query.with_for_update()  # two spins at once cannot spend the same chips
+        wallet = db.scalars(query).first()
+        if wallet is None:
+            wallet = Wallet(user_id=user.user_id, chips=START_CHIPS)
+            db.add(wallet)
+            db.flush()
+        return wallet
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("wallet_play failed")
+        raise
 
 
 @router.get("/wallet", response_model=WalletOut)
 def read_wallet(user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> WalletOut:
-    wallet = wallet_play(db, user)
-    db.commit()
-    return WalletOut(chips=wallet.chips)
+    try:
+        wallet = wallet_play(db, user)
+        db.commit()
+        return WalletOut(chips=wallet.chips)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("read_wallet failed")
+        raise
 
 
 @router.post("/wallet/refill", response_model=WalletOut)
 def refill(user: TokenPayload = Depends(writer), db: Session = Depends(get_db)) -> WalletOut:
     """A person with no chips left starts again with the first amount."""
-    wallet = wallet_play(db, user, lock=True)
-    if wallet.chips > 0:
-        raise HTTPException(status.HTTP_409_CONFLICT, "You still have chips")
-    wallet.chips = START_CHIPS
-    db.commit()
-    return WalletOut(chips=wallet.chips)
+    try:
+        wallet = wallet_play(db, user, lock=True)
+        if wallet.chips > 0:
+            raise HTTPException(status.HTTP_409_CONFLICT, "You still have chips")
+        wallet.chips = START_CHIPS
+        db.commit()
+        return WalletOut(chips=wallet.chips)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("refill failed")
+        raise
 
 
 @router.post("/spin", response_model=SpinOut, status_code=status.HTTP_201_CREATED)
 def spin(body: SpinIn, user: TokenPayload = Depends(writer), db: Session = Depends(get_db)) -> Spin:
-    stake = sum(bet.amount for bet in body.bets)
-    wallet = wallet_play(db, user, lock=True)
-    if stake > wallet.chips:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Not enough chips")
-    number = game.spin()
-    bets = [
-        {"kind": bet.kind, "pick": bet.pick, "amount": bet.amount, "payout": game.payout(bet.kind, bet.pick, bet.amount, number)}
-        for bet in body.bets
-    ]
-    returned = sum(bet["payout"] for bet in bets)
-    wallet.chips = wallet.chips - stake + returned
-    record = Spin(
-        user_id=user.user_id, number=number, bets=bets,
-        stake=stake, payout=returned, balance_after=wallet.chips,
-    )
-    db.add(record)
-    db.commit()
-    return record
+    try:
+        stake = sum(bet.amount for bet in body.bets)
+        wallet = wallet_play(db, user, lock=True)
+        if stake > wallet.chips:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Not enough chips")
+        number = game.spin()
+        bets = [
+            {"kind": bet.kind, "pick": bet.pick, "amount": bet.amount, "payout": game.payout(bet.kind, bet.pick, bet.amount, number)}
+            for bet in body.bets
+        ]
+        returned = sum(bet["payout"] for bet in bets)
+        wallet.chips = wallet.chips - stake + returned
+        record = Spin(
+            user_id=user.user_id, number=number, bets=bets,
+            stake=stake, payout=returned, balance_after=wallet.chips,
+        )
+        db.add(record)
+        db.commit()
+        return record
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("spin failed")
+        raise
 
 
 @router.get("/spins", response_model=list[SpinOut])
 def history(user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> list[Spin]:
-    return list(db.scalars(select(Spin).where(Spin.user_id == user.user_id).order_by(Spin.id.desc()).limit(HISTORY_LIMIT)))
+    try:
+        return list(db.scalars(select(Spin).where(Spin.user_id == user.user_id).order_by(Spin.id.desc()).limit(HISTORY_LIMIT)))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("history failed")
+        raise
 
 
 @router.delete("/spins/{spin_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_spin(spin_id: int, user: TokenPayload = Depends(writer), db: Session = Depends(get_db)) -> Response:
-    record = db.get(Spin, spin_id)
-    if record is None or record.user_id != user.user_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")  # 404, not 403: do not reveal the spins of others
-    db.delete(record)
-    db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        record = db.get(Spin, spin_id)
+        if record is None or record.user_id != user.user_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")  # 404, not 403: do not reveal the spins of others
+        db.delete(record)
+        db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_spin failed")
+        raise
 
 
 @router.delete("/spins", status_code=status.HTTP_204_NO_CONTENT)
 def clear_history(user: TokenPayload = Depends(writer), db: Session = Depends(get_db)) -> Response:
-    for record in db.scalars(select(Spin).where(Spin.user_id == user.user_id)):
-        db.delete(record)
-    db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        for record in db.scalars(select(Spin).where(Spin.user_id == user.user_id)):
+            db.delete(record)
+        db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("clear_history failed")
+        raise
 
 
 @router.get("/stats", response_model=StatsOut)
@@ -105,15 +143,25 @@ def stats(
     db: Session = Depends(get_db),
 ) -> StatsOut:
     """Which numbers came most and least often in the last spins of the person."""
-    numbers = list(db.scalars(select(Spin.number).where(Spin.user_id == user.user_id).order_by(Spin.id.desc()).limit(last)))
-    counts = Counter(numbers)
-    rows = [NumberCount(number=n, colour=game.colour(n), count=counts.get(n, 0)) for n in range(game.POCKETS)]
-    hot = sorted((row for row in rows if row.count > 0), key=lambda row: (-row.count, row.number))[:STATS_TOP]
-    cold = sorted(rows, key=lambda row: (row.count, row.number))[:STATS_TOP] if numbers else []
-    return StatsOut(spins=len(numbers), hot=hot, cold=cold)
+    try:
+        numbers = list(db.scalars(select(Spin.number).where(Spin.user_id == user.user_id).order_by(Spin.id.desc()).limit(last)))
+        counts = Counter(numbers)
+        rows = [NumberCount(number=n, colour=game.colour(n), count=counts.get(n, 0)) for n in range(game.POCKETS)]
+        hot = sorted((row for row in rows if row.count > 0), key=lambda row: (-row.count, row.number))[:STATS_TOP]
+        cold = sorted(rows, key=lambda row: (row.count, row.number))[:STATS_TOP] if numbers else []
+        return StatsOut(spins=len(numbers), hot=hot, cold=cold)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("stats failed")
+        raise
 
 
 @router.get("/board", response_model=list[LeaderOut])
 def board(user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> list[Wallet]:
-    wallets = list(db.scalars(select(Wallet).order_by(Wallet.chips.desc(), Wallet.user_id).limit(BOARD_SIZE)))
-    return directory.attach_names(db, wallets)  # one lookup for the whole board
+    try:
+        wallets = list(db.scalars(select(Wallet).order_by(Wallet.chips.desc(), Wallet.user_id).limit(BOARD_SIZE)))
+        return directory.attach_names(db, wallets)  # one lookup for the whole board
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("board failed")
+        raise

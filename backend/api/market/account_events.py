@@ -30,35 +30,48 @@ from sn_shared import comments
 
 from api.market.models import CartItem, Order, Product, seller_ids_text
 
+import logging
+logger = logging.getLogger(__name__)
+
 DELETED_USER_ID = 0
 
 
 def on_user_deleted(db: Session, user_id: int) -> None:
-    if user_id == DELETED_USER_ID:
-        return
-    db.execute(delete(CartItem).where(CartItem.user_id == user_id))
-    db.execute(
-        update(Order)
-        .where(Order.buyer_id == user_id)
-        .values(buyer_id=DELETED_USER_ID, idempotency_key=None, pay_key=None)
-    )
-    comments.anonymize_user(db, user_id, ["product"])  # the reviews stay for the other shoppers
-    anonymize_seller_lines(db, user_id)
-    db.execute(
-        update(Product)
-        .where(Product.seller_id == user_id)
-        .values(seller_id=DELETED_USER_ID, is_active=False, stock=0)
-    )
+    try:
+        if user_id == DELETED_USER_ID:
+            return
+        db.execute(delete(CartItem).where(CartItem.user_id == user_id))
+        db.execute(
+            update(Order)
+            .where(Order.buyer_id == user_id)
+            .values(buyer_id=DELETED_USER_ID, idempotency_key=None, pay_key=None)
+        )
+        comments.anonymize_user(db, user_id, ["product"])  # the reviews stay for the other shoppers
+        anonymize_seller_lines(db, user_id)
+        db.execute(
+            update(Product)
+            .where(Product.seller_id == user_id)
+            .values(seller_id=DELETED_USER_ID, is_active=False, stock=0)
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("on_user_deleted failed")
+        raise
 
 
 def anonymize_seller_lines(db: Session, user_id: int) -> None:
-    for order in db.scalars(select(Order).where(Order.seller_ids.like(f"%|{user_id}|%"))):
-        items = [
-            {**item, "seller_id": DELETED_USER_ID} if item["seller_id"] == user_id else item
-            for item in order.items
-        ]
-        order.items = items  # a new list: in-place changes of a JSON column are not noticed
-        order.seller_ids = seller_ids_text(items)
+    try:
+        for order in db.scalars(select(Order).where(Order.seller_ids.like(f"%|{user_id}|%"))):
+            items = [
+                {**item, "seller_id": DELETED_USER_ID} if item["seller_id"] == user_id else item
+                for item in order.items
+            ]
+            order.items = items  # a new list: in-place changes of a JSON column are not noticed
+            order.seller_ids = seller_ids_text(items)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("anonymize_seller_lines failed")
+        raise
 
 
 def on_user_renamed(db: Session, user_id: int, new_username: str) -> None:

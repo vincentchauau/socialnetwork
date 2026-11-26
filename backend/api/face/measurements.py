@@ -11,19 +11,32 @@ from sn_shared.origin import check_origin
 from sn_shared.deps import get_current_user
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 MAX_PER_USER = 200
 
 
 def rate_limited(request: Request, user: TokenPayload = Depends(get_current_user)) -> TokenPayload:
-    if not request.app.state.limiter.allow(user.user_id):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests, slow down")
-    return user
+    try:
+        if not request.app.state.limiter.allow(user.user_id):
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests, slow down")
+        return user
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("rate_limited failed")
+        raise
 
 
 def out_measurements(row: Measurement) -> dict:
-    return MeasurementOut.model_validate(row).model_dump(by_alias=True, mode="json")
+    try:
+        return MeasurementOut.model_validate(row).model_dump(by_alias=True, mode="json")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("out_measurements failed")
+        raise
 
 
 @router.post(
@@ -36,20 +49,25 @@ def create_measurement(
     user: TokenPayload = Depends(rate_limited),
     db: Session = Depends(get_db),
 ) -> dict:
-    row = Measurement(user_id=user.user_id, **body.model_dump())
-    db.add(row)
-    db.flush()
-    overflow = db.scalars(
-        select(Measurement.id)
-        .where(Measurement.user_id == user.user_id)
-        .order_by(Measurement.id.desc())
-        .offset(MAX_PER_USER)
-    ).all()
-    if overflow:
-        db.execute(delete(Measurement).where(Measurement.id.in_(overflow)))
-    db.commit()
-    db.refresh(row)
-    return out_measurements(row)
+    try:
+        row = Measurement(user_id=user.user_id, **body.model_dump())
+        db.add(row)
+        db.flush()
+        overflow = db.scalars(
+            select(Measurement.id)
+            .where(Measurement.user_id == user.user_id)
+            .order_by(Measurement.id.desc())
+            .offset(MAX_PER_USER)
+        ).all()
+        if overflow:
+            db.execute(delete(Measurement).where(Measurement.id.in_(overflow)))
+        db.commit()
+        db.refresh(row)
+        return out_measurements(row)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("create_measurement failed")
+        raise
 
 
 @router.get("/measurements")
@@ -58,13 +76,18 @@ def list_measurements(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    rows = db.scalars(
-        select(Measurement)
-        .where(Measurement.user_id == user.user_id)
-        .order_by(Measurement.id.desc())
-        .limit(limit)
-    ).all()
-    return [out_measurements(row) for row in rows]
+    try:
+        rows = db.scalars(
+            select(Measurement)
+            .where(Measurement.user_id == user.user_id)
+            .order_by(Measurement.id.desc())
+            .limit(limit)
+        ).all()
+        return [out_measurements(row) for row in rows]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("list_measurements failed")
+        raise
 
 
 @router.patch(
@@ -77,12 +100,17 @@ def update_measurement(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    row = db.get(Measurement, measurement_id)
-    if row is None or row.user_id != user.user_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Measurement not found")
-    row.note = body.note
-    db.commit()
-    return out_measurements(row)
+    try:
+        row = db.get(Measurement, measurement_id)
+        if row is None or row.user_id != user.user_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Measurement not found")
+        row.note = body.note
+        db.commit()
+        return out_measurements(row)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("update_measurement failed")
+        raise
 
 
 @router.delete(
@@ -95,12 +123,17 @@ def delete_measurement(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Response:
-    row = db.get(Measurement, measurement_id)
-    if row is None or row.user_id != user.user_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Measurement not found")
-    db.delete(row)
-    db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        row = db.get(Measurement, measurement_id)
+        if row is None or row.user_id != user.user_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Measurement not found")
+        db.delete(row)
+        db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_measurement failed")
+        raise
 
 
 @router.delete(
@@ -112,6 +145,11 @@ def delete_all_measurements(
     user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Response:
-    db.execute(delete(Measurement).where(Measurement.user_id == user.user_id))
-    db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        db.execute(delete(Measurement).where(Measurement.user_id == user.user_id))
+        db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_all_measurements failed")
+        raise

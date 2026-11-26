@@ -7,6 +7,9 @@ from api.roulette.db import Base
 from api.roulette.game import colour
 from sn_shared.clock import utcnow
 
+import logging
+logger = logging.getLogger(__name__)
+
 START_CHIPS = 1000
 
 
@@ -35,4 +38,9 @@ class Spin(Base):
     @property
     def colour(self) -> str:
         """The pocket colour: the number says it, so it is not stored."""
-        return colour(self.number)
+        try:
+            return colour(self.number)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("colour failed")
+            raise

@@ -13,6 +13,8 @@ import urllib.request
 
 from sn_shared import servicesig
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 10
@@ -20,8 +22,13 @@ DEFAULT_URL = "http://callear:8200"
 
 
 def settings() -> tuple[str, str] | None:
-    url, secret = os.environ.get("CALLEAR_URL", "").strip().rstrip("/") or DEFAULT_URL, os.environ.get("CALLEAR_SECRET", "")
-    return (url, secret) if len(secret) >= servicesig.MIN_SECRET_CHARS else None
+    try:
+        url, secret = os.environ.get("CALLEAR_URL", "").strip().rstrip("/") or DEFAULT_URL, os.environ.get("CALLEAR_SECRET", "")
+        return (url, secret) if len(secret) >= servicesig.MIN_SECRET_CHARS else None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("settings failed")
+        raise
 
 
 def watch(room_name: str, slug: str) -> bool:
@@ -41,4 +48,9 @@ def watch(room_name: str, slug: str) -> bool:
 
 
 def watch_in_background(room_name: str, slug: str) -> None:
-    threading.Thread(target=watch, args=(room_name, slug), daemon=True).start()
+    try:
+        threading.Thread(target=watch, args=(room_name, slug), daemon=True).start()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("watch_in_background failed")
+        raise

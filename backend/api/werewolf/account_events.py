@@ -16,16 +16,24 @@ from sqlalchemy.orm import Session
 
 from api.werewolf.models import FINISHED, Game, ids_text
 
+import logging
+logger = logging.getLogger(__name__)
+
 DELETED_USER_ID = 0
 
 
 def on_user_deleted(db: Session, user_id: int) -> None:
-    if user_id <= DELETED_USER_ID:  # the tombstone, or a bogus id: never a real user
-        return
-    for game in db.scalars(select(Game).where(Game.status == FINISHED, Game.player_ids.like(f"%|{int(user_id)}|%"))):
-        # (a new list: an edited one is not seen as changed)
-        game.players = [{**p, "user_id": DELETED_USER_ID} if p.get("user_id") == user_id else p for p in game.players]
-        game.player_ids = ids_text(p["user_id"] for p in game.players)
+    try:
+        if user_id <= DELETED_USER_ID:  # the tombstone, or a bogus id: never a real user
+            return
+        for game in db.scalars(select(Game).where(Game.status == FINISHED, Game.player_ids.like(f"%|{int(user_id)}|%"))):
+            # (a new list: an edited one is not seen as changed)
+            game.players = [{**p, "user_id": DELETED_USER_ID} if p.get("user_id") == user_id else p for p in game.players]
+            game.player_ids = ids_text(p["user_id"] for p in game.players)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("on_user_deleted failed")
+        raise
 
 
 def on_user_renamed(db: Session, user_id: int, new_username: str) -> None:

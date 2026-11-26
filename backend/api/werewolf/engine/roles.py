@@ -6,6 +6,9 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
+import logging
+logger = logging.getLogger(__name__)
+
 MIN_PLAYERS = 5
 MAX_PLAYERS = 40
 THREE_FACTION_FROM = 12  # below this threshold there are only 2 factions (Humans, Wolves), no Ghosts
@@ -74,7 +77,12 @@ class RoleCounts:
 
     @property
     def villagers(self) -> int:
-        return self.holders + self.plain
+        try:
+            return self.holders + self.plain
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("villagers failed")
+            raise
 
 
 def role_counts(m: int) -> RoleCounts:
@@ -82,16 +90,26 @@ def role_counts(m: int) -> RoleCounts:
 
     Làm tròn xuống: 5 người → 1 Sói, 1 người có chức năng, 3 người thường.
     """
-    wolves = m // 3
-    holders = m // 3
-    ghosts = m // 9 if m >= THREE_FACTION_FROM else 0
-    return RoleCounts(wolves, holders, ghosts, m - wolves - holders - ghosts)
+    try:
+        wolves = m // 3
+        holders = m // 3
+        ghosts = m // 9 if m >= THREE_FACTION_FROM else 0
+        return RoleCounts(wolves, holders, ghosts, m - wolves - holders - ghosts)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("role_counts failed")
+        raise
 
 
 def faction_counts(m: int) -> list[tuple[Faction, int]]:
     """Số người mỗi phe lúc bắt đầu (phe Người gồm cả người có chức năng và người thường)."""
-    c = role_counts(m)
-    return [(Faction.WOLF, c.wolves), (Faction.GHOST, c.ghosts), (Faction.VILLAGER, c.villagers)]
+    try:
+        c = role_counts(m)
+        return [(Faction.WOLF, c.wolves), (Faction.GHOST, c.ghosts), (Faction.VILLAGER, c.villagers)]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("faction_counts failed")
+        raise
 
 
 WOLF_KILL_SHARE = 0.25  # share of wolves with direct Kill; the rest have Kill-on-death (chosen by balance simulation)
@@ -104,39 +122,54 @@ UNBANNABLE = frozenset({Ability.NONE, Ability.TRANSFORM, Ability.KILL})
 
 def check_bans(banned: Iterable[Ability]) -> frozenset[Ability]:
     """Bộ chức năng bị cấm khi chia ngẫu nhiên, nếu hợp lệ: không cấm chức năng bắt buộc, và mỗi nhóm (tấn công, phòng thủ, gây rối, tình báo) còn ít nhất một."""
-    banned = frozenset(banned)
-    fixed = banned & UNBANNABLE
-    if fixed:
-        raise GameError("Không thể cấm: " + ", ".join(sorted(ability.value for ability in fixed)))
-    for group in (OFFENSIVE, DEFENSIVE, DISRUPTIVE, INTEL):
-        if all(ability in banned for ability in group):
-            raise GameError("Không thể cấm hết một nhóm chức năng")
-    return banned
+    try:
+        banned = frozenset(banned)
+        fixed = banned & UNBANNABLE
+        if fixed:
+            raise GameError("Không thể cấm: " + ", ".join(sorted(ability.value for ability in fixed)))
+        for group in (OFFENSIVE, DEFENSIVE, DISRUPTIVE, INTEL):
+            if all(ability in banned for ability in group):
+                raise GameError("Không thể cấm hết một nhóm chức năng")
+        return banned
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("check_bans failed")
+        raise
 
 
 def wolf_abilities(count: int, banned: frozenset[Ability] = frozenset()) -> list[Ability]:
     """Sói luôn có chức năng tấn công; đảm bảo ít nhất một Sói có Giết trực tiếp (chủ động)."""
-    if count == 0:
-        return []
-    if Ability.KILL_ON_DEATH in banned:  # only direct Kill is left
-        return [Ability.KILL] * count
-    kills = max(1, round(WOLF_KILL_SHARE * count))
-    abilities = [Ability.KILL] * kills + [Ability.KILL_ON_DEATH] * (count - kills)
-    random.shuffle(abilities)
-    return abilities
+    try:
+        if count == 0:
+            return []
+        if Ability.KILL_ON_DEATH in banned:  # only direct Kill is left
+            return [Ability.KILL] * count
+        kills = max(1, round(WOLF_KILL_SHARE * count))
+        abilities = [Ability.KILL] * kills + [Ability.KILL_ON_DEATH] * (count - kills)
+        random.shuffle(abilities)
+        return abilities
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("wolf_abilities failed")
+        raise
 
 
 def holder_abilities(count: int, banned: frozenset[Ability] = frozenset()) -> list[Ability]:
     """4 người có chức năng đầu tiên mỗi người một nhóm khác nhau (đủ tấn công/phòng thủ/gây rối/tình báo);
     từ người thứ 5 trở đi chọn nhóm theo trọng số HOLDER_GROUP_WEIGHTS."""
-    groups = [[ability for ability in group if ability not in banned] for group in (OFFENSIVE, DEFENSIVE, DISRUPTIVE, INTEL)]
-    rotation = groups[:]
-    random.shuffle(rotation)
-    abilities = []
-    for i in range(count):
-        group = rotation[i] if i < len(rotation) else random.choices(groups, weights=HOLDER_GROUP_WEIGHTS)[0]
-        abilities.append(random.choice(group))
-    return abilities
+    try:
+        groups = [[ability for ability in group if ability not in banned] for group in (OFFENSIVE, DEFENSIVE, DISRUPTIVE, INTEL)]
+        rotation = groups[:]
+        random.shuffle(rotation)
+        abilities = []
+        for i in range(count):
+            group = rotation[i] if i < len(rotation) else random.choices(groups, weights=HOLDER_GROUP_WEIGHTS)[0]
+            abilities.append(random.choice(group))
+        return abilities
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("holder_abilities failed")
+        raise
 
 
 Role = tuple[Faction, Ability]
@@ -144,23 +177,33 @@ Role = tuple[Faction, Ability]
 
 def suggest_roles(m: int, banned: Iterable[Ability] = ()) -> list[Role]:
     """Phe + chức năng ngẫu nhiên theo giới hạn cứng role_counts(m) (đã xáo); `banned` là các chức năng không được chia (xem check_bans)."""
-    c = role_counts(m)
-    banned = check_bans(banned)
-    roles: list[Role] = [(Faction.WOLF, a) for a in wolf_abilities(c.wolves, banned)]
-    roles += [(Faction.GHOST, Ability.TRANSFORM)] * c.ghosts
-    roles += [(Faction.VILLAGER, a) for a in holder_abilities(c.holders, banned)]
-    roles += [(Faction.VILLAGER, Ability.NONE)] * c.plain
-    random.shuffle(roles)
-    return roles
+    try:
+        c = role_counts(m)
+        banned = check_bans(banned)
+        roles: list[Role] = [(Faction.WOLF, a) for a in wolf_abilities(c.wolves, banned)]
+        roles += [(Faction.GHOST, Ability.TRANSFORM)] * c.ghosts
+        roles += [(Faction.VILLAGER, a) for a in holder_abilities(c.holders, banned)]
+        roles += [(Faction.VILLAGER, Ability.NONE)] * c.plain
+        random.shuffle(roles)
+        return roles
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("suggest_roles failed")
+        raise
 
 
 def validate_roles(roles: Sequence[Role]) -> None:
     """Kiểm tra bộ vai tự chỉnh: số người, mỗi phe cần có người, chức năng hợp lệ với phe."""
-    if not MIN_PLAYERS <= len(roles) <= MAX_PLAYERS:
-        raise GameError(f"Số người chơi phải từ {MIN_PLAYERS} đến {MAX_PLAYERS}")
-    for faction, ability in roles:
-        if ability not in ALLOWED_ABILITIES[faction]:
-            raise GameError(f"\"{ability.value}\" không dành cho phe {faction.value}")
-    factions = {f for f, _ in roles}
-    if Faction.WOLF not in factions or Faction.VILLAGER not in factions:
-        raise GameError("Cần ít nhất 1 Sói và 1 Người")
+    try:
+        if not MIN_PLAYERS <= len(roles) <= MAX_PLAYERS:
+            raise GameError(f"Số người chơi phải từ {MIN_PLAYERS} đến {MAX_PLAYERS}")
+        for faction, ability in roles:
+            if ability not in ALLOWED_ABILITIES[faction]:
+                raise GameError(f"\"{ability.value}\" không dành cho phe {faction.value}")
+        factions = {f for f, _ in roles}
+        if Faction.WOLF not in factions or Faction.VILLAGER not in factions:
+            raise GameError("Cần ít nhất 1 Sói và 1 Người")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("validate_roles failed")
+        raise

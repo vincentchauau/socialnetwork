@@ -11,6 +11,9 @@ from sqlalchemy.orm import Session
 from api.market.models import Order, seller_ids_text
 from sn_shared.db import ensure_columns
 
+import logging
+logger = logging.getLogger(__name__)
+
 NEW_COLUMNS = {
     "items": "JSON NOT NULL DEFAULT '[]'",
     "seller_ids": "TEXT NOT NULL DEFAULT ''",
@@ -32,52 +35,67 @@ KEYS = text(
 
 
 def migrate_orders(engine: Engine) -> None:
-    ensure_columns(engine, "market_orders", NEW_COLUMNS)
-    with engine.begin() as connection:
-        connection.execute(
-            text("CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_buyer_idempotency ON market_orders (buyer_id, idempotency_key)")
-        )
-    tables = set(inspect(engine).get_table_names())
-    with Session(engine) as db:
-        empty = list(db.scalars(select(Order).where(cast(Order.items, Text) == "[]")))
-        if not empty:
-            return
-        by_id = {order.id: order for order in empty}
-        if "order_items" in tables:
-            copy_lines(db, by_id)
-        if "idempotency_records" in tables:
-            copy_keys(db, by_id)
-        db.commit()
+    try:
+        ensure_columns(engine, "market_orders", NEW_COLUMNS)
+        with engine.begin() as connection:
+            connection.execute(
+                text("CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_buyer_idempotency ON market_orders (buyer_id, idempotency_key)")
+            )
+        tables = set(inspect(engine).get_table_names())
+        with Session(engine) as db:
+            empty = list(db.scalars(select(Order).where(cast(Order.items, Text) == "[]")))
+            if not empty:
+                return
+            by_id = {order.id: order for order in empty}
+            if "order_items" in tables:
+                copy_lines(db, by_id)
+            if "idempotency_records" in tables:
+                copy_keys(db, by_id)
+            db.commit()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("migrate_orders failed")
+        raise
 
 
 def copy_lines(db: Session, orders: dict[int, Order]) -> None:
-    lines: dict[int, list[dict]] = {}
-    for row in db.execute(LINES, {"ids": list(orders)}):
-        lines.setdefault(row.order_id, []).append(
-            {
-                "product_id": row.product_id,
-                "seller_id": row.seller_id,
-                "name": row.name,
-                "unit_price_cents": row.unit_price_cents,
-                "quantity": row.quantity,
-            }
-        )
-    for order_id, items in lines.items():
-        orders[order_id].items = items
-        orders[order_id].seller_ids = seller_ids_text(items)
+    try:
+        lines: dict[int, list[dict]] = {}
+        for row in db.execute(LINES, {"ids": list(orders)}):
+            lines.setdefault(row.order_id, []).append(
+                {
+                    "product_id": row.product_id,
+                    "seller_id": row.seller_id,
+                    "name": row.name,
+                    "unit_price_cents": row.unit_price_cents,
+                    "quantity": row.quantity,
+                }
+            )
+        for order_id, items in lines.items():
+            orders[order_id].items = items
+            orders[order_id].seller_ids = seller_ids_text(items)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("copy_lines failed")
+        raise
 
 
 def copy_keys(db: Session, orders: dict[int, Order]) -> None:
-    for row in db.execute(KEYS, {"ids": list(orders)}).all():
-        order = orders[row.order_id]
-        if row.user_id != order.buyer_id:
-            continue
-        if row.scope == CHECKOUT_SCOPE and order.idempotency_key is None:
-            taken = db.scalar(
-                select(Order.id).where(Order.buyer_id == order.buyer_id, Order.idempotency_key == row.key)
-            )
-            if taken is None:
-                order.idempotency_key = row.key
-                db.flush()
-        elif row.scope == f"{PAY_PREFIX}{order.id}" and order.pay_key is None:
-            order.pay_key = row.key
+    try:
+        for row in db.execute(KEYS, {"ids": list(orders)}).all():
+            order = orders[row.order_id]
+            if row.user_id != order.buyer_id:
+                continue
+            if row.scope == CHECKOUT_SCOPE and order.idempotency_key is None:
+                taken = db.scalar(
+                    select(Order.id).where(Order.buyer_id == order.buyer_id, Order.idempotency_key == row.key)
+                )
+                if taken is None:
+                    order.idempotency_key = row.key
+                    db.flush()
+            elif row.scope == f"{PAY_PREFIX}{order.id}" and order.pay_key is None:
+                order.pay_key = row.key
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("copy_keys failed")
+        raise

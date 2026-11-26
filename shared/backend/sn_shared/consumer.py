@@ -6,6 +6,9 @@ from typing import Any
 
 from sqlalchemy.orm import sessionmaker
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def start_consumer(app: str, session_factory: sessionmaker) -> Any:
     """Start center's account-event consumer for `app`; None in tests, without Redis or without the library."""
@@ -19,9 +22,14 @@ def start_consumer(app: str, session_factory: sessionmaker) -> Any:
 
 
 async def stop_consumer(handle: Any) -> None:
-    stop = getattr(handle, "stop", None) or getattr(handle, "close", None)
-    if stop is None:
-        return
-    result = stop()
-    if inspect.isawaitable(result):
-        await result
+    try:
+        stop = getattr(handle, "stop", None) or getattr(handle, "close", None)
+        if stop is None:
+            return
+        result = stop()
+        if inspect.isawaitable(result):
+            await result
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("stop_consumer failed")
+        raise

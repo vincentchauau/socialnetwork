@@ -12,10 +12,18 @@ from sqlalchemy.orm import Session
 
 from api.roulette.models import Spin, Wallet
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def on_user_deleted(db: Session, user_id: int) -> None:
-    db.execute(delete(Spin).where(Spin.user_id == user_id))
-    db.execute(delete(Wallet).where(Wallet.user_id == user_id))
+    try:
+        db.execute(delete(Spin).where(Spin.user_id == user_id))
+        db.execute(delete(Wallet).where(Wallet.user_id == user_id))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("on_user_deleted failed")
+        raise
 
 
 def on_user_renamed(db: Session, user_id: int, new_username: str) -> None:

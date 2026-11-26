@@ -14,6 +14,9 @@ from pathlib import Path
 
 from api.file import store
 
+import logging
+logger = logging.getLogger(__name__)
+
 TOKEN_BYTES = 16
 TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 MAX_SHARES_PER_USER = 50
@@ -22,7 +25,12 @@ PAGE_PATH = "/file/s/"
 
 
 def shares_dir() -> Path:
-    return store.data_dir() / "shares"
+    try:
+        return store.data_dir() / "shares"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("shares_dir failed")
+        raise
 
 
 def read_shares(path: Path) -> dict | None:
@@ -34,59 +42,89 @@ def read_shares(path: Path) -> dict | None:
 
 
 def live(record: dict) -> bool:
-    expires = record.get("expiresAt")
-    return expires is None or expires > time.time()
+    try:
+        expires = record.get("expiresAt")
+        return expires is None or expires > time.time()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("live failed")
+        raise
 
 
 def find(token: str) -> dict | None:
     """What the link says (whose file, which path), or None when there is no such link or it ran out."""
-    if not TOKEN_PATTERN.match(token):
-        return None
-    record = read_shares(shares_dir() / f"{token}.json")
-    return {**record, "token": token} if record and live(record) else None
+    try:
+        if not TOKEN_PATTERN.match(token):
+            return None
+        record = read_shares(shares_dir() / f"{token}.json")
+        return {**record, "token": token} if record and live(record) else None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("find failed")
+        raise
 
 
 def mine(user_id: int) -> list[dict]:
-    home = shares_dir()
-    if not home.is_dir():
-        return []
-    found = []
-    for item in home.glob("*.json"):
-        record = read_shares(item)
-        if record and record["user_id"] == user_id and live(record):
-            found.append({**record, "token": item.stem})
-    return sorted(found, key=lambda record: record["createdAt"], reverse=True)
+    try:
+        home = shares_dir()
+        if not home.is_dir():
+            return []
+        found = []
+        for item in home.glob("*.json"):
+            record = read_shares(item)
+            if record and record["user_id"] == user_id and live(record):
+                found.append({**record, "token": item.stem})
+        return sorted(found, key=lambda record: record["createdAt"], reverse=True)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("mine failed")
+        raise
 
 
 def make(user_id: int, path: str, days: int | None) -> dict:
     """A new link for the file at `path`; the one it had stops working."""
-    for old in mine(user_id):
-        if old["path"] == path:
-            drop(user_id, old["token"])
-    token = secrets.token_urlsafe(TOKEN_BYTES)
-    record = {"user_id": user_id, "path": path, "createdAt": time.time(), "expiresAt": time.time() + days * 86400 if days else None}
-    shares_dir().mkdir(parents=True, exist_ok=True)
-    (shares_dir() / f"{token}.json").write_text(json.dumps(record), encoding="utf-8")
-    return {**record, "token": token}
+    try:
+        for old in mine(user_id):
+            if old["path"] == path:
+                drop(user_id, old["token"])
+        token = secrets.token_urlsafe(TOKEN_BYTES)
+        record = {"user_id": user_id, "path": path, "createdAt": time.time(), "expiresAt": time.time() + days * 86400 if days else None}
+        shares_dir().mkdir(parents=True, exist_ok=True)
+        (shares_dir() / f"{token}.json").write_text(json.dumps(record), encoding="utf-8")
+        return {**record, "token": token}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("make failed")
+        raise
 
 
 def drop(user_id: int, token: str) -> bool:
     """Take a link back; False when it is not this person's (or not there)."""
-    if not TOKEN_PATTERN.match(token):
-        return False
-    target = shares_dir() / f"{token}.json"
-    record = read_shares(target)
-    if record is None or record["user_id"] != user_id:
-        return False
-    target.unlink(missing_ok=True)
-    return True
+    try:
+        if not TOKEN_PATTERN.match(token):
+            return False
+        target = shares_dir() / f"{token}.json"
+        record = read_shares(target)
+        if record is None or record["user_id"] != user_id:
+            return False
+        target.unlink(missing_ok=True)
+        return True
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("drop failed")
+        raise
 
 
 def erase_user(user_id: int) -> None:
-    home = shares_dir()
-    if not home.is_dir():
-        return
-    for item in home.glob("*.json"):
-        record = read_shares(item)
-        if record and record["user_id"] == user_id:
-            item.unlink(missing_ok=True)
+    try:
+        home = shares_dir()
+        if not home.is_dir():
+            return
+        for item in home.glob("*.json"):
+            record = read_shares(item)
+            if record and record["user_id"] == user_id:
+                item.unlink(missing_ok=True)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("erase_user failed")
+        raise

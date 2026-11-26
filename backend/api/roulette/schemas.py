@@ -5,6 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.roulette.game import NUMBERED, SPLIT_KIND, valid_pick
 
+import logging
+logger = logging.getLogger(__name__)
+
 MAX_BET = 500
 MAX_BETS = 20
 
@@ -18,12 +21,17 @@ class BetIn(BaseModel):
 
     @model_validator(mode="after")
     def check_pick(self) -> "BetIn":
-        if self.kind in NUMBERED or self.kind == SPLIT_KIND:
-            if not valid_pick(self.kind, self.pick):
-                raise ValueError(f"A {self.kind} bet needs a place that is on the table")
-        elif self.pick is not None:
-            raise ValueError(f"A {self.kind} bet takes no pick")
-        return self
+        try:
+            if self.kind in NUMBERED or self.kind == SPLIT_KIND:
+                if not valid_pick(self.kind, self.pick):
+                    raise ValueError(f"A {self.kind} bet needs a place that is on the table")
+            elif self.pick is not None:
+                raise ValueError(f"A {self.kind} bet takes no pick")
+            return self
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("check_pick failed")
+            raise
 
 
 class SpinIn(BaseModel):

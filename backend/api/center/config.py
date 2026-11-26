@@ -8,6 +8,9 @@ from api.center.audit import audit
 from sn_shared import jwtkeys
 from sn_shared.security import MIN_SECRET_LENGTH
 
+import logging
+logger = logging.getLogger(__name__)
+
 DEFAULT_ORIGINS = ("http://localhost:8080",)
 LOCAL_SMTP_HOSTS = ("localhost", "127.0.0.1", "::1", "mailpit")  # dev hosts where plaintext auth stays on the machine
 SMTP_SSL_PORT = 465
@@ -19,7 +22,12 @@ class ConfigError(RuntimeError):
 
 
 def flag(name: str) -> bool:
-    return os.environ.get(name, "0").strip().lower() in ("1", "true", "yes")
+    try:
+        return os.environ.get(name, "0").strip().lower() in ("1", "true", "yes")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("flag failed")
+        raise
 
 
 def positive_int(name: str, default: int) -> int:
@@ -36,7 +44,12 @@ def positive_int(name: str, default: int) -> int:
 
 
 def flag_default_on(name: str) -> bool:
-    return os.environ.get(name, "1").strip().lower() in ("1", "true", "yes")
+    try:
+        return os.environ.get(name, "1").strip().lower() in ("1", "true", "yes")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("flag_default_on failed")
+        raise
 
 
 def float_config(name: str, default: float) -> float:
@@ -88,27 +101,52 @@ class Settings:
 
     @property
     def phone_enabled(self) -> bool:
-        return bool(self.sms_provider)
+        try:
+            return bool(self.sms_provider)
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("phone_enabled failed")
+            raise
 
     @property
     def smtp_plaintext_auth_refused(self) -> bool:
         """Credentials would cross the network unencrypted: refused unless explicitly allowed or the host is local."""
-        return bool(
-            self.smtp_host and self.smtp_user and not self.smtp_ssl and not self.smtp_starttls
-            and not self.smtp_allow_plaintext_auth and self.smtp_host.strip().lower() not in LOCAL_SMTP_HOSTS
-        )  # fmt: skip
+        try:
+            return bool(
+                self.smtp_host and self.smtp_user and not self.smtp_ssl and not self.smtp_starttls
+                and not self.smtp_allow_plaintext_auth and self.smtp_host.strip().lower() not in LOCAL_SMTP_HOSTS
+            )  # fmt: skip
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("smtp_plaintext_auth_refused failed")
+            raise
 
     @property
     def email_enabled(self) -> bool:
-        return bool(self.smtp_host) and not self.smtp_plaintext_auth_refused
+        try:
+            return bool(self.smtp_host) and not self.smtp_plaintext_auth_refused
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("email_enabled failed")
+            raise
 
     @property
     def production(self) -> bool:
-        return self.env == "production"
+        try:
+            return self.env == "production"
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("production failed")
+            raise
 
     @property
     def webauthn_origins(self) -> tuple[str, ...]:
-        return self.allowed_origins
+        try:
+            return self.allowed_origins
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("webauthn_origins failed")
+            raise
 
     @staticmethod
     def from_env() -> "Settings":
@@ -183,17 +221,22 @@ class Settings:
         return settings
 
     def validate(self) -> None:
-        if self.sms_provider not in ("", "mailbox", "twilio"):
-            raise ConfigError("SMS_PROVIDER must be empty, 'mailbox' or 'twilio'")
-        if self.sms_provider == "mailbox" and self.production:
-            raise ConfigError("SMS_PROVIDER=mailbox is for development only and is refused in production")
-        if self.sms_provider == "twilio" and self.production and not self.sms_allowed_prefixes:
-            raise ConfigError("SMS_PROVIDER=twilio in production requires SMS_ALLOWED_PREFIXES (the countries you serve)")
-        if self.sms_provider == "twilio" and not (self.twilio_account_sid and self.twilio_auth_token and self.twilio_from):
-            raise ConfigError("SMS_PROVIDER=twilio requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM")
-        if self.production and not self.cookie_secure:
-            raise ConfigError("Production requires COOKIE_SECURE=1")
-        if self.production and not self.webauthn_rp_id:
-            raise ConfigError("Production requires WEBAUTHN_RP_ID (the domain passkeys are bound to)")
-        if self.biometrics_enabled and not self.data_key:
-            raise ConfigError("BIOMETRICS_ENABLED=1 requires DATA_KEY (a Fernet key)")
+        try:
+            if self.sms_provider not in ("", "mailbox", "twilio"):
+                raise ConfigError("SMS_PROVIDER must be empty, 'mailbox' or 'twilio'")
+            if self.sms_provider == "mailbox" and self.production:
+                raise ConfigError("SMS_PROVIDER=mailbox is for development only and is refused in production")
+            if self.sms_provider == "twilio" and self.production and not self.sms_allowed_prefixes:
+                raise ConfigError("SMS_PROVIDER=twilio in production requires SMS_ALLOWED_PREFIXES (the countries you serve)")
+            if self.sms_provider == "twilio" and not (self.twilio_account_sid and self.twilio_auth_token and self.twilio_from):
+                raise ConfigError("SMS_PROVIDER=twilio requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM")
+            if self.production and not self.cookie_secure:
+                raise ConfigError("Production requires COOKIE_SECURE=1")
+            if self.production and not self.webauthn_rp_id:
+                raise ConfigError("Production requires WEBAUTHN_RP_ID (the domain passkeys are bound to)")
+            if self.biometrics_enabled and not self.data_key:
+                raise ConfigError("BIOMETRICS_ENABLED=1 requires DATA_KEY (a Fernet key)")
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("validate failed")
+            raise

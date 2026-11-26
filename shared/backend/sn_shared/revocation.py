@@ -21,6 +21,8 @@ import threading
 import time
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger("sn.revocation")
 
 SOCKET_TIMEOUT_SECONDS = 0.3
@@ -38,52 +40,77 @@ _last_logged: float | None = None
 
 def use_client(client: Any) -> None:
     """Use `client` (any redis-py compatible object, or None to disable); `reset()` goes back to REDIS_URL."""
-    global _override
-    _override = client
+    try:
+        global _override
+        _override = client
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("use_client failed")
+        raise
 
 
 def reset() -> None:
-    global _override, _cached, _last_logged
-    _override, _cached, _last_logged = _UNSET, None, None
+    try:
+        global _override, _cached, _last_logged
+        _override, _cached, _last_logged = _UNSET, None, None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("reset failed")
+        raise
 
 
 def log_failure(action: str, exc: BaseException) -> None:
     """One line per minute at most, so an outage cannot flood the logs."""
-    global _last_logged
-    with revocation_lock:
-        now = time.monotonic()
-        if _last_logged is not None and now - _last_logged < ERROR_LOG_INTERVAL_SECONDS:
-            return
-        _last_logged = now
-    log.error("revocation store unavailable (%s during %s): failing open", type(exc).__name__, action)
+    try:
+        global _last_logged
+        with revocation_lock:
+            now = time.monotonic()
+            if _last_logged is not None and now - _last_logged < ERROR_LOG_INTERVAL_SECONDS:
+                return
+            _last_logged = now
+        log.error("revocation store unavailable (%s during %s): failing open", type(exc).__name__, action)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("log_failure failed")
+        raise
 
 
 def client_revocation() -> Any:
-    global _cached
-    if _override is not _UNSET:
-        return _override
-    url = os.environ.get("REDIS_URL", "").strip()
-    if not url:
-        return None
-    with revocation_lock:
-        if _cached is not None and _cached[0] == url:
-            return _cached[1]
-        try:
-            import redis  # lazily: an app without the package still works, just without revocation
-        except ImportError as exc:
-            log_failure("import", exc)
+    try:
+        global _cached
+        if _override is not _UNSET:
+            return _override
+        url = os.environ.get("REDIS_URL", "").strip()
+        if not url:
             return None
-        client = redis.Redis.from_url(
-            url, socket_timeout=SOCKET_TIMEOUT_SECONDS, socket_connect_timeout=SOCKET_TIMEOUT_SECONDS,
-            decode_responses=True,
-        )
-        _cached = (url, client)
-        return client
+        with revocation_lock:
+            if _cached is not None and _cached[0] == url:
+                return _cached[1]
+            try:
+                import redis  # lazily: an app without the package still works, just without revocation
+            except ImportError as exc:
+                log_failure("import", exc)
+                return None
+            client = redis.Redis.from_url(
+                url, socket_timeout=SOCKET_TIMEOUT_SECONDS, socket_connect_timeout=SOCKET_TIMEOUT_SECONDS,
+                decode_responses=True,
+            )
+            _cached = (url, client)
+            return client
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("client_revocation failed")
+        raise
 
 
 def configured() -> bool:
     """True when a store is set up (so a failed publish is worth a warning)."""
-    return client_revocation() is not None
+    try:
+        return client_revocation() is not None
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("configured failed")
+        raise
 
 
 def is_revoked(user_id: int, sid: str | None, ver: int | None) -> bool:
@@ -122,9 +149,14 @@ def publish_session_revoked(sid: str, ttl_seconds: int) -> bool:
 
 
 def watch_error():
-    from redis.exceptions import WatchError
+    try:
+        from redis.exceptions import WatchError
 
-    return WatchError
+        return WatchError
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("watch_error failed")
+        raise
 
 
 def publish_min_version(user_id: int, ver: int, ttl_seconds: int) -> bool:

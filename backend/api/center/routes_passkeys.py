@@ -32,6 +32,9 @@ from api.center.schemas import (
 )
 from api.center.sessions import begin_session
 
+import logging
+logger = logging.getLogger(__name__)
+
 LOGIN_FAILED = "Passkey sign-in failed"
 REGISTRATION_FAILED = "Passkey registration failed"
 DUPLICATE = "This passkey is already registered"
@@ -42,19 +45,34 @@ router = APIRouter(prefix="/auth", tags=["passkeys"], dependencies=[Depends(chec
 
 
 def store_routes_passkeys(request: Request) -> pk.ChallengeStore:
-    return request.app.state.passkey_challenges
+    try:
+        return request.app.state.passkey_challenges
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("store_routes_passkeys failed")
+        raise
 
 
 def options_gate(request: Request) -> None:
     """Per-address cap on option requests (every call counts)."""
-    throttle, ip = request.app.state.passkey_options_throttle, client_ip(request)
-    if not throttle.check_and_record(ip):
-        audit.warning("passkey options locked ip=%s", ip)
-        raise too_many()
+    try:
+        throttle, ip = request.app.state.passkey_options_throttle, client_ip(request)
+        if not throttle.check_and_record(ip):
+            audit.warning("passkey options locked ip=%s", ip)
+            raise too_many()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("options_gate failed")
+        raise
 
 
 def options_out(options: dict, token: str) -> PasskeyOptionsOut:
-    return PasskeyOptionsOut(options=options, challenge_token=token)
+    try:
+        return PasskeyOptionsOut(options=options, challenge_token=token)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("options_out failed")
+        raise
 
 
 # --- sign in --------------------------------------------------------------------------------------
@@ -62,25 +80,35 @@ def options_out(options: dict, token: str) -> PasskeyOptionsOut:
 
 @router.post("/passkey/options", response_model=PasskeyOptionsOut)
 def login_options(request: Request) -> PasskeyOptionsOut:
-    options_gate(request)
-    options, challenge = pk.request_options(settings_of(request))
-    return options_out(options, pk.mint_challenge(pk.LOGIN, challenge))
+    try:
+        options_gate(request)
+        options, challenge = pk.request_options(settings_of(request))
+        return options_out(options, pk.mint_challenge(pk.LOGIN, challenge))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("login_options failed")
+        raise
 
 
 def verified_login(request: Request, db: Session, body: PasskeyLoginBody) -> Passkey:
-    settings = settings_of(request)
-    challenge = pk.read_challenge(body.challenge_token, pk.LOGIN, store_routes_passkeys(request))
-    passkey = db.scalar(select(Passkey).where(Passkey.credential_id == pk.credential_id_of(body.credential)))
-    if passkey is None:
-        raise pk.PasskeyError("unknown credential")
-    assertion = pk.verify_assertion(settings, body.credential, challenge, passkey)
-    if pk.sign_count_regressed(passkey.sign_count, assertion.new_sign_count):
-        audit.warning("passkey possible cloned authenticator ip=%s", client_ip(request))
-        raise pk.PasskeyError("sign count regressed")
-    passkey.sign_count = assertion.new_sign_count
-    passkey.backed_up = assertion.backed_up
-    passkey.last_used_at = utcnow()
-    return passkey
+    try:
+        settings = settings_of(request)
+        challenge = pk.read_challenge(body.challenge_token, pk.LOGIN, store_routes_passkeys(request))
+        passkey = db.scalar(select(Passkey).where(Passkey.credential_id == pk.credential_id_of(body.credential)))
+        if passkey is None:
+            raise pk.PasskeyError("unknown credential")
+        assertion = pk.verify_assertion(settings, body.credential, challenge, passkey)
+        if pk.sign_count_regressed(passkey.sign_count, assertion.new_sign_count):
+            audit.warning("passkey possible cloned authenticator ip=%s", client_ip(request))
+            raise pk.PasskeyError("sign count regressed")
+        passkey.sign_count = assertion.new_sign_count
+        passkey.backed_up = assertion.backed_up
+        passkey.last_used_at = utcnow()
+        return passkey
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("verified_login failed")
+        raise
 
 
 @router.post("/passkey/login", response_model=SessionOut)
@@ -109,14 +137,19 @@ def passkey_login(
 
 @router.post("/register/passkey/options", response_model=PasskeyOptionsOut)
 def signup_options(body: PasskeySignupOptionsBody, request: Request) -> PasskeyOptionsOut:
-    options_gate(request)
-    handle = pk.new_user_handle()
-    name = (body.username or "").strip() or None
-    options, challenge = pk.creation_options(
-        settings_of(request), user_name=name or SIGNUP_DISPLAY_NAME, display_name=name or SIGNUP_DISPLAY_NAME,
-        user_handle=handle,
-    )  # fmt: skip
-    return options_out(options, pk.mint_challenge(pk.SIGNUP, challenge, user_handle=handle, username=name))
+    try:
+        options_gate(request)
+        handle = pk.new_user_handle()
+        name = (body.username or "").strip() or None
+        options, challenge = pk.creation_options(
+            settings_of(request), user_name=name or SIGNUP_DISPLAY_NAME, display_name=name or SIGNUP_DISPLAY_NAME,
+            user_handle=handle,
+        )  # fmt: skip
+        return options_out(options, pk.mint_challenge(pk.SIGNUP, challenge, user_handle=handle, username=name))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("signup_options failed")
+        raise
 
 
 def verified_signup_passkey(request: Request, db: Session, credential_json: str, token: str) -> Passkey:
@@ -139,33 +172,48 @@ def verified_signup_passkey(request: Request, db: Session, credential_json: str,
 
 
 def listing(user: User) -> PasskeyList:
-    return PasskeyList(passkeys=passkey_items(user))
+    try:
+        return PasskeyList(passkeys=passkey_items(user))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("listing failed")
+        raise
 
 
 @router.post("/me/passkeys/options", response_model=PasskeyOptionsOut)
 def link_options(
     request: Request, body: PasskeyOptionsBody | None = None, session: AuthSession = Depends(csrf_session)
 ) -> PasskeyOptionsOut:
-    user = session.user
-    options_gate(request)
-    ensure_reauth(request, user, body.password if body else None)
-    if len(user.passkeys) >= MAX_PASSKEYS_PER_ACCOUNT:
-        raise HTTPException(status.HTTP_409_CONFLICT, PASSKEY_LIMIT)
-    handle = pk.user_handle_of(user) or pk.new_user_handle()
-    options, challenge = pk.creation_options(
-        settings_of(request), user_name=user.username, display_name=user.username, user_handle=handle,
-        existing=list(user.passkeys),
-    )  # fmt: skip
-    token = pk.mint_challenge(pk.LINK, challenge, user_id=user.id, user_handle=handle)
-    return options_out(options, token)
+    try:
+        user = session.user
+        options_gate(request)
+        ensure_reauth(request, user, body.password if body else None)
+        if len(user.passkeys) >= MAX_PASSKEYS_PER_ACCOUNT:
+            raise HTTPException(status.HTTP_409_CONFLICT, PASSKEY_LIMIT)
+        handle = pk.user_handle_of(user) or pk.new_user_handle()
+        options, challenge = pk.creation_options(
+            settings_of(request), user_name=user.username, display_name=user.username, user_handle=handle,
+            existing=list(user.passkeys),
+        )  # fmt: skip
+        token = pk.mint_challenge(pk.LINK, challenge, user_id=user.id, user_handle=handle)
+        return options_out(options, token)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("link_options failed")
+        raise
 
 
 def require_room(db: Session, user: User) -> None:
     """The cap is counted in the transaction that inserts: the user row is locked first (a no-op on SQLite)."""
-    db.execute(select(User.id).where(User.id == user.id).with_for_update())
-    count = db.scalar(select(func.count()).select_from(Passkey).where(Passkey.user_id == user.id))
-    if count >= MAX_PASSKEYS_PER_ACCOUNT:
-        raise HTTPException(status.HTTP_409_CONFLICT, PASSKEY_LIMIT)
+    try:
+        db.execute(select(User.id).where(User.id == user.id).with_for_update())
+        count = db.scalar(select(func.count()).select_from(Passkey).where(Passkey.user_id == user.id))
+        if count >= MAX_PASSKEYS_PER_ACCOUNT:
+            raise HTTPException(status.HTTP_409_CONFLICT, PASSKEY_LIMIT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("require_room failed")
+        raise
 
 
 @router.post("/me/passkeys", response_model=PasskeyList)
@@ -200,14 +248,24 @@ def add_passkey(
 
 @router.get("/me/passkeys", response_model=PasskeyList)
 def list_passkeys(session: AuthSession = Depends(current_session)) -> PasskeyList:
-    return listing(session.user)
+    try:
+        return listing(session.user)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("list_passkeys failed")
+        raise
 
 
 def own(user: User, passkey_id: int) -> Passkey:
-    for passkey in user.passkeys:
-        if passkey.id == passkey_id:
-            return passkey
-    raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    try:
+        for passkey in user.passkeys:
+            if passkey.id == passkey_id:
+                return passkey
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("own failed")
+        raise
 
 
 @router.patch("/me/passkeys/{passkey_id}", response_model=PasskeyList)
@@ -215,13 +273,18 @@ def rename_passkey(
     passkey_id: int, body: PasskeyRenameBody, session: AuthSession = Depends(csrf_session),
     db: Session = Depends(get_db),
 ) -> PasskeyList:  # fmt: skip
-    passkey = own(session.user, passkey_id)
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "name: Enter a name")
-    passkey.name = name
-    db.commit()
-    return listing(session.user)
+    try:
+        passkey = own(session.user, passkey_id)
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "name: Enter a name")
+        passkey.name = name
+        db.commit()
+        return listing(session.user)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("rename_passkey failed")
+        raise
 
 
 @router.delete("/me/passkeys/{passkey_id}", response_model=PasskeyList)
@@ -229,13 +292,18 @@ def delete_passkey(
     passkey_id: int, request: Request, background: BackgroundTasks, body: DeleteAccountBody | None = None,
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> PasskeyList:  # fmt: skip
-    user = session.user
-    passkey = own(user, passkey_id)
-    ensure_reauth(request, user, body.password if body else None)
-    if len(user.passkeys) == 1 and usable_methods(user, without="passkey") == 0:
-        raise HTTPException(status.HTTP_409_CONFLICT, KEEP_ONE)
-    user.passkeys.remove(passkey)
-    db.commit()
-    audit.info("passkey removed user=%r ip=%s", user.username, client_ip(request))
-    notify(request, background, user, "passkey_removed")
-    return listing(user)
+    try:
+        user = session.user
+        passkey = own(user, passkey_id)
+        ensure_reauth(request, user, body.password if body else None)
+        if len(user.passkeys) == 1 and usable_methods(user, without="passkey") == 0:
+            raise HTTPException(status.HTTP_409_CONFLICT, KEEP_ONE)
+        user.passkeys.remove(passkey)
+        db.commit()
+        audit.info("passkey removed user=%r ip=%s", user.username, client_ip(request))
+        notify(request, background, user, "passkey_removed")
+        return listing(user)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("delete_passkey failed")
+        raise

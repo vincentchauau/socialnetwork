@@ -8,6 +8,9 @@ import os
 import re
 from pathlib import Path
 
+import logging
+logger = logging.getLogger(__name__)
+
 ROOT_ENV = "RECORDS_DATA_DIR"
 DEFAULT_ROOT = "data/records"
 
@@ -33,53 +36,88 @@ class FileRefused(ValueError):
 
 
 def root() -> Path:
-    return Path(os.environ.get(ROOT_ENV, DEFAULT_ROOT)).resolve()
+    try:
+        return Path(os.environ.get(ROOT_ENV, DEFAULT_ROOT)).resolve()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("root failed")
+        raise
 
 
 def clean_name(name: str) -> str:
     """The file's own name with nothing that could leave its folder: no path, no odd characters."""
-    base = os.path.basename(name.replace("\\", "/")).strip()
-    cleaned = UNSAFE.sub("_", base).strip("._ ")
-    if not cleaned:
-        raise FileRefused("the file needs a name")
-    return cleaned[:120]
+    try:
+        base = os.path.basename(name.replace("\\", "/")).strip()
+        cleaned = UNSAFE.sub("_", base).strip("._ ")
+        if not cleaned:
+            raise FileRefused("the file needs a name")
+        return cleaned[:120]
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("clean_name failed")
+        raise
 
 
 def check(kind: str, name: str, size: int) -> str:
     """The name to keep for a file of `kind`, or FileRefused when its extension or size is not allowed."""
-    cleaned = clean_name(name)
-    extension = os.path.splitext(cleaned)[1].lower()
-    allowed = EXTENSIONS.get(kind)
-    if allowed is not None and extension not in allowed:
-        raise FileRefused(f"a {kind} must be one of: {', '.join(sorted(allowed))}")
-    if size > LIMITS.get(kind, LIMITS["file"]):
-        raise FileRefused(f"a {kind} can be at most {LIMITS.get(kind, LIMITS['file']) // (1024 * 1024)} MB")
-    return cleaned
+    try:
+        cleaned = clean_name(name)
+        extension = os.path.splitext(cleaned)[1].lower()
+        allowed = EXTENSIONS.get(kind)
+        if allowed is not None and extension not in allowed:
+            raise FileRefused(f"a {kind} must be one of: {', '.join(sorted(allowed))}")
+        if size > LIMITS.get(kind, LIMITS["file"]):
+            raise FileRefused(f"a {kind} can be at most {LIMITS.get(kind, LIMITS['file']) // (1024 * 1024)} MB")
+        return cleaned
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("check failed")
+        raise
 
 
 def relative_path(database: str, table: str, column: str, row_id: str, name: str) -> str:
-    parts = (database, table, column, row_id, name)
-    if not all(PART.match(part) for part in parts):
-        raise FileRefused("a path part has characters that are not allowed")
-    return "/".join(parts)
+    try:
+        parts = (database, table, column, row_id, name)
+        if not all(PART.match(part) for part in parts):
+            raise FileRefused("a path part has characters that are not allowed")
+        return "/".join(parts)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("relative_path failed")
+        raise
 
 
 def location(relative: str) -> Path:
     """The file a stored path names, always inside `root`."""
-    target = (root() / relative).resolve()
-    if root() not in target.parents:
-        raise FileRefused("the path leaves the records folder")
-    return target
+    try:
+        target = (root() / relative).resolve()
+        if root() not in target.parents:
+            raise FileRefused("the path leaves the records folder")
+        return target
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("location failed")
+        raise
 
 
 def content_type(name: str) -> str:
-    return CONTENT_TYPES.get(os.path.splitext(name)[1].lower(), "application/octet-stream")
+    try:
+        return CONTENT_TYPES.get(os.path.splitext(name)[1].lower(), "application/octet-stream")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("content_type failed")
+        raise
 
 
 def save(relative: str, data: bytes) -> None:
-    target = location(relative)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
+    try:
+        target = location(relative)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("save failed")
+        raise
 
 
 EXCEL_LIMIT = 5 * 1024 * 1024
@@ -129,27 +167,47 @@ MEDIA_KINDS = {".jpg": "image", ".jpeg": "image", ".png": "image", ".gif": "imag
 
 def folder_of(database: str, table: str, column: str, row_id: str) -> str:
     """The folder of one cell of one row: every file of that cell lives in it (`market/showcases/cover/3`)."""
-    parts = (database, table, column, row_id)
-    if not all(PART.match(part) for part in parts):
-        raise FileRefused("a path part has characters that are not allowed")
-    return "/".join(parts)
+    try:
+        parts = (database, table, column, row_id)
+        if not all(PART.match(part) for part in parts):
+            raise FileRefused("a path part has characters that are not allowed")
+        return "/".join(parts)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("folder_of failed")
+        raise
 
 
 def files_of(value: str) -> list[str]:
     """The files a cell holds: the files of its folder, or the one file the cell names (a cell made before folders)."""
-    if not value:
-        return []
-    if os.path.splitext(value)[1].lower() in MEDIA_KINDS or os.path.splitext(value)[1].lower() in CONTENT_TYPES:
-        return [value]
-    folder = location(value)
-    if not folder.is_dir():
-        return []
-    return sorted(f"{value}/{entry.name}" for entry in folder.iterdir() if entry.is_file())
+    try:
+        if not value:
+            return []
+        if os.path.splitext(value)[1].lower() in MEDIA_KINDS or os.path.splitext(value)[1].lower() in CONTENT_TYPES:
+            return [value]
+        folder = location(value)
+        if not folder.is_dir():
+            return []
+        return sorted(f"{value}/{entry.name}" for entry in folder.iterdir() if entry.is_file())
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("files_of failed")
+        raise
 
 
 def kind_of_file(name: str) -> str:
-    return MEDIA_KINDS.get(os.path.splitext(name)[1].lower(), "file")
+    try:
+        return MEDIA_KINDS.get(os.path.splitext(name)[1].lower(), "file")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("kind_of_file failed")
+        raise
 
 
 def remove(relative: str) -> None:
-    location(relative).unlink(missing_ok=True)
+    try:
+        location(relative).unlink(missing_ok=True)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("remove failed")
+        raise

@@ -6,14 +6,22 @@ from sqlalchemy.orm import Mapped, mapped_column
 from api.werewolf.db import Base
 from sn_shared.clock import utcnow  # noqa: F401  (re-exported: history.py takes it from here)
 
+import logging
+logger = logging.getLogger(__name__)
+
 LIVE = "live"  # the saved room of a game that is on (or waiting for a rematch): put back when the server starts again
 FINISHED = "finished"  # the result of a game that is over
 
 
 def ids_text(user_ids) -> str:
     """The users of a game as `|7|12|`: what `Game.player_ids` holds, so that the games of one person are found with a plain LIKE."""
-    ids = sorted({int(user_id) for user_id in user_ids if int(user_id) > 0})
-    return f"|{'|'.join(str(user_id) for user_id in ids)}|" if ids else ""
+    try:
+        ids = sorted({int(user_id) for user_id in user_ids if int(user_id) > 0})
+        return f"|{'|'.join(str(user_id) for user_id in ids)}|" if ids else ""
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ids_text failed")
+        raise
 
 
 class Game(Base):

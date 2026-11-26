@@ -27,13 +27,21 @@ from sn_shared.directory import attach_names
 from sn_shared.deps import get_current_user
 from sn_shared.security import TokenPayload
 
+import logging
+logger = logging.getLogger(__name__)
+
 RATING_MIN = 1
 RATING_MAX = 5
 MAX_ID = 2**63 - 1
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    try:
+        return datetime.now(timezone.utc)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("utcnow failed")
+        raise
 
 
 class Base(DeclarativeBase):
@@ -61,7 +69,12 @@ class Comment(Base):
 
 
 def ensure_table(engine: Engine) -> None:
-    Base.metadata.create_all(engine)
+    try:
+        Base.metadata.create_all(engine)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_table failed")
+        raise
 
 
 # ---- what an app says about its kind of thing ---------------------------------------------------------------------
@@ -108,16 +121,26 @@ class CommentOut(BaseModel):
 
 
 def invalid(message: str) -> HTTPException:
-    return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, message)
+    try:
+        return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, message)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("invalid failed")
+        raise
 
 
 def checked_content(kind: CommentKind, value: str | None) -> str:
-    content = (value or "").strip()
-    if len(content) < kind.content_min:
-        raise invalid("Write something" if kind.content_min else "The comment is too short")
-    if len(content) > kind.content_max:
-        raise invalid(f"A comment is at most {kind.content_max} characters")
-    return content
+    try:
+        content = (value or "").strip()
+        if len(content) < kind.content_min:
+            raise invalid("Write something" if kind.content_min else "The comment is too short")
+        if len(content) > kind.content_max:
+            raise invalid(f"A comment is at most {kind.content_max} characters")
+        return content
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("checked_content failed")
+        raise
 
 
 # ---- the routes ---------------------------------------------------------------------------------------------------
@@ -125,10 +148,15 @@ def checked_content(kind: CommentKind, value: str | None) -> str:
 
 def check_rating(kind: CommentKind, rating: int | None) -> None:
     """A kind of comment with no rating refuses one; a kind that needs a rating refuses none."""
-    if kind.rating == "none" and rating is not None:
-        raise invalid("This kind of comment has no rating")
-    if kind.rating == "required" and rating is None:
-        raise invalid("Give a rating")
+    try:
+        if kind.rating == "none" and rating is not None:
+            raise invalid("This kind of comment has no rating")
+        if kind.rating == "required" and rating is None:
+            raise invalid("Give a rating")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("check_rating failed")
+        raise
 
 
 def may_moderate(kind: CommentKind, db: Session, comment: Comment, user: TokenPayload) -> bool:
@@ -142,95 +170,120 @@ def may_moderate(kind: CommentKind, db: Session, comment: Comment, user: TokenPa
 
 
 def comments_router(kind: CommentKind) -> APIRouter:
-    router = APIRouter(tags=[kind.tag])
+    try:
+        router = APIRouter(tags=[kind.tag])
 
-    class Body(CommentIn):
-        model_config = ConfigDict(extra="forbid" if kind.strict_body else "ignore")
+        class Body(CommentIn):
+            model_config = ConfigDict(extra="forbid" if kind.strict_body else "ignore")
 
-    ObjectId = Annotated[int, Path(ge=1, le=MAX_ID)]
-    CommentId = Annotated[int, Path(ge=1, le=MAX_ID)]
-    Db = Annotated[Session, Depends(get_db)]
-    User = Annotated[TokenPayload, Depends(get_current_user)]
+        ObjectId = Annotated[int, Path(ge=1, le=MAX_ID)]
+        CommentId = Annotated[int, Path(ge=1, le=MAX_ID)]
+        Db = Annotated[Session, Depends(get_db)]
+        User = Annotated[TokenPayload, Depends(get_current_user)]
 
-    def own_kind(db: Session, comment_id: int) -> Comment:
-        comment = db.get(Comment, comment_id)
-        if comment is None or comment.object_type != kind.object_type:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Comment not found")
-        return comment
+        def own_kind(db: Session, comment_id: int) -> Comment:
+            try:
+                comment = db.get(Comment, comment_id)
+                if comment is None or comment.object_type != kind.object_type:
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, "Comment not found")
+                return comment
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("own_kind failed")
+                raise
 
-    @router.get(kind.collection, response_model=list[CommentOut])
-    def list_comments(
-        object_id: ObjectId,
-        user: User,
-        db: Db,
-        cursor: Annotated[int | None, Query(ge=1, le=MAX_ID)] = None,
-        limit: Annotated[int | None, Query(ge=1)] = None,
-    ) -> list[Comment]:
-        kind.visible(db, object_id, user)
-        size = min(limit or kind.page_default, kind.page_max)
-        query = select(Comment).where(Comment.object_type == kind.object_type, Comment.object_id == object_id)
-        if cursor is not None:
-            query = query.where(Comment.id < cursor if kind.newest_first else Comment.id > cursor)
-        return attach_names(db, db.scalars(query.order_by(Comment.id.desc() if kind.newest_first else Comment.id).limit(size)))
+        @router.get(kind.collection, response_model=list[CommentOut])
+        def list_comments(
+            object_id: ObjectId,
+            user: User,
+            db: Db,
+            cursor: Annotated[int | None, Query(ge=1, le=MAX_ID)] = None,
+            limit: Annotated[int | None, Query(ge=1)] = None,
+        ) -> list[Comment]:
+            try:
+                kind.visible(db, object_id, user)
+                size = min(limit or kind.page_default, kind.page_max)
+                query = select(Comment).where(Comment.object_type == kind.object_type, Comment.object_id == object_id)
+                if cursor is not None:
+                    query = query.where(Comment.id < cursor if kind.newest_first else Comment.id > cursor)
+                return attach_names(db, db.scalars(query.order_by(Comment.id.desc() if kind.newest_first else Comment.id).limit(size)))
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("list_comments failed")
+                raise
 
-    @router.post(kind.collection, response_model=CommentOut, status_code=status.HTTP_201_CREATED)
-    def add_comment(object_id: ObjectId, body: Body, user: User, db: Db) -> Comment:
-        thing = kind.visible(db, object_id, user)
-        if kind.may_write is not None:
-            kind.may_write(db, thing, user)
-        content = checked_content(kind, body.content)
-        check_rating(kind, body.rating)
-        if not content and body.rating is None:
-            raise invalid("Write something or give a rating")
-        if kind.once and db.scalar(
-            select(Comment.id).where(Comment.object_type == kind.object_type, Comment.object_id == object_id, Comment.user_id == user.user_id)
-        ) is not None:
-            raise HTTPException(status.HTTP_409_CONFLICT, "You already said something about this")
-        comment = Comment(
-            object_type=kind.object_type, object_id=object_id, user_id=user.user_id, content=content,
-            rating=body.rating, once=kind.once,
-        )
-        db.add(comment)
-        try:
-            db.commit()
-        except Exception as error:  # a second one at the same moment is stopped by the unique index
-            db.rollback()
-            if kind.once:
-                raise HTTPException(status.HTTP_409_CONFLICT, "You already said something about this") from error
-            raise
-        attach_names(db, [comment])
-        return comment
-
-    @router.patch(kind.item, response_model=CommentOut)
-    def change_comment(comment_id: CommentId, body: Body, user: User, db: Db) -> Comment:
-        comment = own_kind(db, comment_id)
-        if comment.user_id != user.user_id:
-            if kind.others_are_hidden:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, "Comment not found")
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only edit your own comments")
-        sent = body.model_fields_set
-        if "content" in sent:
-            comment.content = checked_content(kind, body.content)
-        if "rating" in sent:
+        @router.post(kind.collection, response_model=CommentOut, status_code=status.HTTP_201_CREATED)
+        def add_comment(object_id: ObjectId, body: Body, user: User, db: Db) -> Comment:
+            thing = kind.visible(db, object_id, user)
+            if kind.may_write is not None:
+                kind.may_write(db, thing, user)
+            content = checked_content(kind, body.content)
             check_rating(kind, body.rating)
-            comment.rating = body.rating
-        comment.edited_at = utcnow()
-        db.commit()
-        attach_names(db, [comment])
-        return comment
+            if not content and body.rating is None:
+                raise invalid("Write something or give a rating")
+            if kind.once and db.scalar(
+                select(Comment.id).where(Comment.object_type == kind.object_type, Comment.object_id == object_id, Comment.user_id == user.user_id)
+            ) is not None:
+                raise HTTPException(status.HTTP_409_CONFLICT, "You already said something about this")
+            comment = Comment(
+                object_type=kind.object_type, object_id=object_id, user_id=user.user_id, content=content,
+                rating=body.rating, once=kind.once,
+            )
+            db.add(comment)
+            try:
+                db.commit()
+            except Exception as error:  # a second one at the same moment is stopped by the unique index
+                db.rollback()
+                if kind.once:
+                    raise HTTPException(status.HTTP_409_CONFLICT, "You already said something about this") from error
+                raise
+            attach_names(db, [comment])
+            return comment
 
-    @router.delete(kind.item, status_code=status.HTTP_204_NO_CONTENT)
-    def remove_comment(comment_id: CommentId, user: User, db: Db) -> Response:
-        comment = own_kind(db, comment_id)
-        if comment.user_id != user.user_id and not may_moderate(kind, db, comment, user):
-            if kind.others_are_hidden:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, "Comment not found")
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot delete this comment")
-        db.delete(comment)
-        db.commit()
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        @router.patch(kind.item, response_model=CommentOut)
+        def change_comment(comment_id: CommentId, body: Body, user: User, db: Db) -> Comment:
+            try:
+                comment = own_kind(db, comment_id)
+                if comment.user_id != user.user_id:
+                    if kind.others_are_hidden:
+                        raise HTTPException(status.HTTP_404_NOT_FOUND, "Comment not found")
+                    raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only edit your own comments")
+                sent = body.model_fields_set
+                if "content" in sent:
+                    comment.content = checked_content(kind, body.content)
+                if "rating" in sent:
+                    check_rating(kind, body.rating)
+                    comment.rating = body.rating
+                comment.edited_at = utcnow()
+                db.commit()
+                attach_names(db, [comment])
+                return comment
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("change_comment failed")
+                raise
 
-    return router
+        @router.delete(kind.item, status_code=status.HTTP_204_NO_CONTENT)
+        def remove_comment(comment_id: CommentId, user: User, db: Db) -> Response:
+            try:
+                comment = own_kind(db, comment_id)
+                if comment.user_id != user.user_id and not may_moderate(kind, db, comment, user):
+                    if kind.others_are_hidden:
+                        raise HTTPException(status.HTTP_404_NOT_FOUND, "Comment not found")
+                    raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot delete this comment")
+                db.delete(comment)
+                db.commit()
+                return Response(status_code=status.HTTP_204_NO_CONTENT)
+            except Exception as error:
+                if getattr(error, "status_code", None) is None:
+                    logger.exception("remove_comment failed")
+                raise
+
+        return router
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("comments_router failed")
+        raise
 
 
 # ---- what the app that owns the thing asks about its comments -------------------------------------------------------
@@ -238,43 +291,68 @@ def comments_router(kind: CommentKind) -> APIRouter:
 
 def counts(db: Session, object_type: str, ids: Iterable[int]) -> dict[int, int]:
     """How many comments each of these things has (a thing with none is not in the result)."""
-    ids = list(ids)
-    if not ids:
-        return {}
-    rows = db.execute(
-        select(Comment.object_id, func.count()).where(Comment.object_type == object_type, Comment.object_id.in_(ids)).group_by(Comment.object_id)
-    )
-    return {object_id: count for object_id, count in rows}
+    try:
+        ids = list(ids)
+        if not ids:
+            return {}
+        rows = db.execute(
+            select(Comment.object_id, func.count()).where(Comment.object_type == object_type, Comment.object_id.in_(ids)).group_by(Comment.object_id)
+        )
+        return {object_id: count for object_id, count in rows}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("counts failed")
+        raise
 
 
 def rating_stats(db: Session, object_type: str, ids: Iterable[int]) -> dict[int, tuple[float, int]]:
     """(average, how many) of the ratings of each of these things; a thing nobody rated is not in the result."""
-    ids = list(ids)
-    if not ids:
-        return {}
-    rows = db.execute(
-        select(Comment.object_id, func.avg(Comment.rating), func.count(Comment.rating))
-        .where(Comment.object_type == object_type, Comment.object_id.in_(ids), Comment.rating.is_not(None))
-        .group_by(Comment.object_id)
-    )
-    return {object_id: (float(average), count) for object_id, average, count in rows}
+    try:
+        ids = list(ids)
+        if not ids:
+            return {}
+        rows = db.execute(
+            select(Comment.object_id, func.avg(Comment.rating), func.count(Comment.rating))
+            .where(Comment.object_type == object_type, Comment.object_id.in_(ids), Comment.rating.is_not(None))
+            .group_by(Comment.object_id)
+        )
+        return {object_id: (float(average), count) for object_id, average, count in rows}
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("rating_stats failed")
+        raise
 
 
 def forget_object(db: Session, object_type: str, object_id: int) -> None:
     """The thing is gone: so are what was said about it (the caller commits)."""
-    db.execute(delete(Comment).where(Comment.object_type == object_type, Comment.object_id == object_id))
+    try:
+        db.execute(delete(Comment).where(Comment.object_type == object_type, Comment.object_id == object_id))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("forget_object failed")
+        raise
 
 
 def forget_user(db: Session, user_id: int, object_types: Iterable[str]) -> None:
     """The account is gone: so are its comments on these kinds of thing."""
-    db.execute(delete(Comment).where(Comment.user_id == user_id, Comment.object_type.in_(list(object_types))))
+    try:
+        db.execute(delete(Comment).where(Comment.user_id == user_id, Comment.object_type.in_(list(object_types))))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("forget_user failed")
+        raise
 
 
 def anonymize_user(db: Session, user_id: int, object_types: Iterable[str]) -> None:
     """The account is gone, but what it said stays for the others to read (a review): with no name, and an id of nobody that is
     still its own (the opposite of the old one), so that the one-a-person rule keeps holding."""
-    db.execute(
-        update(Comment)
-        .where(Comment.user_id == user_id, Comment.object_type.in_(list(object_types)))
-        .values(user_id=-user_id)
-    )
+    try:
+        db.execute(
+            update(Comment)
+            .where(Comment.user_id == user_id, Comment.object_type.in_(list(object_types)))
+            .values(user_id=-user_id)
+        )
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("anonymize_user failed")
+        raise

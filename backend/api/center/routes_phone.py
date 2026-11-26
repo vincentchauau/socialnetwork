@@ -27,6 +27,9 @@ from api.center.phonenum import log_phone, mask_phone, normalize_phone
 from api.center.schemas import DeleteAccountBody, MethodsStatus, MfaRequired, OkOut, SessionOut
 from api.center.sessions import start_login
 
+import logging
+logger = logging.getLogger(__name__)
+
 BAD_CODE = "Invalid or expired code"
 BAD_PHONE = "Invalid phone number"
 PHONE_TAKEN = "Phone number already in use"
@@ -34,8 +37,13 @@ MAX_JITTER_MS = 30
 
 
 def ensure_phone(request: Request) -> None:
-    if not settings_of(request).phone_enabled:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Phone sign-in is not available")
+    try:
+        if not settings_of(request).phone_enabled:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Phone sign-in is not available")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("ensure_phone failed")
+        raise
 
 
 router = APIRouter(prefix="/auth", tags=["phone"], dependencies=[Depends(ensure_phone), Depends(check_origin)])
@@ -59,38 +67,63 @@ class VerifyCodeBody(BaseModel):
 
 
 def valid_phone(request: Request, raw: str) -> str:
-    phone = normalize_phone(raw, settings_of(request).sms_allowed_prefixes)
-    if phone is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, BAD_PHONE)
-    return phone
+    try:
+        phone = normalize_phone(raw, settings_of(request).sms_allowed_prefixes)
+        if phone is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, BAD_PHONE)
+        return phone
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("valid_phone failed")
+        raise
 
 
 def jitter() -> None:
-    time.sleep(secrets.randbelow(MAX_JITTER_MS + 1) / 1000)
+    try:
+        time.sleep(secrets.randbelow(MAX_JITTER_MS + 1) / 1000)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("jitter failed")
+        raise
 
 
 def verified_user(db: Session, phone: str) -> User | None:
-    return db.scalar(select(User).where(User.phone == phone, User.phone_verified.is_(True)))
+    try:
+        return db.scalar(select(User).where(User.phone == phone, User.phone_verified.is_(True)))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("verified_user failed")
+        raise
 
 
 def spend_daily_routes_phone(request: Request, purpose: str) -> None:
     """Count one REAL send against the flow's share of the daily cap (429 when it is spent)."""
-    if not ph.spend_daily(request, purpose):
-        raise too_many()
+    try:
+        if not ph.spend_daily(request, purpose):
+            raise too_many()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("spend_daily_routes_phone failed")
+        raise
 
 
 def gate_request(request: Request, phone: str, purpose: str) -> None:
-    state, ip = request.app.state, client_ip(request)
-    if state.sms_daily_throttle[purpose].is_blocked(ph.DAILY_KEY):
-        raise too_many()  # the same for every number: the cap says nothing about an account
-    counters = (
-        (state.sms_ip_throttle, ip), (state.sms_ip_phone_throttle, f"{ip}|{phone}"), (state.sms_phone_throttle, phone),
-        (state.sms_phone_day_throttle, phone),
-    )
-    if any(throttle.is_blocked(key) for throttle, key in counters):
-        raise too_many()
-    for throttle, key in counters:
-        throttle.record(key)
+    try:
+        state, ip = request.app.state, client_ip(request)
+        if state.sms_daily_throttle[purpose].is_blocked(ph.DAILY_KEY):
+            raise too_many()  # the same for every number: the cap says nothing about an account
+        counters = (
+            (state.sms_ip_throttle, ip), (state.sms_ip_phone_throttle, f"{ip}|{phone}"), (state.sms_phone_throttle, phone),
+            (state.sms_phone_day_throttle, phone),
+        )
+        if any(throttle.is_blocked(key) for throttle, key in counters):
+            raise too_many()
+        for throttle, key in counters:
+            throttle.record(key)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("gate_request failed")
+        raise
 
 
 # --- add / verify / remove a number ---------------------------------------------------------------
@@ -102,27 +135,32 @@ def set_phone(
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> OkOut:  # fmt: skip
     """Start (or resend) verification of a number. `users.phone` changes only when it is verified."""
-    user, state = session.user, request.app.state
-    phone = valid_phone(request, body.phone)
-    if state.sms_user_throttle.is_blocked(str(user.id)):
-        raise too_many()
-    ensure_reauth(request, user, body.password)
-    if state.sms_user_day_throttle.is_blocked(str(user.id)):
-        raise too_many()
-    gate_request(request, phone, ph.VERIFY)
-    state.sms_user_throttle.record(str(user.id))
-    state.sms_user_day_throttle.record(str(user.id))
-    owner = db.scalar(select(User.id).where(User.phone == phone, User.phone_verified.is_(True)))
-    if owner is not None and owner != user.id:
-        ph.issue(db, None, ph.VERIFY, phone)  # taken: answer like a success, send nothing
-        audit.info("phone verification skipped (taken) user=%r ip=%s", user.username, client_ip(request))
+    try:
+        user, state = session.user, request.app.state
+        phone = valid_phone(request, body.phone)
+        if state.sms_user_throttle.is_blocked(str(user.id)):
+            raise too_many()
+        ensure_reauth(request, user, body.password)
+        if state.sms_user_day_throttle.is_blocked(str(user.id)):
+            raise too_many()
+        gate_request(request, phone, ph.VERIFY)
+        state.sms_user_throttle.record(str(user.id))
+        state.sms_user_day_throttle.record(str(user.id))
+        owner = db.scalar(select(User.id).where(User.phone == phone, User.phone_verified.is_(True)))
+        if owner is not None and owner != user.id:
+            ph.issue(db, None, ph.VERIFY, phone)  # taken: answer like a success, send nothing
+            audit.info("phone verification skipped (taken) user=%r ip=%s", user.username, client_ip(request))
+            return OkOut()
+        code = ph.issue(db, user, ph.VERIFY, phone)
+        spend_daily_routes_phone(request, ph.VERIFY)
+        ph.queue_sms(request, background, ph.VERIFY, phone, code)
+        audit.info("phone verification requested user=%r phone=%s ip=%s", user.username, log_phone(phone),
+                   client_ip(request))  # fmt: skip
         return OkOut()
-    code = ph.issue(db, user, ph.VERIFY, phone)
-    spend_daily_routes_phone(request, ph.VERIFY)
-    ph.queue_sms(request, background, ph.VERIFY, phone, code)
-    audit.info("phone verification requested user=%r phone=%s ip=%s", user.username, log_phone(phone),
-               client_ip(request))  # fmt: skip
-    return OkOut()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("set_phone failed")
+        raise
 
 
 @router.post("/me/phone/verify", response_model=MethodsStatus)
@@ -162,20 +200,25 @@ def remove_phone(
     request: Request, background: BackgroundTasks, body: DeleteAccountBody | None = None,
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> MethodsStatus:  # fmt: skip
-    user = session.user
-    ensure_reauth(request, user, body.password if body else None)
-    had = bool(user.phone and user.phone_verified)
-    if had and usable_methods(user, without="phone") == 0:
-        raise HTTPException(status.HTTP_409_CONFLICT, KEEP_ONE)
-    old = mask_phone(user.phone) if had else None
-    user.phone, user.phone_verified = None, False
-    ph.drop_codes(db, user.id, ph.VERIFY)
-    ph.drop_codes(db, user.id, ph.LOGIN)
-    db.commit()
-    audit.info("phone removed user=%r ip=%s", user.username, client_ip(request))
-    if had:
-        notify(request, background, user, "phone_removed", phone=old)
-    return methods_status(user)
+    try:
+        user = session.user
+        ensure_reauth(request, user, body.password if body else None)
+        had = bool(user.phone and user.phone_verified)
+        if had and usable_methods(user, without="phone") == 0:
+            raise HTTPException(status.HTTP_409_CONFLICT, KEEP_ONE)
+        old = mask_phone(user.phone) if had else None
+        user.phone, user.phone_verified = None, False
+        ph.drop_codes(db, user.id, ph.VERIFY)
+        ph.drop_codes(db, user.id, ph.LOGIN)
+        db.commit()
+        audit.info("phone removed user=%r ip=%s", user.username, client_ip(request))
+        if had:
+            notify(request, background, user, "phone_removed", phone=old)
+        return methods_status(user)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("remove_phone failed")
+        raise
 
 
 # --- sign in with an SMS code ---------------------------------------------------------------------
@@ -186,40 +229,50 @@ def login_request(
     body: PhoneBody, request: Request, background: BackgroundTasks, db: Session = Depends(get_db)
 ) -> OkOut:
     """Always the same work and answer; an SMS goes out only for a VERIFIED number."""
-    phone = valid_phone(request, body.phone)
-    gate_request(request, phone, ph.LOGIN)
-    user = verified_user(db, phone)
-    code = ph.issue(db, user, ph.LOGIN, phone)
-    jitter()
-    if user is not None:
-        spend_daily_routes_phone(request, ph.LOGIN)
-        ph.queue_sms(request, background, ph.LOGIN, phone, code)
-    audit.info("phone login requested ip=%s", client_ip(request))
-    return OkOut()
+    try:
+        phone = valid_phone(request, body.phone)
+        gate_request(request, phone, ph.LOGIN)
+        user = verified_user(db, phone)
+        code = ph.issue(db, user, ph.LOGIN, phone)
+        jitter()
+        if user is not None:
+            spend_daily_routes_phone(request, ph.LOGIN)
+            ph.queue_sms(request, background, ph.LOGIN, phone, code)
+        audit.info("phone login requested ip=%s", client_ip(request))
+        return OkOut()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("login_request failed")
+        raise
 
 
 @router.post("/phone/login/verify", response_model=SessionOut | MfaRequired)
 def login_verify(
     body: PhoneCodeBody, request: Request, response: Response, db: Session = Depends(get_db)
 ) -> SessionOut | MfaRequired:
-    state = request.app.state
-    if not state.sms_submit_throttle.check_and_record(client_ip(request)):
-        raise too_many()
-    phone = normalize_phone(body.phone, settings_of(request).sms_allowed_prefixes) or "invalid"
-    pair = f"{client_ip(request)}|{phone}"  # per (IP, number): a stranger's guesses cannot lock the owner out
-    if not state.sms_fail_throttle.check_and_record(pair) or not state.sms_fail_phone_throttle.check_and_record(phone):
-        raise too_many()
-    user = verified_user(db, phone)
-    row = ph.find_for_user(db, user.id, ph.LOGIN, phone) if user else None
-    if not ph.check_code(db, row, body.code) or user is None or row is None or not ph.consume(db, row.id):
-        db.rollback()
-        audit.warning("phone code login failed ip=%s", client_ip(request))
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_CODE)
-    db.commit()
-    state.sms_fail_throttle.reset(pair)
-    result = start_login(
-        response, user, settings_of(request), biometrics_available(request), request=request, db=db, method="phone"
-    )
-    audit.info("login %s (phone) user=%r ip=%s", "mfa-pending" if isinstance(result, MfaRequired) else "ok",
-               user.username, client_ip(request))  # fmt: skip
-    return result
+    try:
+        state = request.app.state
+        if not state.sms_submit_throttle.check_and_record(client_ip(request)):
+            raise too_many()
+        phone = normalize_phone(body.phone, settings_of(request).sms_allowed_prefixes) or "invalid"
+        pair = f"{client_ip(request)}|{phone}"  # per (IP, number): a stranger's guesses cannot lock the owner out
+        if not state.sms_fail_throttle.check_and_record(pair) or not state.sms_fail_phone_throttle.check_and_record(phone):
+            raise too_many()
+        user = verified_user(db, phone)
+        row = ph.find_for_user(db, user.id, ph.LOGIN, phone) if user else None
+        if not ph.check_code(db, row, body.code) or user is None or row is None or not ph.consume(db, row.id):
+            db.rollback()
+            audit.warning("phone code login failed ip=%s", client_ip(request))
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_CODE)
+        db.commit()
+        state.sms_fail_throttle.reset(pair)
+        result = start_login(
+            response, user, settings_of(request), biometrics_available(request), request=request, db=db, method="phone"
+        )
+        audit.info("login %s (phone) user=%r ip=%s", "mfa-pending" if isinstance(result, MfaRequired) else "ok",
+                   user.username, client_ip(request))  # fmt: skip
+        return result
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("login_verify failed")
+        raise

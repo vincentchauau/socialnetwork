@@ -13,6 +13,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from api.werewolf.integration import ensure_game
 from sn_shared import servicesig
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/internal", include_in_schema=False)
 
 MAX_BODY_BYTES = 16 * 1024
@@ -30,13 +33,18 @@ class EnsureBody(BaseModel):
 
 
 async def signed_internal(request: Request, scope: str) -> bytes:
-    raw = await request.body()
-    secret = os.environ.get("WEREWOLF_SECRET", "")
-    if len(raw) > MAX_BODY_BYTES or not servicesig.verify(
-        secret, raw, scope, request.headers.get(servicesig.TIMESTAMP_HEADER), request.headers.get(servicesig.SIGNATURE_HEADER)
-    ):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed")
-    return raw
+    try:
+        raw = await request.body()
+        secret = os.environ.get("WEREWOLF_SECRET", "")
+        if len(raw) > MAX_BODY_BYTES or not servicesig.verify(
+            secret, raw, scope, request.headers.get(servicesig.TIMESTAMP_HEADER), request.headers.get(servicesig.SIGNATURE_HEADER)
+        ):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed")
+        return raw
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("signed_internal failed")
+        raise
 
 
 @router.post("/ensure")
@@ -55,6 +63,11 @@ async def ensure(request: Request) -> dict[str, bool]:
 @router.delete("/rooms/{code}", status_code=status.HTTP_204_NO_CONTENT)
 async def drop(code: str, request: Request) -> Response:
     """The game of a room that is gone goes too (it would keep its players' seats, which count toward their limit)."""
-    await signed_internal(request, f"DELETE /internal/rooms/{code}")
-    request.app.state.ww_store.delete(code)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        await signed_internal(request, f"DELETE /internal/rooms/{code}")
+        request.app.state.ww_store.delete(code)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("drop failed")
+        raise

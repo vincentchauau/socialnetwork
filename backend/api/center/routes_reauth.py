@@ -27,36 +27,64 @@ from api.center.routes_auth import verify_google_or_throttle
 from api.center.routes_passkeys import options_gate, options_out, store_routes_passkeys
 from api.center.schemas import FreshOut, GoogleBody, OkOut, PasskeyLoginBody, PasskeyOptionsOut, ReauthCodeBody, ReauthMethodsOut
 
+import logging
+logger = logging.getLogger(__name__)
+
 GOOGLE_PROOF_TTL_SECONDS = 3600.0  # Google ID tokens live an hour
 
 router = APIRouter(prefix="/auth/reauth", tags=["reauth"], dependencies=[Depends(check_origin)])
 
 
 def throttle_key(request: Request, user: User) -> str:
-    return f"{user.id}|{client_ip(request)}"
+    try:
+        return f"{user.id}|{client_ip(request)}"
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("throttle_key failed")
+        raise
 
 
 def guard(request: Request, user: User) -> None:
-    if request.app.state.fresh_throttle.is_blocked(throttle_key(request, user)):
-        audit.warning("reauth locked user=%r ip=%s", user.username, client_ip(request))
-        raise too_many()
+    try:
+        if request.app.state.fresh_throttle.is_blocked(throttle_key(request, user)):
+            audit.warning("reauth locked user=%r ip=%s", user.username, client_ip(request))
+            raise too_many()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("guard failed")
+        raise
 
 
 def fail(request: Request, user: User, how: str) -> HTTPException:
-    request.app.state.fresh_throttle.record(throttle_key(request, user))
-    audit.warning("reauth %s failed user=%r ip=%s", how, user.username, client_ip(request))
-    return HTTPException(status.HTTP_401_UNAUTHORIZED, REAUTH_FAILED)
+    try:
+        request.app.state.fresh_throttle.record(throttle_key(request, user))
+        audit.warning("reauth %s failed user=%r ip=%s", how, user.username, client_ip(request))
+        return HTTPException(status.HTTP_401_UNAUTHORIZED, REAUTH_FAILED)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("fail failed")
+        raise
 
 
 def granted(request: Request, response: Response, user: User, how: str) -> FreshOut:
-    request.app.state.fresh_throttle.reset(throttle_key(request, user))
-    audit.info("reauth ok (%s) user=%r ip=%s", how, user.username, client_ip(request))
-    return set_fresh(response, request, user, settings_of(request))
+    try:
+        request.app.state.fresh_throttle.reset(throttle_key(request, user))
+        audit.info("reauth ok (%s) user=%r ip=%s", how, user.username, client_ip(request))
+        return set_fresh(response, request, user, settings_of(request))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("granted failed")
+        raise
 
 
 @router.get("/methods", response_model=ReauthMethodsOut)
 def methods(request: Request, session: AuthSession = Depends(current_session)) -> ReauthMethodsOut:
-    return ReauthMethodsOut(methods=available_methods(request, session.user))
+    try:
+        return ReauthMethodsOut(methods=available_methods(request, session.user))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("methods failed")
+        raise
 
 
 # --- passkey ---------------------------------------------------------------------------------------
@@ -64,26 +92,36 @@ def methods(request: Request, session: AuthSession = Depends(current_session)) -
 
 @router.post("/passkey/options", response_model=PasskeyOptionsOut)
 def passkey_options(request: Request, session: AuthSession = Depends(csrf_session)) -> PasskeyOptionsOut:
-    options_gate(request)
-    options, challenge = pk.request_options(settings_of(request))
-    return options_out(options, pk.mint_challenge(pk.REAUTH, challenge, user_id=session.user.id))
+    try:
+        options_gate(request)
+        options, challenge = pk.request_options(settings_of(request))
+        return options_out(options, pk.mint_challenge(pk.REAUTH, challenge, user_id=session.user.id))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("passkey_options failed")
+        raise
 
 
 def verified_own_passkey(request: Request, db: Session, user: User, body: PasskeyLoginBody) -> Passkey:
-    challenge = pk.read_challenge(body.challenge_token, pk.REAUTH, store_routes_passkeys(request))  # single use
-    if challenge.user_id != user.id:
-        raise pk.PasskeyError("challenge belongs to another account")
-    passkey = db.scalar(select(Passkey).where(Passkey.credential_id == pk.credential_id_of(body.credential)))
-    if passkey is None or passkey.user_id != user.id:
-        raise pk.PasskeyError("not a passkey of this account")
-    assertion = pk.verify_assertion(settings_of(request), body.credential, challenge, passkey)  # UV required
-    if pk.sign_count_regressed(passkey.sign_count, assertion.new_sign_count):
-        audit.warning("passkey possible cloned authenticator ip=%s", client_ip(request))
-        raise pk.PasskeyError("sign count regressed")
-    passkey.sign_count = assertion.new_sign_count
-    passkey.backed_up = assertion.backed_up
-    passkey.last_used_at = utcnow()
-    return passkey
+    try:
+        challenge = pk.read_challenge(body.challenge_token, pk.REAUTH, store_routes_passkeys(request))  # single use
+        if challenge.user_id != user.id:
+            raise pk.PasskeyError("challenge belongs to another account")
+        passkey = db.scalar(select(Passkey).where(Passkey.credential_id == pk.credential_id_of(body.credential)))
+        if passkey is None or passkey.user_id != user.id:
+            raise pk.PasskeyError("not a passkey of this account")
+        assertion = pk.verify_assertion(settings_of(request), body.credential, challenge, passkey)  # UV required
+        if pk.sign_count_regressed(passkey.sign_count, assertion.new_sign_count):
+            audit.warning("passkey possible cloned authenticator ip=%s", client_ip(request))
+            raise pk.PasskeyError("sign count regressed")
+        passkey.sign_count = assertion.new_sign_count
+        passkey.backed_up = assertion.backed_up
+        passkey.last_used_at = utcnow()
+        return passkey
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("verified_own_passkey failed")
+        raise
 
 
 @router.post("/passkey/verify", response_model=FreshOut)
@@ -137,15 +175,20 @@ def email_request(
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> OkOut:  # fmt: skip
     """Mail a code to the account's VERIFIED address (never to one the caller supplies). Same 202 either way."""
-    user = session.user
-    address = user.email if has_verified_email(user) else None
-    email_routes.gate_request(request, et.REAUTH, address or f"user:{user.id}")
-    issued = et.issue(db, user if address else None, et.REAUTH, address or "", with_code=True)
-    email_routes.jitter()
-    if address and issued.code:
-        send_code_mail(request, background, et.REAUTH, address, issued.code)
-    audit.info("reauth mail requested user=%r ip=%s", user.username, client_ip(request))
-    return OkOut()
+    try:
+        user = session.user
+        address = user.email if has_verified_email(user) else None
+        email_routes.gate_request(request, et.REAUTH, address or f"user:{user.id}")
+        issued = et.issue(db, user if address else None, et.REAUTH, address or "", with_code=True)
+        email_routes.jitter()
+        if address and issued.code:
+            send_code_mail(request, background, et.REAUTH, address, issued.code)
+        audit.info("reauth mail requested user=%r ip=%s", user.username, client_ip(request))
+        return OkOut()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("email_request failed")
+        raise
 
 
 @router.post("/email/verify", response_model=FreshOut, dependencies=[Depends(ensure_email)])
@@ -153,16 +196,21 @@ def email_verify(
     body: ReauthCodeBody, request: Request, response: Response,
     session: AuthSession = Depends(csrf_session), db: Session = Depends(get_db),
 ) -> FreshOut:  # fmt: skip
-    user = session.user
-    guard(request, user)
-    email_routes.gate_submit(request)
-    failure_key = email_routes.code_failure_key(f"reauth:{user.id}")
-    email_routes.guard_code_attempts(request, failure_key)
-    address = user.email if has_verified_email(user) else None
-    row = et.find_for_user(db, user.id, et.REAUTH, address) if address else None
-    if not et.check_code(db, row, body.code) or row is None or not et.consume(db, row.id):
-        db.rollback()
-        email_routes.count_code_failure(request, failure_key)
-        raise fail(request, user, "email")
-    db.commit()
-    return granted(request, response, user, "email")
+    try:
+        user = session.user
+        guard(request, user)
+        email_routes.gate_submit(request)
+        failure_key = email_routes.code_failure_key(f"reauth:{user.id}")
+        email_routes.guard_code_attempts(request, failure_key)
+        address = user.email if has_verified_email(user) else None
+        row = et.find_for_user(db, user.id, et.REAUTH, address) if address else None
+        if not et.check_code(db, row, body.code) or row is None or not et.consume(db, row.id):
+            db.rollback()
+            email_routes.count_code_failure(request, failure_key)
+            raise fail(request, user, "email")
+        db.commit()
+        return granted(request, response, user, "email")
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("email_verify failed")
+        raise

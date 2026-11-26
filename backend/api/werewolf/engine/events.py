@@ -5,6 +5,9 @@ import random
 from dataclasses import dataclass
 from typing import Any
 
+import logging
+logger = logging.getLogger(__name__)
+
 EVENT_CHANCE = 0.5  # chance that a night has an event card
 
 
@@ -17,8 +20,13 @@ class NightEvent:
     affects_day: bool = False  # True: still in effect the next day
 
     def view(self) -> dict[str, Any]:
-        return {"code": self.code, "icon": self.icon, "title": self.title, "text": self.text,
-                "affectsDay": self.affects_day}
+        try:
+            return {"code": self.code, "icon": self.icon, "title": self.title, "text": self.text,
+                    "affectsDay": self.affects_day}
+        except Exception as error:
+            if getattr(error, "status_code", None) is None:
+                logger.exception("view failed")
+            raise
 
 
 FOG = NightEvent("FOG", "🌫️", "Sương mù",
@@ -39,6 +47,11 @@ ALL_EVENTS: tuple[NightEvent, ...] = (FOG, PEACEFUL, BLOOD_MOON, FULL_MOON, GHOS
 
 def draw_event() -> NightEvent | None:
     """Rút một thẻ cho đêm mới, hoặc không có thẻ nào (xác suất 1 - EVENT_CHANCE)."""
-    if random.random() >= EVENT_CHANCE:
-        return None
-    return random.choice(ALL_EVENTS)
+    try:
+        if random.random() >= EVENT_CHANCE:
+            return None
+        return random.choice(ALL_EVENTS)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("draw_event failed")
+        raise
