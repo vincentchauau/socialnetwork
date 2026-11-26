@@ -6,6 +6,7 @@ import { apiFetch } from "@sn/api";
 import Button from "@sn/elements/Button";
 import Card from "@sn/elements/Card";
 import { TabPanel } from "@sn/compounds/SplitPanel";
+import RankingList from "@sn/compounds/RankingList";
 import BetTable from "./BetTable";
 import { tr } from "./i18n";
 import { betLabel } from "./betLabel";
@@ -228,14 +229,12 @@ export default function RouletteGame() {
   const boardView = (
       <Card as="section" stack aria-labelledby="roulette-board">
         <h2 id="roulette-board" className="section-title">{tr("board")}</h2>
-        <ol className="board-list">
-          {board.map((leader) => (
-            <li key={leader.username}>
-              <span className="board-name">{leader.username}</span>
-              <span className="board-chips">{leader.chips}</span>
-            </li>
-          ))}
-        </ol>
+        <RankingList
+          className="board-list"
+          nameClass="board-name"
+          valueClass="board-chips"
+          rows={board.map((leader) => ({ key: leader.username, name: leader.username, value: String(leader.chips) }))}
+        />
       </Card>
   );
 

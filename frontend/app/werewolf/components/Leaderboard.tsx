@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import RankingList from "@sn/compounds/RankingList";
 import Select from "@sn/elements/Select";
 
 import { werewolfApi } from "../lib/api";
@@ -43,13 +44,11 @@ export default function Leaderboard() {
       ) : rows.length === 0 ? (
         <p className="muted">{tr("ww_no_ranking")}</p>
       ) : (
-        <ol className="ww-ranking">
-          {rows.map((row) => (
-            <li key={row.username}>
-              <span>{row.username}</span> <span className="muted">{tr("ww_thang_p0_tren_p1", { p0: row.wins, p1: row.games })}</span>
-            </li>
-          ))}
-        </ol>
+        <RankingList
+          className="ww-ranking"
+          valueClass="muted"
+          rows={rows.map((row) => ({ key: row.username, name: row.username, value: tr("ww_thang_p0_tren_p1", { p0: row.wins, p1: row.games }) }))}
+        />
       )}
     </section>
   );
