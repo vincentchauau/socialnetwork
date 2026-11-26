@@ -6,7 +6,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { apiFetch, type User } from "@sn/api";
 import Comments from "@sn/compounds/Comments";
-import { Field, LanguageTags, MatchView, Protected, SkillTags, Status } from "../../components";
+import { Field, LanguageTags, MatchView, Protected, SkillTags, Status, TagList } from "../../components";
 import {
   API,
   EMPLOYMENT_LABELS,
@@ -193,13 +193,7 @@ function JobView({ id, user }: { id: string; user: User }) {
         <p className="muted" style={{ margin: 0 }}>
           {[job.department || null, tr("p0_openings", { p0: job.openings })].filter(Boolean).join(" · ")}
         </p>
-        {job.tags.length > 0 && (
-          <ul className="tags" aria-label={tr("tags")}>
-            {job.tags.map((tag) => (
-              <li key={tag} className="tag">{tag}</li>
-            ))}
-          </ul>
-        )}
+        <TagList tags={job.tags} />
         <p className="muted" style={{ margin: 0 }}>
           {tr("posted")} {formatDate(job.created_at)} {tr("by")} {job.owner_username}
           {job.expires_at && ` · ${job.expired ? "Expired" : "Expires"} ${formatDate(job.expires_at)}`}

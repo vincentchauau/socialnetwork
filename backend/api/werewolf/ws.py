@@ -10,7 +10,7 @@ from sn_shared.security import AuthError, TokenPayload, payload_from_cookies
 from api.werewolf.engine import GameError
 from api.werewolf.rooms import Room
 from api.werewolf.schemas import ROOM_PATTERN, ActionMsg, ChatMsg, ForceMsg
-from api.werewolf.security import allowed_origins
+from sn_shared.origin import allowed_origins
 from api.werewolf.service import commit
 
 MAX_FRAME_CHARS = 8 * 1024

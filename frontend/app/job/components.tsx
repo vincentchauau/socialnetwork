@@ -53,13 +53,7 @@ export function JobTile({ job, children }: { job: JobDescriptionSummary; childre
         {facts.join(" · ")}
       </p>
       {job.snippet && <p className="break" style={{ margin: 0 }}>{job.snippet}</p>}
-      {job.tags.length > 0 && (
-        <ul className="tags" aria-label={tr("tags")}>
-          {job.tags.map((tag) => (
-            <li key={tag} className="tag">{tag}</li>
-          ))}
-        </ul>
-      )}
+      <TagList tags={job.tags} />
       <p className="muted" style={{ margin: 0 }}>
         {tr("posted")} {formatDate(job.created_at)} {tr("by")} {job.owner_username}
         {job.status === "closed" ? tr("closed") : job.status !== "open" ? ` · ${label(job.status)}` : null}
@@ -194,5 +188,17 @@ export function MatchView({ match }: { match: Match }) {
       {skills(match.missing, tr("match_missing"), "✗")}
       {skills(match.missing_preferred, tr("match_missing_preferred"), "✗")}
     </section>
+  );
+}
+
+/** The tags of a job as chips; nothing when it has none. */
+export function TagList({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
+  return (
+    <ul className="tags" aria-label={tr("tags")}>
+      {tags.map((tag) => (
+        <li key={tag} className="tag">{tag}</li>
+      ))}
+    </ul>
   );
 }

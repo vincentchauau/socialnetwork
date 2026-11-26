@@ -40,7 +40,7 @@ from api.werewolf.schemas import (
     LeaderEntry,
     RoomSummary,
 )
-from api.werewolf.security import check_origin
+from sn_shared.origin import check_origin
 from api.werewolf.service import commit, save_pending
 from api.werewolf.store import MAX_ROOMS_PER_USER
 
