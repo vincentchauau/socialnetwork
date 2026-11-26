@@ -765,15 +765,15 @@ The layout of each app's page, and the components that fill each part of it. Com
   - Right, from the top: the buttons (`CheckBox` for drawing, camera on or off), the status line, `ScorePanel`, the save section, `History`.
 
 - **Werewolf** (`WerewolfHome` → `ChatDock` → `GameOfRoom`)
-  - One box: the wolf and the title, then the open room's content.
+  - One box: the wolf and the title, then three tabs, in order: Game (the open room's content), History (`HistoryView`, the person's finished games), Leaderboard (`Leaderboard`, the wins this month or all time, from `GET /leaderboard?season=`).
   - Before the game: `LobbyView` (`SetupMeta`, `SeatRow`, `RulesContent`, `CheckBox`).
   - In the game: `GameView` (`PhaseBanner`, `PlayerGrid` of `PlayerTile` with `Avatar`, `ActionPanel`, `PerspectivePanel`, `EventBanner`, `Countdown`).
   - At the end: `ResultView` and `RecapCard`.
   - `Toast` shows messages at the top.
 
 - **Roulette** (`RouletteGame`)
-  - The strip of recent, hot and cold numbers (`NumberStrip`, `Balls`).
-  - `BetTable` (bets), `Wallet`, `Stats`, `Leader`, `Record` (history), `SpinResult`.
+  - The title, then three tabs, in order: Table (the ball, the chips, `BetTable`, the strip of recent, hot and cold numbers `NumberStrip`, and the spin buttons), History (the spins, with rebet and delete), Leaderboard (the top chips).
+  - Components: `BetTable` (bets), `SpinResult`, `Record` (history).
 
 - **File** (`FileLibrary` → `Explorer`)
   - Left: the folder tree (`TreeView`). Middle: the list and the grid (`GridView`), with `ContextMenu`.
