@@ -1,3 +1,5 @@
+.app-roulette .page-title{ margin: 0; font-size: 1.6rem; }
+.app-roulette .section-title{ margin: 0; }
 .app-roulette .stack{ display: flex; flex-direction: column; gap: 16px; }
 .app-roulette .row{ display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
 .app-roulette .muted{ color: color-mix(in srgb, var(--line) 70%, transparent); }

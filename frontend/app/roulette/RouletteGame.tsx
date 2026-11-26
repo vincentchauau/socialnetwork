@@ -129,6 +129,7 @@ export default function RouletteGame() {
 
   return (
     <div className="stack">
+      <h1 className="page-title">{tr("roulette")}</h1>
       <p className="muted">{tr("play_money")}</p>
       <Card stack>
         <div className="row">
@@ -185,7 +186,7 @@ export default function RouletteGame() {
 
       <Card as="section" stack aria-labelledby="roulette-history">
         <div className="row">
-          <h2 id="roulette-history" style={{ margin: 0 }}>{tr("history")}</h2>
+          <h2 id="roulette-history" className="section-title">{tr("history")}</h2>
           {history.length > 0 ? (
             <Button type="button" size="sm" variant="ghost" onClick={() => void act("/spins", "DELETE")}>{tr("clear_history")}</Button>
           ) : null}
@@ -226,7 +227,7 @@ export default function RouletteGame() {
       </Card>
 
       <Card as="section" stack aria-labelledby="roulette-board">
-        <h2 id="roulette-board" style={{ margin: 0 }}>{tr("board")}</h2>
+        <h2 id="roulette-board" className="section-title">{tr("board")}</h2>
         <ol className="board-list">
           {board.map((leader) => (
             <li key={leader.username}>
