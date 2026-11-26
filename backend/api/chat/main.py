@@ -180,7 +180,7 @@ def _delete_room(request, db, room, admin_user):
     db.execute(delete(Room).where(Room.id == room_id))
 
 
-def _open_database(database_url: str | None) -> sessionmaker:
+def open_database(database_url: str | None) -> sessionmaker:
     """Make the engine, the tables, the old-data upgrade and the session factory of the chat."""
     engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
     textsearch.register_sqlite(engine)
@@ -195,7 +195,7 @@ def _open_database(database_url: str | None) -> sessionmaker:
     return session_factory
 
 
-def _include_routers(app: FastAPI) -> None:
+def include_routers(app: FastAPI) -> None:
     app.include_router(rooms_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
     app.include_router(members_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
     app.include_router(messages_router, dependencies=access_dependencies(admin=True, moderator=True, user=True))
@@ -206,7 +206,7 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(internal_router, dependencies=access_dependencies(public=True))
 
 
-def _mount_admin(app: FastAPI) -> None:
+def mount_admin(app: FastAPI) -> None:
     # Admin CRUD over every table of the chat (admin role only). Deleting a room row does not remove its members and messages: hide a room
     # with `state: deleted` instead (see the room service) and use a hard delete only on an empty room.
     # /data (any signed-in person, reads only; writes stay in the app routes): the rooms the person has joined, their members and
@@ -228,7 +228,7 @@ def _mount_admin(app: FastAPI) -> None:
     mount_crud(app, specs, database="chat")
 
 
-async def _serve_lobby(websocket: WebSocket, rt: SimpleNamespace) -> None:
+async def serve_lobby(websocket: WebSocket, rt: SimpleNamespace) -> None:
     hub, lobby, lobby_sockets, connections, online_users, people_changed = rt.hub, rt.lobby, rt.lobby_sockets, rt.connections, rt.online_users, rt.people_changed
     user = _authorize(websocket)
     if user is None:
@@ -270,7 +270,25 @@ async def _serve_lobby(websocket: WebSocket, rt: SimpleNamespace) -> None:
                 await asyncio.shield(people_changed())
 
 
-async def _serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> None:
+async def answer_command(app: FastAPI, hub: RoomHub, room: str, user: TokenPayload, websocket: WebSocket, content: str) -> None:
+    """A message that is not a command lets the virtual people of the room answer; a command is answered by the room's assistant."""
+    command = assistant.parse(content)
+    if command is None:
+        virtual_reply.spawn(
+            app.state.background, virtual_reply.reply_in_room(app.state.session_factory, hub.broadcast, room, user)
+        )  # the writer does not wait for them
+    elif not command[0]:
+        await websocket.send_json({"type": "error", "error": assistant.USAGE})
+    elif not await run_in_threadpool(assistant.has_assistant, app.state.session_factory, room, user.user_id):
+        await websocket.send_json({"type": "error", "error": assistant.NO_ASSISTANT})
+    else:  # a command: the assistant of the room answers with a card, in the name of a virtual person
+        virtual_reply.spawn(
+            app.state.background,
+            assistant.run_command(app.state.session_factory, hub.broadcast, room, user, command[0], command[1], assistant.token_of(websocket.cookies)),
+        )
+
+
+async def serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> None:
     app, hub, presence, lobby, chat_sockets, connections, online_users, people_changed, presence_changed = rt.app, rt.hub, rt.presence, rt.lobby, rt.chat_sockets, rt.connections, rt.online_users, rt.people_changed, rt.presence_changed
     announce_leave = rt.announce_leave
     user = _authorize(websocket)
@@ -344,20 +362,7 @@ async def _serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> N
                 await websocket.send_json({"type": "error", "error": problem})
                 continue
             await hub.broadcast(room, saved.frame())
-            command = assistant.parse(incoming.content)
-            if command is None:
-                virtual_reply.spawn(
-                    app.state.background, virtual_reply.reply_in_room(app.state.session_factory, hub.broadcast, room, user)
-                )  # the virtual people of the room may answer; the writer does not wait for them
-            elif not command[0]:
-                await websocket.send_json({"type": "error", "error": assistant.USAGE})
-            elif not await run_in_threadpool(assistant.has_assistant, app.state.session_factory, room, user.user_id):
-                await websocket.send_json({"type": "error", "error": assistant.NO_ASSISTANT})
-            else:  # a command: the assistant of the room answers with a card, in the name of a virtual person
-                virtual_reply.spawn(
-                    app.state.background,
-                    assistant.run_command(app.state.session_factory, hub.broadcast, room, user, command[0], command[1], assistant.token_of(websocket.cookies)),
-                )
+            await answer_command(app, hub, room, user, websocket, incoming.content)
     except WebSocketDisconnect:
         pass
     finally:
@@ -381,7 +386,7 @@ async def _serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> N
 
 def create_app(database_url: str | None = None, clock: Callable[[], float] = time.monotonic) -> FastAPI:
     require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
-    session_factory = _open_database(database_url)
+    session_factory = open_database(database_url)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -500,8 +505,8 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
                 pass
 
     app.state.disconnect = disconnect
-    _include_routers(app)
-    _mount_admin(app)
+    include_routers(app)
+    mount_admin(app)
 
     async def announce_leave(room: str, user: TokenPayload) -> None:
         await hub.broadcast(room, system_frame("leave", room, user.user_id, user.username))
@@ -518,11 +523,11 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
                          people_changed=people_changed, presence_changed=presence_changed, announce_leave=announce_leave)
     @app.websocket("/ws-lobby", dependencies=access_dependencies(admin=True, moderator=True, user=True))
     async def lobby_socket(websocket: WebSocket) -> None:
-        await _serve_lobby(websocket, rt)
+        await serve_lobby(websocket, rt)
 
     @app.websocket("/ws/{room}", dependencies=access_dependencies(admin=True, moderator=True, user=True))
     async def chat_socket(websocket: WebSocket, room: str) -> None:
-        await _serve_room(websocket, room, rt)
+        await serve_room(websocket, room, rt)
 
     return app
 
