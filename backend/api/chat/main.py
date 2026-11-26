@@ -3,6 +3,7 @@ from sn_shared.deps import access_dependencies
 import asyncio
 import json
 import os
+from types import SimpleNamespace
 import re
 import time
 from collections import Counter
@@ -227,6 +228,157 @@ def _mount_admin(app: FastAPI) -> None:
     mount_crud(app, specs, database="chat")
 
 
+async def _serve_lobby(websocket: WebSocket, rt: SimpleNamespace) -> None:
+    hub, lobby, lobby_sockets, connections, online_users, people_changed = rt.hub, rt.lobby, rt.lobby_sockets, rt.connections, rt.online_users, rt.people_changed
+    user = _authorize(websocket)
+    if user is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    await websocket.accept()
+    if lobby_sockets[user.user_id] >= MAX_LOBBY_SOCKETS_PER_USER:
+        await websocket.close(code=_TRY_AGAIN_LATER, reason="Too many lobby connections")
+        return
+    newly_online = user.user_id not in online_users()
+    lobby_sockets[user.user_id] += 1
+    if newly_online:
+        await people_changed()  # before this socket is added: it gets its snapshot below, the others get the push
+    lobby.hub.add(LOBBY_KEY, websocket)
+    try:
+        await websocket.send_json(lobby.frame())
+        limiter = SlidingWindow(RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS)
+        while True:
+            try:
+                raw = await _receive(websocket, user)
+            except _Expired:
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+            if raw is not None and len(raw) > MAX_FRAME_CHARS:
+                await websocket.close(code=status.WS_1009_MESSAGE_TOO_BIG)
+                return
+            if not limiter.allow():
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+            # The lobby is receive-only: client frames are counted and ignored.
+    except WebSocketDisconnect:
+        pass
+    finally:
+        lobby.hub.leave(LOBBY_KEY, websocket)
+        lobby_sockets[user.user_id] -= 1
+        if lobby_sockets[user.user_id] <= 0:
+            del lobby_sockets[user.user_id]
+            if user.user_id not in online_users():
+                await asyncio.shield(people_changed())
+
+
+async def _serve_room(websocket: WebSocket, room: str, rt: SimpleNamespace) -> None:
+    app, hub, presence, lobby, chat_sockets, connections, online_users, people_changed, presence_changed = rt.app, rt.hub, rt.presence, rt.lobby, rt.chat_sockets, rt.connections, rt.online_users, rt.people_changed, rt.presence_changed
+    announce_leave = rt.announce_leave
+    user = _authorize(websocket)
+    if user is None or not _valid_room(room):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    await websocket.accept()
+    not_allowed = await run_in_threadpool(_enter, app.state.session_factory, room, user)
+    if not_allowed is not None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=not_allowed)
+        return
+    refusal = None
+    if chat_sockets[user.user_id] >= MAX_SOCKETS_PER_USER:
+        refusal = "Too many connections"
+    else:
+        refusal = presence.refusal(room, user.user_id)
+    if refusal is not None:
+        await websocket.close(code=_TRY_AGAIN_LATER, reason=refusal)
+        return
+
+    limiter = SlidingWindow(RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS)
+    newly_online = user.user_id not in online_users()
+    chat_sockets[user.user_id] += 1
+    if newly_online:
+        await people_changed()
+    first = presence.join(room, user.user_id, user.username)
+    hub.add(room, websocket)
+    connections.setdefault((room, user.user_id), set()).add(websocket)
+    try:
+        if first:
+            await hub.broadcast(room, system_frame("join", room, user.user_id, user.username))
+            await hub.broadcast_local(room, presence_frame(presence, room))
+            await presence_changed(room)
+            await lobby.notify()
+        else:
+            await websocket.send_json(presence_frame(presence, room))
+        while True:
+            try:
+                raw = await _receive(websocket, user)
+            except _Expired:
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+            if raw is None:  # binary frame
+                await websocket.send_json({"type": "error", "error": "Only text frames are supported"})
+                continue
+            if len(raw) > MAX_FRAME_CHARS:
+                await websocket.close(code=status.WS_1009_MESSAGE_TOO_BIG)
+                return
+            if not limiter.allow():
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+            incoming = _parse_incoming(raw)
+            if incoming is None:
+                await websocket.send_json(
+                    {"type": "error", "error": "Message must be 1-2000 characters"}
+                )
+                continue
+            owned = room_commands.parse(incoming.content)
+            if owned is None and (said := room_commands.parse_saying(incoming.content)) is not None:  # as people talk: the owner's only, else it is a message
+                if await run_in_threadpool(room_commands.owns, app.state.session_factory, room, user.user_id):
+                    owned = said
+            if owned is not None:  # an owner's command (it is not a message, and a closed room takes it): the same as the buttons of the row
+                problem = await room_commands.run(app, room, websocket.cookies, websocket.headers.get("origin", ""), owned[0], owned[1])
+                if problem:
+                    await websocket.send_json({"type": "error", "error": problem})
+                continue
+            saved, problem = await run_in_threadpool(
+                _save_message, app.state.session_factory, room, user, incoming.content, incoming.reply_to
+            )
+            if saved is None:
+                await websocket.send_json({"type": "error", "error": problem})
+                continue
+            await hub.broadcast(room, saved.frame())
+            command = assistant.parse(incoming.content)
+            if command is None:
+                virtual_reply.spawn(
+                    app.state.background, virtual_reply.reply_in_room(app.state.session_factory, hub.broadcast, room, user)
+                )  # the virtual people of the room may answer; the writer does not wait for them
+            elif not command[0]:
+                await websocket.send_json({"type": "error", "error": assistant.USAGE})
+            elif not await run_in_threadpool(assistant.has_assistant, app.state.session_factory, room, user.user_id):
+                await websocket.send_json({"type": "error", "error": assistant.NO_ASSISTANT})
+            else:  # a command: the assistant of the room answers with a card, in the name of a virtual person
+                virtual_reply.spawn(
+                    app.state.background,
+                    assistant.run_command(app.state.session_factory, hub.broadcast, room, user, command[0], command[1], assistant.token_of(websocket.cookies)),
+                )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        hub.leave(room, websocket)
+        sockets = connections.get((room, user.user_id))
+        if sockets is not None:
+            sockets.discard(websocket)
+            if not sockets:
+                del connections[(room, user.user_id)]
+        chat_sockets[user.user_id] -= 1
+        gone_offline = False
+        if chat_sockets[user.user_id] <= 0:
+            del chat_sockets[user.user_id]
+            gone_offline = user.user_id not in online_users()
+        if presence.leave(room, user.user_id):
+            # Shielded: a cancelled handler must still tell the room the user left.
+            await asyncio.shield(announce_leave(room, user))
+        if gone_offline:
+            await asyncio.shield(people_changed())
+
+
 def create_app(database_url: str | None = None, clock: Callable[[], float] = time.monotonic) -> FastAPI:
     require_verification_keys()  # production without JWT_PUBLIC_KEYS fails at startup
     session_factory = _open_database(database_url)
@@ -361,153 +513,16 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    rt = SimpleNamespace(app=app, hub=hub, presence=presence, lobby=lobby, lobby_sockets=lobby_sockets,
+                         chat_sockets=chat_sockets, connections=connections, online_users=online_users,
+                         people_changed=people_changed, presence_changed=presence_changed, announce_leave=announce_leave)
     @app.websocket("/ws-lobby", dependencies=access_dependencies(admin=True, moderator=True, user=True))
     async def lobby_socket(websocket: WebSocket) -> None:
-        user = _authorize(websocket)
-        if user is None:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
-        await websocket.accept()
-        if lobby_sockets[user.user_id] >= MAX_LOBBY_SOCKETS_PER_USER:
-            await websocket.close(code=_TRY_AGAIN_LATER, reason="Too many lobby connections")
-            return
-        newly_online = user.user_id not in online_users()
-        lobby_sockets[user.user_id] += 1
-        if newly_online:
-            await people_changed()  # before this socket is added: it gets its snapshot below, the others get the push
-        lobby.hub.add(LOBBY_KEY, websocket)
-        try:
-            await websocket.send_json(lobby.frame())
-            limiter = SlidingWindow(RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS)
-            while True:
-                try:
-                    raw = await _receive(websocket, user)
-                except _Expired:
-                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-                    return
-                if raw is not None and len(raw) > MAX_FRAME_CHARS:
-                    await websocket.close(code=status.WS_1009_MESSAGE_TOO_BIG)
-                    return
-                if not limiter.allow():
-                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-                    return
-                # The lobby is receive-only: client frames are counted and ignored.
-        except WebSocketDisconnect:
-            pass
-        finally:
-            lobby.hub.leave(LOBBY_KEY, websocket)
-            lobby_sockets[user.user_id] -= 1
-            if lobby_sockets[user.user_id] <= 0:
-                del lobby_sockets[user.user_id]
-                if user.user_id not in online_users():
-                    await asyncio.shield(people_changed())
+        await _serve_lobby(websocket, rt)
 
     @app.websocket("/ws/{room}", dependencies=access_dependencies(admin=True, moderator=True, user=True))
     async def chat_socket(websocket: WebSocket, room: str) -> None:
-        user = _authorize(websocket)
-        if user is None or not _valid_room(room):
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
-        await websocket.accept()
-        not_allowed = await run_in_threadpool(_enter, app.state.session_factory, room, user)
-        if not_allowed is not None:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=not_allowed)
-            return
-        refusal = None
-        if chat_sockets[user.user_id] >= MAX_SOCKETS_PER_USER:
-            refusal = "Too many connections"
-        else:
-            refusal = presence.refusal(room, user.user_id)
-        if refusal is not None:
-            await websocket.close(code=_TRY_AGAIN_LATER, reason=refusal)
-            return
-
-        limiter = SlidingWindow(RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS)
-        newly_online = user.user_id not in online_users()
-        chat_sockets[user.user_id] += 1
-        if newly_online:
-            await people_changed()
-        first = presence.join(room, user.user_id, user.username)
-        hub.add(room, websocket)
-        connections.setdefault((room, user.user_id), set()).add(websocket)
-        try:
-            if first:
-                await hub.broadcast(room, system_frame("join", room, user.user_id, user.username))
-                await hub.broadcast_local(room, presence_frame(presence, room))
-                await presence_changed(room)
-                await lobby.notify()
-            else:
-                await websocket.send_json(presence_frame(presence, room))
-            while True:
-                try:
-                    raw = await _receive(websocket, user)
-                except _Expired:
-                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-                    return
-                if raw is None:  # binary frame
-                    await websocket.send_json({"type": "error", "error": "Only text frames are supported"})
-                    continue
-                if len(raw) > MAX_FRAME_CHARS:
-                    await websocket.close(code=status.WS_1009_MESSAGE_TOO_BIG)
-                    return
-                if not limiter.allow():
-                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-                    return
-                incoming = _parse_incoming(raw)
-                if incoming is None:
-                    await websocket.send_json(
-                        {"type": "error", "error": "Message must be 1-2000 characters"}
-                    )
-                    continue
-                owned = room_commands.parse(incoming.content)
-                if owned is None and (said := room_commands.parse_saying(incoming.content)) is not None:  # as people talk: the owner's only, else it is a message
-                    if await run_in_threadpool(room_commands.owns, app.state.session_factory, room, user.user_id):
-                        owned = said
-                if owned is not None:  # an owner's command (it is not a message, and a closed room takes it): the same as the buttons of the row
-                    problem = await room_commands.run(app, room, websocket.cookies, websocket.headers.get("origin", ""), owned[0], owned[1])
-                    if problem:
-                        await websocket.send_json({"type": "error", "error": problem})
-                    continue
-                saved, problem = await run_in_threadpool(
-                    _save_message, app.state.session_factory, room, user, incoming.content, incoming.reply_to
-                )
-                if saved is None:
-                    await websocket.send_json({"type": "error", "error": problem})
-                    continue
-                await hub.broadcast(room, saved.frame())
-                command = assistant.parse(incoming.content)
-                if command is None:
-                    virtual_reply.spawn(
-                        app.state.background, virtual_reply.reply_in_room(app.state.session_factory, hub.broadcast, room, user)
-                    )  # the virtual people of the room may answer; the writer does not wait for them
-                elif not command[0]:
-                    await websocket.send_json({"type": "error", "error": assistant.USAGE})
-                elif not await run_in_threadpool(assistant.has_assistant, app.state.session_factory, room, user.user_id):
-                    await websocket.send_json({"type": "error", "error": assistant.NO_ASSISTANT})
-                else:  # a command: the assistant of the room answers with a card, in the name of a virtual person
-                    virtual_reply.spawn(
-                        app.state.background,
-                        assistant.run_command(app.state.session_factory, hub.broadcast, room, user, command[0], command[1], assistant.token_of(websocket.cookies)),
-                    )
-        except WebSocketDisconnect:
-            pass
-        finally:
-            hub.leave(room, websocket)
-            sockets = connections.get((room, user.user_id))
-            if sockets is not None:
-                sockets.discard(websocket)
-                if not sockets:
-                    del connections[(room, user.user_id)]
-            chat_sockets[user.user_id] -= 1
-            gone_offline = False
-            if chat_sockets[user.user_id] <= 0:
-                del chat_sockets[user.user_id]
-                gone_offline = user.user_id not in online_users()
-            if presence.leave(room, user.user_id):
-                # Shielded: a cancelled handler must still tell the room the user left.
-                await asyncio.shield(announce_leave(room, user))
-            if gone_offline:
-                await asyncio.shield(people_changed())
+        await _serve_room(websocket, room, rt)
 
     return app
 
