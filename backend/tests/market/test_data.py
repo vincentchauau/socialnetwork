@@ -17,7 +17,7 @@ def test_data_requires_login(client):
 
 def test_tables_and_ops(client):
     tables = {t["name"]: t["writable"] for t in client.get("/records/tables", headers=auth(BUYER)).json()}
-    assert tables == {"market_products": True, "cart_items": True, "market_orders": False, "discount_codes": True, "showcases": True}
+    assert tables == {"market_products": True, "cart_items": True, "market_orders": False, "discount_codes": True}
 
 
 def test_products_isolated_and_seller_forced(client):

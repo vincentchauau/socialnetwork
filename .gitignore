@@ -19,3 +19,7 @@ lab/backend/app/proto/*_pb2*.py
 # the data of the backend (files of the apps, the images to load): kept on the machine, not in the repository
 backend/data/
 .gen-docs-tmp/
+
+# Python build output
+build/
+*.egg-info/

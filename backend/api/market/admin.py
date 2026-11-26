@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from api.market.models import Brand, CartItem, DiscountCode, Order, Product, Showcase
+from api.market.models import CartItem, DiscountCode, Order, Product
 from sn_shared import comments
 from sn_shared.admincrud import TableSpec, mount_crud
 from sn_shared.security import TokenPayload
@@ -38,16 +38,6 @@ SPECS = [
               media={"image_url": {"kind": "image", "preview": "@self"}}),
     TableSpec(DiscountCode, owner="seller_id", readonly_columns=("used",)),
     TableSpec(CartItem, owner="user_id", refs={"product_id": ("market_products", "name")}),
-    TableSpec(Brand, media={"logo": {"kind": "image", "preview": "files/logo"}}),
-    TableSpec(
-        Showcase,
-        owner="seller_id",
-        refs={"brand_id": ("brands", "name")},
-        media={
-            "cover": {"kind": "image", "preview": "files/cover"},
-            "audio": {"kind": "audio", "preview": "files/audio"},
-            "video": {"kind": "video", "preview": "files/video"},
-        }),
     TableSpec(
         Order,  # an order is made by the checkout and shown to its buyer: nobody changes it through the records
         readonly_columns=("buyer_id", "total_cents", "items", "seller_ids", "created_at", "idempotency_key", "pay_key", "discount_code", "discount_cents", "delivered_at"),

@@ -127,27 +127,3 @@ class Order(Base):
     @property
     def currency(self) -> str:
         return CURRENCY
-
-
-class Brand(Base):
-    """A brand a showcase refers to (a demo of a table with a picture and a reference)."""
-
-    __tablename__ = "brands"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(NAME_MAX))
-    logo: Mapped[str | None] = mapped_column(String(IMAGE_URL_MAX), nullable=True)
-
-
-class Showcase(Base):
-    """A demo of every kind of cell: text, a picture, an audio and a video (files kept in the records folder), and a reference to a brand."""
-
-    __tablename__ = "showcases"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    seller_id: Mapped[int] = mapped_column(Integer, index=True)
-    title: Mapped[str] = mapped_column(String(NAME_MAX))
-    brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"), nullable=True)
-    cover: Mapped[str | None] = mapped_column(String(IMAGE_URL_MAX), nullable=True)
-    audio: Mapped[str | None] = mapped_column(String(IMAGE_URL_MAX), nullable=True)
-    video: Mapped[str | None] = mapped_column(String(IMAGE_URL_MAX), nullable=True)

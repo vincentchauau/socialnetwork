@@ -20,7 +20,7 @@ def test_admin_requires_admin_role(client):
 
 def test_admin_lists_the_market_tables(client):
     tables = {t["name"]: t for t in client.get("/records/tables", headers=ADMIN).json()}
-    assert set(tables) == {"market_products", "cart_items", "market_orders", "discount_codes", "brands", "showcases"}
+    assert set(tables) == {"market_products", "cart_items", "market_orders", "discount_codes"}
     assert tables["market_orders"]["writable"] is True
 
 
