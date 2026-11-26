@@ -23,7 +23,8 @@ beforeEach(() => {
     if (url === "/api/face/records/tables") return [{ ...tbl("a", "Alpha"), rows: 5 }, tbl("b", "Beta")];
     if (url === "/api/roulette/records/tables") return [tbl("m", "Lamp")];
     if (url.includes("/records/tables")) throw new ApiError(404, "nf", {});
-    return { total: 0, rows: [] };
+    if (url.includes("/records/")) return { total: 0, rows: [] };
+    return [];
   });
 });
 

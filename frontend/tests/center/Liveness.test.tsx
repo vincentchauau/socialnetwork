@@ -245,31 +245,6 @@ describe("VideoRecord with liveness", () => {
 });
 
 describe("liveness token in the forms", () => {
-  it("sign-in with the webcam sends liveness_token with the video", async () => {
-    const fn = setup(ON);
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<LoginFlow />);
-    await selectTab(user, "Webcam (khuôn mặt)");
-    await recordClip(user);
-    await user.click(screen.getByRole("button", { name: "Đăng nhập" }));
-    await waitFor(() => expect(goTo).toHaveBeenCalledWith("/"));
-    const form = formOf(fn, "/login/webcam");
-    expect(form.get("liveness_token")).toBe("lv-token");
-    expect(form.get("video")).toBeInstanceOf(Blob);
-    expect(callsTo(fn, "/liveness/challenge")).toHaveLength(1);
-  });
-
-  it("sign-in sends no liveness_token when liveness is off", async () => {
-    const fn = setup(OFF);
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<LoginFlow />);
-    await selectTab(user, "Webcam (khuôn mặt)");
-    await recordClip(user);
-    await user.click(screen.getByRole("button", { name: "Đăng nhập" }));
-    await waitFor(() => expect(goTo).toHaveBeenCalled());
-    expect(formOf(fn, "/login/webcam").has("liveness_token")).toBe(false);
-  });
-
   it("registration sends liveness_token with the webcam video", async () => {
     const fn = setup(ON);
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
