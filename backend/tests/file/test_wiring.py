@@ -3,6 +3,7 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
+from sn_shared.consumer import start_consumer
 from api.file import main
 from api.file.main import create_app
 
@@ -25,10 +26,10 @@ def test_startup_requires_verification_keys(monkeypatch):
 
 def test_consumer_is_skipped_in_tests_and_without_redis(monkeypatch):
     monkeypatch.setenv("TESTING", "1")
-    assert main._start_account_consumer(None) is None
+    assert start_consumer("file", None) is None
     monkeypatch.delenv("TESTING")
     monkeypatch.delenv("REDIS_URL", raising=False)
-    assert main._start_account_consumer(None) is None
+    assert start_consumer("file", None) is None
 
 
 def test_consumer_is_started_with_redis_and_stopped_on_shutdown(monkeypatch):

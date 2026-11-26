@@ -132,10 +132,6 @@ def _valid_room(room: str) -> bool:
     return re.fullmatch(ROOM_PATTERN, room) is not None
 
 
-def _start_account_consumer(session_factory: sessionmaker) -> Any:
-    return start_consumer("chat", session_factory)
-
-
 _stop_account_consumer = stop_consumer
 
 
@@ -198,7 +194,7 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        handle = _start_account_consumer(application.state.session_factory)
+        handle = start_consumer("chat", application.state.session_factory)
         await start_cluster()
         try:
             yield

@@ -5,6 +5,7 @@ import types
 import pytest
 from fastapi.testclient import TestClient
 
+from sn_shared.consumer import start_consumer
 from api.face import main
 from api.face.db import make_engine
 from sn_shared.origin import check_origin
@@ -12,10 +13,10 @@ from sn_shared.origin import check_origin
 
 def test_consumer_not_started_without_redis(monkeypatch):
     monkeypatch.delenv("REDIS_URL", raising=False)
-    assert main._start_account_consumer(object()) is None
+    assert start_consumer("face", object()) is None
     monkeypatch.setenv("REDIS_URL", "redis://x")
     monkeypatch.setenv("TESTING", "1")
-    assert main._start_account_consumer(object()) is None
+    assert start_consumer("face", object()) is None
 
 
 def test_consumer_started_with_redis(monkeypatch):
@@ -24,14 +25,14 @@ def test_consumer_started_with_redis(monkeypatch):
     fake = types.ModuleType("sn_shared.events")
     fake.start_account_consumer = lambda name, factory, **_: (name, factory)
     monkeypatch.setitem(sys.modules, "sn_shared.events", fake)
-    assert main._start_account_consumer("f") == ("face", "f")
+    assert start_consumer("face", "f") == ("face", "f")
 
 
 def test_consumer_import_error(monkeypatch):
     monkeypatch.delenv("TESTING", raising=False)
     monkeypatch.setenv("REDIS_URL", "redis://x")
     monkeypatch.setitem(sys.modules, "sn_shared.events", None)
-    assert main._start_account_consumer(object()) is None
+    assert start_consumer("face", object()) is None
 
 
 def test_stop_consumer_variants():
@@ -58,7 +59,7 @@ def test_lifespan_stops_consumer(monkeypatch):
         def stop(self):
             stopped.append(True)
 
-    monkeypatch.setattr(main, "_start_account_consumer", lambda factory: Handle())
+    monkeypatch.setattr(main, "start_consumer", lambda name, factory: Handle())
     with TestClient(main.create_app("sqlite://")):
         pass
     assert stopped == [True]

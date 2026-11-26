@@ -23,10 +23,6 @@ from sn_shared.jwtkeys import require_verification_keys
 DEFAULT_DATABASE_URL = "sqlite:///./werewolf.db"
 
 
-def _start_account_consumer(session_factory: sessionmaker) -> Any:
-    return start_consumer("werewolf", session_factory)
-
-
 _stop_account_consumer = stop_consumer
 
 
@@ -44,7 +40,7 @@ def create_app(database_url: str | None = None, clock: Callable[[], float] = tim
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        handle = _start_account_consumer(application.state.session_factory)
+        handle = start_consumer("werewolf", application.state.session_factory)
         await game.restore(application)  # the games that were running before a restart
         games = [asyncio.create_task(game.reaper_loop(application)), asyncio.create_task(game.tick_loop(application))]
         try:

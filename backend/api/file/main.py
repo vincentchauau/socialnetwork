@@ -21,10 +21,6 @@ MULTIPART_OVERHEAD_BYTES = 64 * 1024
 UPLOAD_LIMITS = {"/upload": files.MAX_FILE_BYTES + MULTIPART_OVERHEAD_BYTES}
 
 
-def _start_account_consumer(session_factory: sessionmaker) -> Any:
-    return start_consumer("file", session_factory)
-
-
 _stop_account_consumer = stop_consumer
 
 
@@ -35,7 +31,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        handle = _start_account_consumer(application.state.session_factory)
+        handle = start_consumer("file", application.state.session_factory)
         try:
             yield
         finally:

@@ -17,10 +17,6 @@ from sn_shared.jwtkeys import require_verification_keys
 DEFAULT_DATABASE_URL = "sqlite:///./face.db"
 
 
-def _start_account_consumer(session_factory: sessionmaker) -> Any:
-    return start_consumer("face", session_factory)
-
-
 _stop_account_consumer = stop_consumer
 
 
@@ -32,7 +28,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        handle = _start_account_consumer(application.state.session_factory)
+        handle = start_consumer("face", application.state.session_factory)
         try:
             yield
         finally:
