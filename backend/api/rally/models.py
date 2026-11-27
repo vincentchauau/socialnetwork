@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from api.rally.db import Base
@@ -17,6 +17,7 @@ class Match(Base):
     name: Mapped[str] = mapped_column(String(100))
     video_name: Mapped[str] = mapped_column(String(255))
     video_path: Mapped[str] = mapped_column(String(500))
+    court_corners: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: four [x, y] on the frame (0..1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

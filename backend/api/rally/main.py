@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from api.rally.db import Base, make_engine
 from api.rally.routes import router
 from sn_shared import directory
+from sn_shared.db import ensure_columns
 from sn_shared.consumer import start_consumer, stop_consumer
 from sn_shared.deps import access_dependencies
 from sn_shared.jwtkeys import require_verification_keys
@@ -25,6 +26,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         require_verification_keys()
         engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
         Base.metadata.create_all(engine)
+        ensure_columns(engine, "rally_matches", {"court_corners": "TEXT"})  # added after the first release
         directory.ensure_table_for_sqlite(engine)  # sqlite only: the users table the tests and the local run read from
 
         @asynccontextmanager

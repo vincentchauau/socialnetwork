@@ -1,5 +1,6 @@
 """The routes of rally: upload a match video, mark its rallies, read the match and its statistics."""
 
+import json
 import logging
 import os
 import re
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 from api.rally import stats, store
 from api.rally.db import get_db
 from api.rally.models import Match
-from api.rally.schemas import MatchOut, MatchSummary, RallyIn, RallyOut, StatsOut
+from api.rally.schemas import CourtIn, MatchOut, MatchSummary, RallyIn, RallyOut, StatsOut
 from api.rally.video import video_response
 from sn_shared.limits import reader, writer
 from sn_shared.security import TokenPayload
@@ -61,6 +62,10 @@ def save_upload(upload: UploadFile, target: Path) -> None:
         raise HTTPException(status_code=500, detail="The video could not be saved") from error
 
 
+def court_of(match: Match) -> list[list[float]] | None:
+    return json.loads(match.court_corners) if match.court_corners else None
+
+
 def match_out(match: Match, db: Session) -> MatchOut:
     rallies = store.list_rallies(db, match.id)
     return MatchOut(
@@ -70,6 +75,7 @@ def match_out(match: Match, db: Session) -> MatchOut:
         created_at=match.created_at,
         rallies=[RallyOut.model_validate(rally, from_attributes=True) for rally in rallies],
         stats=StatsOut(**stats.summary(rallies)),
+        court=court_of(match),
     )
 
 
@@ -114,6 +120,19 @@ def read_match(match_id: int, user: TokenPayload = Depends(reader), db: Session 
     except Exception as error:
         if getattr(error, "status_code", None) is None:
             logger.exception("read_match failed")
+        raise
+
+
+@router.put("/matches/{match_id}/court", response_model=MatchOut)
+def set_court(match_id: int, body: CourtIn, user: TokenPayload = Depends(writer), db: Session = Depends(get_db)) -> MatchOut:
+    try:
+        match = store.owned_match(db, user.user_id, match_id)
+        match.court_corners = json.dumps(body.corners)
+        db.commit()
+        return match_out(match, db)
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("set_court failed")
         raise
 
 

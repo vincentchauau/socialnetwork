@@ -56,6 +56,37 @@ def test_delete_rally_removes_it(client) -> None:
     assert client.get(f"/matches/{match_id}", headers=ALICE).json()["rallies"] == []
 
 
+SQUARE_COURT = {"corners": [[0.2, 0.8], [0.8, 0.8], [0.8, 0.2], [0.2, 0.2]]}
+
+
+def test_court_is_unset_until_marked_and_then_returned(client) -> None:
+    match_id = upload(client).json()["id"]
+    assert client.get(f"/matches/{match_id}", headers=ALICE).json()["court"] is None
+
+    saved = client.put(f"/matches/{match_id}/court", json=SQUARE_COURT, headers=ALICE)
+
+    assert saved.status_code == 200
+    assert saved.json()["court"] == SQUARE_COURT["corners"]
+    assert client.get(f"/matches/{match_id}", headers=ALICE).json()["court"] == SQUARE_COURT["corners"]
+
+
+def test_court_with_a_bow_tie_is_refused(client) -> None:
+    match_id = upload(client).json()["id"]
+    bow_tie = {"corners": [[0.1, 0.1], [0.9, 0.9], [0.9, 0.1], [0.1, 0.9]]}
+
+    response = client.put(f"/matches/{match_id}/court", json=bow_tie, headers=ALICE)
+
+    assert response.status_code == 422
+
+
+def test_court_of_another_person_is_not_changed(client) -> None:
+    match_id = upload(client).json()["id"]
+
+    response = client.put(f"/matches/{match_id}/court", json=SQUARE_COURT, headers=BOB)
+
+    assert response.status_code == 404
+
+
 def test_other_people_cannot_see_or_change_a_match(client) -> None:
     match_id = upload(client, headers=ALICE).json()["id"]
 
