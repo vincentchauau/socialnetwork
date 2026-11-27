@@ -26,6 +26,7 @@ BOX_MARGIN = 0.02  # a player's box is grown by this share before candidates are
 MIN_TRACK_POINTS = 4  # a track needs this many points before it can be the shuttle
 FORGET_FRAMES = 30  # a track not extended for this long is dropped
 FIT_POINTS = 8  # the last points a track must follow a flight path through
+SELECT_POINTS = 16  # a longer window to choose between tracks: a flight path is the same over a longer stretch
 MAX_FIT_RESIDUAL = 0.01  # share of the frame: a shuttle flies a smooth path (a parabola in y, a line in x); a limb does not
 
 
@@ -124,12 +125,12 @@ def step(tracks: tuple[Track, ...], candidates: list[tuple[float, float]], frame
     return tuple(alive)
 
 
-def fit_residual(track: Track) -> float:
+def fit_residual(track: Track, window: int = FIT_POINTS) -> float:
     """How far the last points are from a flight path: a line in x over time and a parabola in y (gravity and drag).
 
     The result is the root-mean-square distance in share of the frame; infinity when there are too few points to tell.
     """
-    recent = track.points[-FIT_POINTS:]
+    recent = track.points[-window:]
     if len(recent) < MIN_TRACK_POINTS:
         return float("inf")
     times = np.array([point[0] for point in recent], dtype=float)
@@ -156,7 +157,7 @@ def follow(
     if not recent:
         return None, None
     kept = [track for track in recent if chosen is not None and track.points[0] == chosen.points[0]]
-    best = kept[0] if kept else max(recent, key=lambda track: (len(track.points), track.last()[0]))
+    best = kept[0] if kept else min(recent, key=lambda track: (fit_residual(track, SELECT_POINTS), -len(track.points)))
     _, x, y = best.last()
     return (x, y), best
 
