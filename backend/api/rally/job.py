@@ -8,6 +8,7 @@ import logging
 import os
 from typing import Any
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session, sessionmaker
 
 from api.rally.models import Match
@@ -69,3 +70,15 @@ def result_of(match: Match) -> tuple[list[dict[str, Any]], list[list[float]]]:
     if isinstance(stored, list):
         return stored, []
     return stored["samples"], stored["shuttle"]
+
+
+def fail_stale_jobs(factory: sessionmaker[Session]) -> None:
+    """At start-up no job is running: a match still marked running lost its thread when the server stopped."""
+    try:
+        with factory() as db:
+            db.execute(update(Match).where(Match.people_status == STATUS_RUNNING).values(people_status=STATUS_FAILED))
+            db.commit()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("fail_stale_jobs failed")
+        raise

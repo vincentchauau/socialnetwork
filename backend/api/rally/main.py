@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 
 from api.rally.db import Base, make_engine
+from api.rally.job import fail_stale_jobs
 from api.rally.routes import router
 from sn_shared import directory
 from sn_shared.db import ensure_columns
@@ -34,6 +35,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
         @asynccontextmanager
         async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+            fail_stale_jobs(application.state.session_factory)
             handle = start_consumer("rally", application.state.session_factory)
             try:
                 yield
