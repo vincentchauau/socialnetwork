@@ -85,6 +85,8 @@ def outside_people(
     return kept
 
 
+RING_MAX_STD = 25  # the ring around a shuttle is an even background: its spread is small
+RING_MIN_DROP = 40  # and darker than the shuttle's peak by at least this much
 STREAK_ENABLED = True  # a fast shuttle is a motion-blur streak: take its leading end
 STREAK_ELONGATION = 3.0  # a streak is at least this many times longer than it is wide
 MAX_STREAK_AREA = 160  # at the reference width, a streak can be this many pixels
@@ -121,6 +123,8 @@ def find_candidates(previous: NDArray[np.uint8], current: NDArray[np.uint8]) -> 
         if int(current[y0:y0 + h_box, x0:x0 + w_box][inside].max()) < MIN_BRIGHTNESS:  # the shuttle is almost white
             continue
         pixels = np.argwhere(inside) + np.array([y0, x0])
+        if not isolated(current, x0, y0, w_box, h_box, int(current[y0:y0 + h_box, x0:x0 + w_box][inside].max()), width):
+            continue
         point = leading_end(pixels, current) if STREAK_ENABLED and is_streak(pixels) else centres[label]
         x, y = point
         found.append((float(x) / width, float(y) / height))
@@ -285,3 +289,17 @@ def global_positions(archive: dict[tuple[int, float, float], Track], frame_count
                 positions[frame_index] = position
                 claimed[frame_index] = True
     return positions
+
+
+def isolated(frame: NDArray[np.uint8], x0: int, y0: int, w_box: int, h_box: int, peak: int, width: int) -> bool:
+    """A shuttle is a white spot on an even background: the ring around it is darker than its peak and does not vary much."""
+    margin = max(2, int(round(scaled(3, width))))
+    top, left = max(0, y0 - margin), max(0, x0 - margin)
+    bottom, right = min(frame.shape[0], y0 + h_box + margin), min(frame.shape[1], x0 + w_box + margin)
+    region = frame[top:bottom, left:right].astype(float)
+    mask = np.ones(region.shape, dtype=bool)
+    mask[y0 - top:y0 - top + h_box, x0 - left:x0 - left + w_box] = False
+    ring = region[mask]
+    if ring.size == 0:
+        return False
+    return bool(ring.std() <= RING_MAX_STD and ring.mean() <= peak - RING_MIN_DROP)
