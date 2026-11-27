@@ -61,3 +61,29 @@ def test_a_track_not_extended_for_too_long_is_forgotten() -> None:
         tracks = step(tracks, [], frame_index)
 
     assert tracks == ()
+
+
+def test_a_cluster_of_spots_is_dropped_but_a_lone_spot_is_kept() -> None:
+    from api.rally.shuttle import drop_clusters
+
+    cluster = [(0.50, 0.50), (0.51, 0.50), (0.50, 0.51), (0.51, 0.51), (0.52, 0.50)]
+    lone = (0.10, 0.90)
+
+    assert drop_clusters(cluster + [lone]) == [lone]
+
+
+def test_the_followed_track_is_kept_when_another_track_gets_longer() -> None:
+    from api.rally.shuttle import follow
+
+    tracks: tuple[Track, ...] = ()
+    for frame_index in range(6):
+        tracks = step(tracks, [(0.2 + 0.01 * frame_index, 0.5)], frame_index)
+    position, chosen = follow(tracks, 5, None)
+    for frame_index in range(6, 14):
+        other = (0.9, 0.1 + 0.02 * (frame_index - 6))
+        tracks = step(tracks, [(0.2 + 0.01 * frame_index, 0.5), other], frame_index)
+    later, kept = follow(tracks, 13, chosen)
+
+    assert kept is not None and chosen is not None
+    assert kept.points[0] == chosen.points[0]
+    assert later is not None and later[0] == pytest.approx(0.2 + 0.01 * 13, abs=0.02)

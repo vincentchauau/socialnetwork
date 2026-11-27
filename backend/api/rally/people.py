@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 from api.rally.court import COURT_LENGTH_M, COURT_WIDTH_M, court_matrix, on_court, to_court
 from api.rally.court_detect import detect_court
 from api.rally.identity import assign_labels
-from api.rally.shuttle import Track, find_candidates, outside_people, shuttle_at
+from api.rally.shuttle import Track, find_candidates, follow, outside_people
 from api.rally.shuttle import step as shuttle_step
 
 INPUT_SIZE = 640
@@ -121,6 +121,7 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> list[dict[str, obj
         samples: list[dict[str, object]] = []
         known: dict[int, tuple[float, float]] = {}
         tracks: tuple[Track, ...] = ()
+        chosen: Track | None = None  # the track the shuttle is followed on
         boxes: list[tuple[float, float, float, float]] = []  # the players of the last sample
         previous: NDArray[np.uint8] | None = None
         index = 0
@@ -137,7 +138,7 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> list[dict[str, obj
                 found = sample_of(frame, net)
                 labeled, known = assign_labels(known, found["people"])  # type: ignore[arg-type]
                 boxes = [tuple(person["box"]) for person in labeled]  # type: ignore[misc]
-                shuttle = shuttle_at(tracks, index)
+                shuttle, chosen = follow(tracks, index, chosen)
                 samples.append({
                     "t_ms": round(index * 1000 / fps),
                     "court": found["court"],
