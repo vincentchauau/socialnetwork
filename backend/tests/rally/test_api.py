@@ -67,34 +67,30 @@ class FakeThread:
         FakeThread.started.append(self.args)
 
 
-def test_players_job_needs_no_marked_court(client, monkeypatch) -> None:
+def test_upload_starts_the_players_job_by_itself(client, monkeypatch) -> None:
     from api.rally import routes
 
     FakeThread.started = []
     monkeypatch.setattr(routes.threading, "Thread", FakeThread)
+
     match_id = upload(client).json()["id"]
-
-    response = client.post(f"/matches/{match_id}/people", headers=ALICE)
-
-    assert response.status_code == 202
-    assert len(FakeThread.started) == 1
-
-
-def test_players_job_starts_once_and_reports_running(client, monkeypatch) -> None:
-    from api.rally import routes
-
-    FakeThread.started = []
-    monkeypatch.setattr(routes.threading, "Thread", FakeThread)
-    match_id = upload(client).json()["id"]
-
-    first = client.post(f"/matches/{match_id}/people", headers=ALICE)
-    second = client.post(f"/matches/{match_id}/people", headers=ALICE)
     status = client.get(f"/matches/{match_id}/people", headers=ALICE).json()
 
-    assert first.status_code == 202
-    assert second.status_code == 409
     assert len(FakeThread.started) == 1
     assert status == {"status": "running", "samples": []}
+
+
+def test_players_job_is_not_started_twice(client, monkeypatch) -> None:
+    from api.rally import routes
+
+    FakeThread.started = []
+    monkeypatch.setattr(routes.threading, "Thread", FakeThread)
+    match_id = upload(client).json()["id"]
+
+    again = client.post(f"/matches/{match_id}/people", headers=ALICE)
+
+    assert again.status_code == 409
+    assert len(FakeThread.started) == 1
 
 
 def test_players_are_not_read_by_another_person(client) -> None:

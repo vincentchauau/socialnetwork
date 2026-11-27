@@ -34,3 +34,21 @@ def auth_cookie(user_id: int = 1, username: str = "alice") -> dict[str, str]:
 
 ALICE = auth_cookie(1, "alice")
 BOB = auth_cookie(2, "bob")
+
+
+class SilentThread:
+    """Stands in for the background thread in tests: the job is not run, so no detector and no database write follows a test."""
+
+    def __init__(self, target, args, daemon) -> None:
+        self.target = target
+        self.args = args
+
+    def start(self) -> None:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def no_background_job(monkeypatch):
+    from api.rally import routes
+
+    monkeypatch.setattr(routes.threading, "Thread", SilentThread)

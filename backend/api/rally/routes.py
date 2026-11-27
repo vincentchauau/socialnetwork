@@ -64,6 +64,18 @@ def save_upload(upload: UploadFile, target: Path) -> None:
         raise HTTPException(status_code=500, detail="The video could not be saved") from error
 
 
+def start_job(request: Request, db: Session, match: Match) -> None:
+    """Mark the match as running and find the players in a background thread (one job per match at a time)."""
+    try:
+        match.people_status = STATUS_RUNNING
+        db.commit()
+        threading.Thread(target=run_analysis, args=(request.app.state.session_factory, match.id), daemon=True).start()
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("start_job failed")
+        raise
+
+
 def match_out(match: Match, db: Session) -> MatchOut:
     rallies = store.list_rallies(db, match.id)
     return MatchOut(
@@ -88,6 +100,7 @@ def list_matches(user: TokenPayload = Depends(reader), db: Session = Depends(get
 
 @router.post("/matches", status_code=201, response_model=MatchSummary)
 def upload_match(
+    request: Request,
     name: Annotated[str, Form(min_length=1, max_length=100)],
     video: Annotated[UploadFile, File()],
     user: TokenPayload = Depends(writer),
@@ -103,6 +116,7 @@ def upload_match(
         match = Match(user_id=user.user_id, name=name.strip(), video_name=safe_name, video_path=str(target))
         db.add(match)
         db.commit()
+        start_job(request, db, match)
         return match
     except Exception as error:
         if getattr(error, "status_code", None) is None:
@@ -126,9 +140,7 @@ def start_people(match_id: int, request: Request, user: TokenPayload = Depends(w
         match = store.owned_match(db, user.user_id, match_id)
         if match.people_status == STATUS_RUNNING:
             raise HTTPException(status_code=409, detail="The players are already being found")
-        match.people_status = STATUS_RUNNING
-        db.commit()
-        threading.Thread(target=run_analysis, args=(request.app.state.session_factory, match_id), daemon=True).start()
+        start_job(request, db, match)
         return PeopleOut(status=STATUS_RUNNING, samples=[])
     except Exception as error:
         if getattr(error, "status_code", None) is None:
