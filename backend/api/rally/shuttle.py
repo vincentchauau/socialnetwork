@@ -20,13 +20,13 @@ TOPHAT_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
 MIN_AREA = 2  # pixels, at the frame's own resolution
 MAX_AREA = 30  # the shuttle is a few pixels; a player's white shirt or shoe is bigger
 GATE = 0.1  # a candidate this far (share of the frame) from a track's prediction can extend it
-MAX_MISS_FRAMES = 4  # a track that is not extended for this many frames stops being the shuttle
+MAX_MISS_FRAMES = 8  # a track that is not extended for this many frames stops being the shuttle
 EDGE_MARGIN = 0.02  # candidates this close to the frame edge are lights or logos, not the shuttle
 BOX_MARGIN = 0.02  # a player's box is grown by this share before candidates are dropped
 MIN_TRACK_POINTS = 4  # a track needs this many points before it can be the shuttle
-FORGET_FRAMES = 16  # a track not extended for this long is dropped
-STRAIGHT_POINTS = 6  # the last points that must lie on a straight line
-MIN_STRAIGHTNESS = 0.7  # the straight distance over the walked distance: a shuttle flies straight, a limb swings back
+FORGET_FRAMES = 30  # a track not extended for this long is dropped
+FIT_POINTS = 8  # the last points a track must follow a flight path through
+MAX_FIT_RESIDUAL = 0.01  # share of the frame: a shuttle flies a smooth path (a parabola in y, a line in x); a limb does not
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,9 @@ def outside_people(
     return kept
 
 
-def find_candidates(previous: NDArray[np.uint8], current: NDArray[np.uint8]) -> list[tuple[float, float]]:
+def find_candidates(
+    previous: NDArray[np.uint8], current: NDArray[np.uint8], background: NDArray[np.uint8] | None = None
+) -> list[tuple[float, float]]:
     """Spots that are brighter than their own surroundings and moved since the previous frame, as 0..1 of the frame.
 
     The local brightness (top-hat) finds a small white spot on a bright background, such as the banners, where a global
@@ -72,7 +74,8 @@ def find_candidates(previous: NDArray[np.uint8], current: NDArray[np.uint8]) -> 
     height, width = current.shape[:2]
     local = cv2.morphologyEx(current, cv2.MORPH_TOPHAT, TOPHAT_KERNEL)
     contrast = cv2.threshold(local, LOCAL_CONTRAST, 255, cv2.THRESH_BINARY)[1]
-    moving = cv2.threshold(cv2.absdiff(current, previous), MOTION_THRESHOLD, 255, cv2.THRESH_BINARY)[1]
+    reference = previous if background is None else background
+    moving = cv2.threshold(cv2.absdiff(current, reference), MOTION_THRESHOLD, 255, cv2.THRESH_BINARY)[1]
     spots = cv2.bitwise_and(contrast, moving)
     count, labels, stats, centres = cv2.connectedComponentsWithStats(spots)
     found = []
@@ -121,15 +124,20 @@ def step(tracks: tuple[Track, ...], candidates: list[tuple[float, float]], frame
     return tuple(alive)
 
 
-def straightness(track: Track) -> float:
-    """The distance from the first to the last of the last points, over the path walked: 1.0 is a straight line."""
-    recent = track.points[-STRAIGHT_POINTS:]
-    walked = sum(
-        float(np.hypot(b[1] - a[1], b[2] - a[2])) for a, b in zip(recent, recent[1:])
-    )
-    if walked == 0:
-        return 0.0
-    return float(np.hypot(recent[-1][1] - recent[0][1], recent[-1][2] - recent[0][2])) / walked
+def fit_residual(track: Track) -> float:
+    """How far the last points are from a flight path: a line in x over time and a parabola in y (gravity and drag).
+
+    The result is the root-mean-square distance in share of the frame; infinity when there are too few points to tell.
+    """
+    recent = track.points[-FIT_POINTS:]
+    if len(recent) < MIN_TRACK_POINTS:
+        return float("inf")
+    times = np.array([point[0] for point in recent], dtype=float)
+    xs = np.array([point[1] for point in recent])
+    ys = np.array([point[2] for point in recent])
+    x_fit = np.polyval(np.polyfit(times, xs, 1), times)
+    y_fit = np.polyval(np.polyfit(times, ys, 2), times)
+    return float(np.sqrt(np.mean((xs - x_fit) ** 2 + (ys - y_fit) ** 2)))
 
 
 def follow(
@@ -143,7 +151,7 @@ def follow(
     recent = [
         track for track in tracks
         if len(track.points) >= MIN_TRACK_POINTS and frame_index - track.last()[0] <= MAX_MISS_FRAMES
-        and straightness(track) >= MIN_STRAIGHTNESS
+        and fit_residual(track) <= MAX_FIT_RESIDUAL
     ]
     if not recent:
         return None, None

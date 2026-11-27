@@ -18,6 +18,7 @@ from api.rally.shuttle import Track, find_candidates, follow, outside_people
 from api.rally.shuttle import step as shuttle_step
 
 INPUT_SIZE = 640
+BACKGROUND_FRAMES = 5  # the background of the shuttle search is the median of this many frames
 PERSON_CLASS = 4  # the score of class 0 (person) sits after the four box values
 CONFIDENCE = 0.35
 NMS_THRESHOLD = 0.45
@@ -125,6 +126,7 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> dict[str, list]:
         chosen: Track | None = None  # the track the shuttle is followed on
         boxes: list[tuple[float, float, float, float]] = []  # the players of the last sample
         previous: NDArray[np.uint8] | None = None
+        recent_grey: list[NDArray[np.uint8]] = []  # the last frames: their median is the background
         index = 0
         while capture.grab():
             ok, frame = capture.retrieve()
@@ -133,8 +135,10 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> dict[str, list]:
                 continue
             grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             if previous is not None:
-                tracks = shuttle_step(tracks, outside_people(find_candidates(previous, grey), boxes), index)
+                background = np.median(np.stack(recent_grey), axis=0).astype(np.uint8) if recent_grey else None
+                tracks = shuttle_step(tracks, outside_people(find_candidates(previous, grey, background), boxes), index)
             previous = grey
+            recent_grey = (recent_grey + [grey])[-BACKGROUND_FRAMES:]
             shuttle, chosen = follow(tracks, index, chosen)
             if shuttle is not None:
                 shuttle_points.append([round(index * 1000 / fps), round(shuttle[0], 4), round(shuttle[1], 4)])

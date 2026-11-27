@@ -57,7 +57,7 @@ def test_a_track_seen_only_once_is_not_the_shuttle() -> None:
 
 def test_a_track_not_extended_for_too_long_is_forgotten() -> None:
     tracks = step((), [(0.2, 0.2)], 0)
-    for frame_index in range(1, 30):
+    for frame_index in range(1, 33):
         tracks = step(tracks, [], frame_index)
 
     assert tracks == ()
