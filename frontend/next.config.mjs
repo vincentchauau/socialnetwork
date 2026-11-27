@@ -27,7 +27,8 @@ const nextConfig = {
       // The market is done in the User pane of the home page (shop, cart, pay, orders, sell): its own pages are only the pages that pane opens.
       // Every app is done in the User pane of the home page, so the pages of the apps lead there. Left alone: the account pages and the
       // pages for people who have no account (the links of a shared file, a certificate to check).
-      ...["face", "chat", "call", "werewolf", "roulette", "rally"].map((app) => ({ source: `/${app}/:path*`, destination: "/", permanent: false })),
+      // The home page opens the app named in `?app=` (see database/selection.tsx), so the address keeps it.
+      ...["face", "chat", "call", "werewolf", "roulette", "rally"].map((app) => ({ source: `/${app}/:path*`, destination: `/?app=${app}`, permanent: false })),
       { source: "/admin/:path*", destination: "/", permanent: false }, // the tables of every app are the Database pane of `/`, for an admin
       { source: "/file", destination: "/", permanent: false },
       { source: "/file/:path((?!s/).+)", destination: "/", permanent: false },
