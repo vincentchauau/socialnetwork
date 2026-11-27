@@ -123,7 +123,6 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> dict[str, list]:
         known: dict[int, tuple[float, float]] = {}
         tracks: tuple[Track, ...] = ()
         archive: dict[tuple[int, float, float], Track] = {}  # every track of the video, the longest version of each
-        boxes: list[tuple[float, float, float, float]] = []  # the players of the last sample
         previous: NDArray[np.uint8] | None = None
         index = 0
         while capture.grab():
@@ -133,13 +132,13 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> dict[str, list]:
                 continue
             grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             if previous is not None:
-                tracks = shuttle_step(tracks, outside_people(find_candidates(previous, grey), boxes), index)
+                # Players' boxes are not used to drop candidates: a shuttle over a player's head is kept (the edge and cluster filters still apply).
+                tracks = shuttle_step(tracks, outside_people(find_candidates(previous, grey), []), index)
             previous = grey
             archive = archive_update(archive, tracks)
             if index % every == 0:
                 found = sample_of(frame, net)
                 labeled, known = assign_labels(known, found["people"])  # type: ignore[arg-type]
-                boxes = [tuple(person["box"]) for person in labeled]  # type: ignore[misc]
                 samples.append({
                     "t_ms": round(index * 1000 / fps),
                     "court": found["court"],
