@@ -79,6 +79,49 @@ def test_court_with_a_bow_tie_is_refused(client) -> None:
     assert response.status_code == 422
 
 
+class FakeThread:
+    started: list[tuple] = []
+
+    def __init__(self, target, args, daemon) -> None:
+        self.target = target
+        self.args = args
+
+    def start(self) -> None:
+        FakeThread.started.append(self.args)
+
+
+def test_players_need_the_court_first(client) -> None:
+    match_id = upload(client).json()["id"]
+
+    response = client.post(f"/matches/{match_id}/people", headers=ALICE)
+
+    assert response.status_code == 409
+
+
+def test_players_job_starts_once_and_reports_running(client, monkeypatch) -> None:
+    from api.rally import routes
+
+    FakeThread.started = []
+    monkeypatch.setattr(routes.threading, "Thread", FakeThread)
+    match_id = upload(client).json()["id"]
+    client.put(f"/matches/{match_id}/court", json=SQUARE_COURT, headers=ALICE)
+
+    first = client.post(f"/matches/{match_id}/people", headers=ALICE)
+    second = client.post(f"/matches/{match_id}/people", headers=ALICE)
+    status = client.get(f"/matches/{match_id}/people", headers=ALICE).json()
+
+    assert first.status_code == 202
+    assert second.status_code == 409
+    assert len(FakeThread.started) == 1
+    assert status == {"status": "running", "samples": []}
+
+
+def test_players_are_not_read_by_another_person(client) -> None:
+    match_id = upload(client).json()["id"]
+
+    assert client.get(f"/matches/{match_id}/people", headers=BOB).status_code == 404
+
+
 def test_court_of_another_person_is_not_changed(client) -> None:
     match_id = upload(client).json()["id"]
 

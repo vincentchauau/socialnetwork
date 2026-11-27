@@ -26,7 +26,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
         require_verification_keys()
         engine = make_engine(database_url or os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
         Base.metadata.create_all(engine)
-        ensure_columns(engine, "rally_matches", {"court_corners": "TEXT"})  # added after the first release
+        ensure_columns(engine, "rally_matches", {
+            "court_corners": "TEXT",  # added after the first release
+            "people_status": "VARCHAR(16) NOT NULL DEFAULT 'idle'",
+            "people_track": "TEXT",
+        })
         directory.ensure_table_for_sqlite(engine)  # sqlite only: the users table the tests and the local run read from
 
         @asynccontextmanager

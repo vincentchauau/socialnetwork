@@ -124,6 +124,7 @@ services:
       CHAT_URL: "http://127.0.0.1:8000/chat"
       WEREWOLF_SNAPSHOT_KEY: "${WEREWOLF_SNAPSHOT_KEY:-}"
       FILE_DATA_DIR: "/data/file"
+      RALLY_MODEL_PATH: "/data/models/yolov8n.onnx"
       RALLY_UPLOAD_DIR: "/data/rally"
     secrets:
       - jwt_private_key

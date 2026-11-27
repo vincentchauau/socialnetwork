@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import threading
 import uuid
 from pathlib import Path
 from typing import Annotated
@@ -14,8 +15,9 @@ from sqlalchemy.orm import Session
 
 from api.rally import stats, store
 from api.rally.db import get_db
+from api.rally.job import STATUS_RUNNING, run_analysis, samples_of
 from api.rally.models import Match
-from api.rally.schemas import CourtIn, MatchOut, MatchSummary, RallyIn, RallyOut, StatsOut
+from api.rally.schemas import CourtIn, MatchOut, MatchSummary, PeopleOut, RallyIn, RallyOut, StatsOut
 from api.rally.video import video_response
 from sn_shared.limits import reader, writer
 from sn_shared.security import TokenPayload
@@ -133,6 +135,35 @@ def set_court(match_id: int, body: CourtIn, user: TokenPayload = Depends(writer)
     except Exception as error:
         if getattr(error, "status_code", None) is None:
             logger.exception("set_court failed")
+        raise
+
+
+@router.post("/matches/{match_id}/people", status_code=202, response_model=PeopleOut)
+def start_people(match_id: int, request: Request, user: TokenPayload = Depends(writer), db: Session = Depends(get_db)) -> PeopleOut:
+    try:
+        match = store.owned_match(db, user.user_id, match_id)
+        if match.people_status == STATUS_RUNNING:
+            raise HTTPException(status_code=409, detail="The players are already being found")
+        if not match.court_corners:
+            raise HTTPException(status_code=409, detail="Mark the court first")
+        match.people_status = STATUS_RUNNING
+        db.commit()
+        threading.Thread(target=run_analysis, args=(request.app.state.session_factory, match_id), daemon=True).start()
+        return PeopleOut(status=STATUS_RUNNING, samples=[])
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("start_people failed")
+        raise
+
+
+@router.get("/matches/{match_id}/people", response_model=PeopleOut)
+def read_people(match_id: int, user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> PeopleOut:
+    try:
+        match = store.owned_match(db, user.user_id, match_id)
+        return PeopleOut(status=match.people_status, samples=samples_of(match))
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("read_people failed")
         raise
 
 

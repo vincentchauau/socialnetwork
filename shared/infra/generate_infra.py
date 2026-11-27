@@ -204,8 +204,10 @@ ALL_APPS: tuple[App, ...] = (
     App("market", "Market", "Mua bán sản phẩm", backend_in="api"),
     # rally: the videos of the matches (RALLY_UPLOAD_DIR under /data, a folder of its own); the rallies are marked by hand for now.
     # The upload of a match video is 2 GB at most (the backend's own limit); the video streams back without buffering.
+    # The person detector (YOLOv8n, ONNX) is kept in backend/data/models, which is /data in the backend.
     App("rally", "Rally", "Đánh dấu các rally trong video cầu lông", backend_in="api", volume=True,
-        upload_path="/matches", max_body="2g", stream=True),
+        upload_path="/matches", max_body="2g", stream=True,
+        backend_env=(("RALLY_MODEL_PATH", "/data/models/yolov8n.onnx"),)),
 )
 
 # The apps that are generated into compose/nginx/apps.ts; narrowed by --apps in main().

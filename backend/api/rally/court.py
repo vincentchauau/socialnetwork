@@ -53,10 +53,21 @@ def validate_quad(corners: Quad) -> None:
         raise ValueError("The court is too small on the frame")
 
 
+def canonical_corners(corners: Quad) -> Quad:
+    """The corners in the order near left, near right, far right, far left, whatever order they were clicked in.
+
+    The near side is the lower two points of the frame (larger y); in each pair the left point is the one with the smaller x.
+    """
+    by_height = sorted(corners, key=lambda point: point[1])
+    far = sorted(by_height[:2], key=lambda point: point[0])
+    near = sorted(by_height[2:], key=lambda point: point[0])
+    return [near[0], near[1], far[1], far[0]]
+
+
 def court_matrix(corners: Quad) -> NDArray[np.float64]:
     """The 3x3 map from video points (0..1) to metres on the court."""
     validate_quad(corners)
-    source = np.array(corners, dtype=np.float32)
+    source = np.array(canonical_corners(corners), dtype=np.float32)
     return np.asarray(cv2.getPerspectiveTransform(source, court_corners_m()), dtype=np.float64)
 
 

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -70,6 +70,11 @@ class StatsOut(BaseModel):
     max_hits: int
     avg_duration_ms: float
     longest_rally_ms: int
+
+
+class PeopleOut(BaseModel):
+    status: str  # idle, running, done or failed
+    samples: list[dict[str, Any]]  # one per sample of the video: t_ms and the people on the court
 
 
 class MatchOut(MatchSummary):

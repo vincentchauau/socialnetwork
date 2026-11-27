@@ -18,6 +18,8 @@ class Match(Base):
     video_name: Mapped[str] = mapped_column(String(255))
     video_path: Mapped[str] = mapped_column(String(500))
     court_corners: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: four [x, y] on the frame (0..1)
+    people_status: Mapped[str] = mapped_column(String(16), default="idle")  # idle, running, done or failed
+    people_track: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: the samples of the players job
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
