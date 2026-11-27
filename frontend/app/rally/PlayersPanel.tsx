@@ -4,13 +4,13 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@sn/api";
 import Button from "@sn/elements/Button";
-import { API, PeopleResult, PeopleSample, errorText } from "./lib";
+import { API, PeopleResult, errorText } from "./lib";
 
 export const POLL_MILLISECONDS = 2000;
 
 interface PlayersPanelProps {
   matchId: number;
-  onSamples: (samples: PeopleSample[]) => void;
+  onResult: (result: PeopleResult) => void;
 }
 
 const LABELS: Record<PeopleResult["status"], string> = {
@@ -21,7 +21,7 @@ const LABELS: Record<PeopleResult["status"], string> = {
 };
 
 /** Starts the players job of the match and, while it runs, asks for its status until it is done. */
-export default function PlayersPanel({ matchId, onSamples }: PlayersPanelProps) {
+export default function PlayersPanel({ matchId, onResult }: PlayersPanelProps) {
   const [status, setStatus] = useState<PeopleResult["status"]>("idle");
   const [message, setMessage] = useState("");
   const [polling, setPolling] = useState(false);
@@ -35,7 +35,7 @@ export default function PlayersPanel({ matchId, onSamples }: PlayersPanelProps) 
       .then((result) => {
         if (cancelled) return;
         setStatus(result.status);
-        if (result.status === "done") onSamples(result.samples);
+        if (result.status === "done") onResult(result);
         if (result.status === "running") setPolling(true);
       })
       .catch(() => {
@@ -44,7 +44,7 @@ export default function PlayersPanel({ matchId, onSamples }: PlayersPanelProps) 
     return () => {
       cancelled = true;
     };
-  }, [matchId, onSamples]);
+  }, [matchId, onResult]);
 
   useEffect(() => {
     if (!polling) return undefined;
@@ -55,7 +55,7 @@ export default function PlayersPanel({ matchId, onSamples }: PlayersPanelProps) 
         if (cancelled || result.status === "running") return;
         setStatus(result.status);
         setPolling(false);
-        if (result.status === "done") onSamples(result.samples);
+        if (result.status === "done") onResult(result);
       } catch (failure) {
         if (!cancelled) {
           setMessage(errorText(failure));
@@ -67,7 +67,7 @@ export default function PlayersPanel({ matchId, onSamples }: PlayersPanelProps) 
       cancelled = true;
       clearInterval(timer);
     };
-  }, [polling, matchId, onSamples]);
+  }, [polling, matchId, onResult]);
 
   async function start() {
     setMessage("");

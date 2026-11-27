@@ -6,16 +6,17 @@ import { apiFetch, apiForm } from "@sn/api";
 import Button from "@sn/elements/Button";
 import CourtPicker from "./CourtPicker";
 import PlayersPanel from "./PlayersPanel";
-import { API, MatchSummary, PeopleSample, errorText, sampleAt } from "./lib";
+import { API, MatchSummary, PeopleResult, errorText, sampleAt, shuttleAt } from "./lib";
 
 export default function RallyMain() {
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [matchId, setMatchId] = useState<number | null>(null);
-  const [samples, setSamples] = useState<PeopleSample[]>([]);
+  const [result, setResult] = useState<PeopleResult | null>(null);
   const [nowMs, setNowMs] = useState(0);
   const [error, setError] = useState("");
   const video = useRef<HTMLVideoElement>(null);
-  const sample = useMemo(() => sampleAt(samples, nowMs), [samples, nowMs]);
+  const sample = useMemo(() => sampleAt(result?.samples ?? [], nowMs), [result, nowMs]);
+  const shuttle = useMemo(() => shuttleAt(result?.shuttle ?? [], nowMs), [result, nowMs]);
 
   const loadMatches = useCallback(async (selectId?: number) => {
     try {
@@ -32,7 +33,7 @@ export default function RallyMain() {
   }, [loadMatches]);
 
   useEffect(() => {
-    setSamples([]);
+    setResult(null);
     setNowMs(0);
   }, [matchId]);
 
@@ -76,9 +77,10 @@ export default function RallyMain() {
             src={`${API}/matches/${matchId}/video`}
             videoRef={video}
             sample={sample}
+            shuttle={shuttle}
             onTime={setNowMs}
           />
-          <PlayersPanel matchId={matchId} onSamples={setSamples} />
+          <PlayersPanel matchId={matchId} onResult={setResult} />
         </>
       )}
 

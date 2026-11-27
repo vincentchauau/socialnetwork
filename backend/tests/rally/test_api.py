@@ -38,7 +38,7 @@ def test_upload_starts_the_players_job_by_itself(client, monkeypatch) -> None:
     status = client.get(f"/matches/{match_id}/people", headers=ALICE).json()
 
     assert len(FakeThread.started) == 1
-    assert status == {"status": "running", "samples": []}
+    assert status == {"status": "running", "samples": [], "shuttle": []}
 
 
 def test_players_job_is_not_started_twice(client, monkeypatch) -> None:

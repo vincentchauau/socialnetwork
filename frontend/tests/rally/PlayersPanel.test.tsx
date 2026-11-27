@@ -11,7 +11,7 @@ vi.mock("@sn/api", () => ({
   errorText: (error: unknown) => String(error),
 }));
 
-const FINISHED: PeopleSample[] = [{ t_ms: 0, court: null, shuttle: null, people: [] }];
+const FINISHED: PeopleSample[] = [{ t_ms: 0, court: null, people: [] }];
 
 beforeEach(() => {
   vi.mocked(apiFetch).mockReset();
@@ -19,21 +19,21 @@ beforeEach(() => {
 
 describe("PlayersPanel: finding the players of a match", () => {
   it("shows the result of a finished job as soon as the match opens", async () => {
-    const onSamples = vi.fn();
-    vi.mocked(apiFetch).mockResolvedValue({ status: "done", samples: FINISHED } as PeopleResult);
+    const onResult = vi.fn();
+    vi.mocked(apiFetch).mockResolvedValue({ status: "done", samples: FINISHED, shuttle: [] } as PeopleResult);
 
-    render(<PlayersPanel matchId={3} onSamples={onSamples} />);
+    render(<PlayersPanel matchId={3} onResult={onResult} />);
 
-    await waitFor(() => expect(onSamples).toHaveBeenCalledWith(FINISHED));
+    await waitFor(() => expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ status: "done", samples: FINISHED })));
     expect(screen.getByRole("status")).toHaveTextContent("The players are found.");
   });
 
   it("starts the job and reports it running", async () => {
     vi.mocked(apiFetch)
-      .mockResolvedValueOnce({ status: "idle", samples: [] } as PeopleResult) // on open
-      .mockResolvedValueOnce({ status: "running", samples: [] }); // the start
+      .mockResolvedValueOnce({ status: "idle", samples: [], shuttle: [] } as PeopleResult) // on open
+      .mockResolvedValueOnce({ status: "running", samples: [], shuttle: [] }); // the start
 
-    render(<PlayersPanel matchId={3} onSamples={vi.fn()} />);
+    render(<PlayersPanel matchId={3} onResult={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Find players" }));
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Finding the players"));
@@ -42,24 +42,24 @@ describe("PlayersPanel: finding the players of a match", () => {
   });
 
   it("delivers the samples when the running job is done", async () => {
-    const onSamples = vi.fn();
+    const onResult = vi.fn();
     vi.mocked(apiFetch)
-      .mockResolvedValueOnce({ status: "running", samples: [] } as PeopleResult) // on open: a job is already running
-      .mockResolvedValue({ status: "done", samples: FINISHED } as PeopleResult); // the polls
+      .mockResolvedValueOnce({ status: "running", samples: [], shuttle: [] } as PeopleResult) // on open: a job is already running
+      .mockResolvedValue({ status: "done", samples: FINISHED, shuttle: [] } as PeopleResult); // the polls
 
-    render(<PlayersPanel matchId={3} onSamples={onSamples} />);
+    render(<PlayersPanel matchId={3} onResult={onResult} />);
 
-    await waitFor(() => expect(onSamples).toHaveBeenCalledWith(FINISHED), { timeout: 5000 });
+    await waitFor(() => expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ status: "done", samples: FINISHED })), { timeout: 5000 });
     expect(screen.getByRole("status")).toHaveTextContent("The players are found.");
   });
 
   it("says so when the job fails", async () => {
     vi.mocked(apiFetch)
-      .mockResolvedValueOnce({ status: "idle", samples: [] } as PeopleResult)
-      .mockResolvedValueOnce({ status: "running", samples: [] })
-      .mockResolvedValue({ status: "failed", samples: [] } as PeopleResult);
+      .mockResolvedValueOnce({ status: "idle", samples: [], shuttle: [] } as PeopleResult)
+      .mockResolvedValueOnce({ status: "running", samples: [], shuttle: [] })
+      .mockResolvedValue({ status: "failed", samples: [], shuttle: [] } as PeopleResult);
 
-    render(<PlayersPanel matchId={3} onSamples={vi.fn()} />);
+    render(<PlayersPanel matchId={3} onResult={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Find players" }));
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("could not be found"), { timeout: 5000 });

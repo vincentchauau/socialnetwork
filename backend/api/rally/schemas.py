@@ -16,4 +16,5 @@ class MatchSummary(BaseModel):
 
 class PeopleOut(BaseModel):
     status: str  # idle, running, done or failed
-    samples: list[dict[str, Any]]  # one per sample of the video: t_ms and the people on the court
+    samples: list[dict[str, Any]] = []  # one per sample of the video: t_ms, the court and the people on it
+    shuttle: list[list[float]] = []  # the shuttle on each frame it is seen: [t_ms, x, y]

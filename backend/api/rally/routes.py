@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from api.rally import store
 from api.rally.db import get_db
-from api.rally.job import STATUS_RUNNING, run_analysis, samples_of
+from api.rally.job import STATUS_RUNNING, result_of, run_analysis
 from api.rally.models import Match
 from api.rally.schemas import MatchSummary, PeopleOut
 from api.rally.video import video_response
@@ -128,7 +128,7 @@ def start_people(match_id: int, request: Request, user: TokenPayload = Depends(w
         if match.people_status == STATUS_RUNNING:
             raise HTTPException(status_code=409, detail="The players are already being found")
         start_job(request, db, match)
-        return PeopleOut(status=STATUS_RUNNING, samples=[])
+        return PeopleOut(status=STATUS_RUNNING)
     except Exception as error:
         if getattr(error, "status_code", None) is None:
             logger.exception("start_people failed")
@@ -139,7 +139,8 @@ def start_people(match_id: int, request: Request, user: TokenPayload = Depends(w
 def read_people(match_id: int, user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> PeopleOut:
     try:
         match = store.owned_match(db, user.user_id, match_id)
-        return PeopleOut(status=match.people_status, samples=samples_of(match))
+        samples, shuttle = result_of(match)
+        return PeopleOut(status=match.people_status, samples=samples, shuttle=shuttle)
     except Exception as error:
         if getattr(error, "status_code", None) is None:
             logger.exception("read_people failed")

@@ -53,13 +53,19 @@ def run_analysis(factory: sessionmaker[Session], match_id: int) -> None:
                 set_status(factory, match_id, STATUS_FAILED)
                 return
             video_path = match.video_path
-        samples = track(video_path, load_detector(model_path()), SAMPLE_STEP_MS)
-        set_status(factory, match_id, STATUS_DONE, json.dumps(samples))
+        result = track(video_path, load_detector(model_path()), SAMPLE_STEP_MS)
+        set_status(factory, match_id, STATUS_DONE, json.dumps(result))
     except Exception as error:
         if getattr(error, "status_code", None) is None:
             logger.exception("run_analysis failed")
         set_status(factory, match_id, STATUS_FAILED)
 
 
-def samples_of(match: Match) -> list[dict[str, Any]]:
-    return json.loads(match.people_track) if match.people_track else []
+def result_of(match: Match) -> tuple[list[dict[str, Any]], list[list[float]]]:
+    """The samples and the shuttle points stored for the match (results stored before the shuttle was kept are lists)."""
+    if not match.people_track:
+        return [], []
+    stored = json.loads(match.people_track)
+    if isinstance(stored, list):
+        return stored, []
+    return stored["samples"], stored["shuttle"]

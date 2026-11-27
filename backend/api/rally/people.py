@@ -107,10 +107,10 @@ def sample_of(frame: NDArray[np.uint8], net: cv2.dnn.Net) -> dict[str, object]:
     return {"court": corners, "people": on_court_people(detect(net, frame), matrix)}
 
 
-def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> list[dict[str, object]]:
-    """One sample every `step_ms` of the video: the time, the court, the people (labelled) and the shuttle.
-
-    Every frame is read: the shuttle is followed frame by frame, while the people and the court are found on the samples.
+def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> dict[str, list]:
+    """The result of a video: `samples`, one every `step_ms` (the court and the people, labelled), and `shuttle`,
+    the shuttle on every frame where it is seen, as [t_ms, x, y]. The shuttle is followed frame by frame, so it can be
+    drawn at the time of the video that is playing.
     """
     capture = cv2.VideoCapture(video_path)
     try:
@@ -119,6 +119,7 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> list[dict[str, obj
         fps = capture.get(cv2.CAP_PROP_FPS) or 25.0
         every = max(1, round(fps * step_ms / 1000))
         samples: list[dict[str, object]] = []
+        shuttle_points: list[list[float]] = []
         known: dict[int, tuple[float, float]] = {}
         tracks: tuple[Track, ...] = ()
         chosen: Track | None = None  # the track the shuttle is followed on
@@ -134,18 +135,19 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> list[dict[str, obj
             if previous is not None:
                 tracks = shuttle_step(tracks, outside_people(find_candidates(previous, grey), boxes), index)
             previous = grey
+            shuttle, chosen = follow(tracks, index, chosen)
+            if shuttle is not None:
+                shuttle_points.append([round(index * 1000 / fps), round(shuttle[0], 4), round(shuttle[1], 4)])
             if index % every == 0:
                 found = sample_of(frame, net)
                 labeled, known = assign_labels(known, found["people"])  # type: ignore[arg-type]
                 boxes = [tuple(person["box"]) for person in labeled]  # type: ignore[misc]
-                shuttle, chosen = follow(tracks, index, chosen)
                 samples.append({
                     "t_ms": round(index * 1000 / fps),
                     "court": found["court"],
                     "people": labeled,
-                    "shuttle": None if shuttle is None else [round(shuttle[0], 4), round(shuttle[1], 4)],
                 })
             index += 1
-        return samples
+        return {"samples": samples, "shuttle": shuttle_points}
     finally:
         capture.release()

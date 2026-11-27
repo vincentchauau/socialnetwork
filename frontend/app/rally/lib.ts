@@ -28,12 +28,30 @@ export interface PeopleSample {
   t_ms: number;
   court: Point[] | null; // the four corners found on this frame, or null when no full court is in view
   people: PersonOnCourt[];
-  shuttle: [number, number] | null; // the shuttle on this frame (0..1 of the frame), or null when it is not seen
 }
 
 export interface PeopleResult {
   status: "idle" | "running" | "done" | "failed";
   samples: PeopleSample[];
+  shuttle: ShuttlePoint[]; // the shuttle on each frame it is seen
+}
+
+/** The shuttle at one frame: [t_ms, x, y], with x and y in 0..1 of the frame. */
+export type ShuttlePoint = [number, number, number];
+
+/** Longer than this without a point, the shuttle is not shown: it has gone out of view or is lost. */
+export const SHUTTLE_MAX_GAP_MS = 300;
+
+/** The shuttle at `ms`, interpolated between the two points around it (points are in time order). */
+export function shuttleAt(points: ShuttlePoint[], ms: number): [number, number] | null {
+  const after = points.findIndex(([t]) => t >= ms);
+  if (after === -1) return null;
+  const next = points[after];
+  if (next[0] === ms || after === 0) return next[0] - ms <= SHUTTLE_MAX_GAP_MS ? [next[1], next[2]] : null;
+  const previous = points[after - 1];
+  if (ms - previous[0] > SHUTTLE_MAX_GAP_MS && next[0] - ms > SHUTTLE_MAX_GAP_MS) return null;
+  const share = (ms - previous[0]) / (next[0] - previous[0]);
+  return [previous[1] + (next[1] - previous[1]) * share, previous[2] + (next[2] - previous[2]) * share];
 }
 
 /** The last sample at or before `ms` (samples are in time order), or null before the first one. */
