@@ -66,6 +66,9 @@ def outside_people(
     return kept
 
 
+STREAK_ENABLED = True  # a fast shuttle is a motion-blur streak: take its leading end
+STREAK_ELONGATION = 3.0  # a streak is at least this many times longer than it is wide
+MAX_STREAK_AREA = 160  # at the reference width, a streak can be this many pixels
 REFERENCE_WIDTH = 640  # the thresholds above were set for frames this wide; wider frames scale the sizes with it
 
 
@@ -91,12 +94,36 @@ def find_candidates(previous: NDArray[np.uint8], current: NDArray[np.uint8]) -> 
     for label in range(1, count):
         area = int(stats[label][cv2.CC_STAT_AREA])
         if not scaled(MIN_AREA, width) <= area <= scaled(MAX_AREA, width):
-            continue
+            streak = STREAK_ENABLED and area <= scaled(MAX_STREAK_AREA, width)
+            if not streak:
+                continue
+        pixels = np.argwhere(labels == label)
         if int(current[labels == label].max()) < MIN_BRIGHTNESS:  # the shuttle is almost white
             continue
-        x, y = centres[label]
+        point = leading_end(pixels, current) if STREAK_ENABLED and is_streak(pixels) else centres[label]
+        x, y = point
         found.append((float(x) / width, float(y) / height))
     return drop_clusters(found)
+
+
+def is_streak(pixels: NDArray[np.int64]) -> bool:
+    """A long, thin blob: the motion blur of a fast shuttle."""
+    if len(pixels) < 3:
+        return False
+    eigenvalues = np.linalg.eigvalsh(np.cov(pixels.T.astype(float)))
+    return bool(eigenvalues[1] > 0 and np.sqrt(eigenvalues[1] / max(eigenvalues[0], 1e-6)) >= STREAK_ELONGATION)
+
+
+def leading_end(pixels: NDArray[np.int64], current: NDArray[np.uint8]) -> tuple[float, float]:
+    """The brighter end of a streak along its long axis: the shuttle is at its leading, brighter end."""
+    centre = pixels.mean(axis=0)
+    axis = np.linalg.eigh(np.cov(pixels.T.astype(float)))[1][:, 1]
+    along = (pixels - centre) @ axis
+    low, high = pixels[np.argmin(along)], pixels[np.argmax(along)]
+    brightness_low = int(current[low[0], low[1]])
+    brightness_high = int(current[high[0], high[1]])
+    end = high if brightness_high >= brightness_low else low
+    return float(end[1]), float(end[0])
 
 
 def drop_clusters(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
