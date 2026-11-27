@@ -5,10 +5,6 @@ def upload(client, headers=ALICE, name: str = "Final", filename: str = "game.mp4
     return client.post("/matches", data={"name": name}, files={"video": (filename, body, "video/mp4")}, headers=headers)
 
 
-def rally_body(start: int, end: int, hits: int, winner: str) -> dict:
-    return {"start_ms": start, "end_ms": end, "hits": hits, "winner": winner}
-
-
 def test_upload_creates_match_and_streams_video(client) -> None:
     created = upload(client)
 
@@ -19,41 +15,6 @@ def test_upload_creates_match_and_streams_video(client) -> None:
 
 def test_upload_rejects_unsupported_extension(client) -> None:
     assert upload(client, filename="notes.txt").status_code == 415
-
-
-def test_rallies_are_numbered_and_summarised(client) -> None:
-    match_id = upload(client).json()["id"]
-    url = f"/matches/{match_id}/rallies"
-
-    first = client.post(url, json=rally_body(0, 800, 2, "A"), headers=ALICE)
-    second = client.post(url, json=rally_body(1000, 4000, 6, "B"), headers=ALICE)
-
-    assert first.status_code == 201 and second.status_code == 201
-    match = client.get(f"/matches/{match_id}", headers=ALICE).json()
-    assert [rally["number"] for rally in match["rallies"]] == [1, 2]
-    assert match["stats"]["score"] == {"A": 1, "B": 1}
-    assert match["stats"]["max_hits"] == 6
-
-
-def test_rally_rejects_end_before_start_and_unknown_winner(client) -> None:
-    match_id = upload(client).json()["id"]
-    url = f"/matches/{match_id}/rallies"
-
-    backwards = client.post(url, json=rally_body(500, 400, 1, "A"), headers=ALICE)
-    unknown = client.post(url, json=rally_body(0, 100, 1, "C"), headers=ALICE)
-
-    assert backwards.status_code == 422
-    assert unknown.status_code == 422
-
-
-def test_delete_rally_removes_it(client) -> None:
-    match_id = upload(client).json()["id"]
-    rally_id = client.post(f"/matches/{match_id}/rallies", json=rally_body(0, 100, 1, "A"), headers=ALICE).json()["id"]
-
-    deleted = client.delete(f"/matches/{match_id}/rallies/{rally_id}", headers=ALICE)
-
-    assert deleted.status_code == 204
-    assert client.get(f"/matches/{match_id}", headers=ALICE).json()["rallies"] == []
 
 
 class FakeThread:
@@ -99,33 +60,9 @@ def test_players_are_not_read_by_another_person(client) -> None:
     assert client.get(f"/matches/{match_id}/people", headers=BOB).status_code == 404
 
 
-def test_export_gives_the_rallies_as_csv(client) -> None:
-    match_id = upload(client).json()["id"]
-    client.post(f"/matches/{match_id}/rallies", json=rally_body(0, 800, 2, "A"), headers=ALICE)
-    client.post(f"/matches/{match_id}/rallies", json=rally_body(1000, 4000, 6, "B"), headers=ALICE)
-
-    response = client.get(f"/matches/{match_id}/export.csv", headers=ALICE)
-
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/csv")
-    assert "attachment" in response.headers["content-disposition"]
-    assert response.text.splitlines() == [
-        "number,start_ms,end_ms,duration_ms,hits,winner",
-        "1,0,800,800,2,A",
-        "2,1000,4000,3000,6,B",
-    ]
-
-
-def test_export_of_another_person_is_refused(client) -> None:
-    match_id = upload(client).json()["id"]
-
-    assert client.get(f"/matches/{match_id}/export.csv", headers=BOB).status_code == 404
-
-
 def test_other_people_cannot_see_or_change_a_match(client) -> None:
     match_id = upload(client, headers=ALICE).json()["id"]
 
     assert client.get(f"/matches/{match_id}", headers=BOB).status_code == 404
     assert client.get(f"/matches/{match_id}/video", headers=BOB).status_code == 404
-    assert client.post(f"/matches/{match_id}/rallies", json=rally_body(0, 100, 1, "A"), headers=BOB).status_code == 404
     assert client.get("/matches", headers=BOB).json() == []

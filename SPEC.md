@@ -275,24 +275,13 @@ The tabs, in order: CRUD descriptions (the employer's job descriptions), Create 
 
 ## Rally
 
-Marks the rallies of a badminton match on its video. This is the MVP: the rallies are marked by hand; detecting the players, the shuttle and the court comes later.
+Finds the players, the court and the shuttle in a badminton match video, and shows them over the video. Rallies, hits and scores are not built yet.
 
 ### Matches
 
 1. A person uploads a match: a name (1–100 characters) and a video (mp4, webm or mov, at most 2 GB). The video is kept on disk in `RALLY_UPLOAD_DIR`, the file name is made safe and unique.
 2. Only the owner sees a match. Another person gets 404 (the match is not revealed), for the video too.
 3. The video streams with HTTP Range, so the player can seek.
-
-### Rallies
-
-1. The player shows the video. "Mark start" takes the current time; "Mark end" takes the current time again and must be after the start.
-2. Saving a rally stores its start and end (milliseconds), its hits (0–500, whole number) and the side that won the point (`A` or `B`). A rally lasts at most one hour.
-3. A rally takes the next number of its match (1, 2, 3 …). A rally can be deleted; the numbers are not renumbered.
-
-### Statistics
-
-1. Score: one point per rally for the winner's side.
-2. Rallies, average and maximum hits, average and longest duration. A match with no rallies shows zeros.
 
 ### Court (found by itself)
 
@@ -313,13 +302,9 @@ Marks the rallies of a badminton match on its video. This is the MVP: the rallie
 2. Candidates are linked into tracks that move at a steady speed (the next position is predicted from the last two). A track must be straight (at least 0.7 of the walked distance is the straight distance) to be the shuttle, and the longest such track is the shuttle at that time.
 3. The video shows a red ring where the shuttle is found. It is not checked against ground truth yet: the ring was checked by eye on two frames, one of them near the net.
 
-### Export
-
-1. The rallies of a match download as CSV (number, start, end, duration, hits, winner).
-
 ### Account events
 
-1. Deleting an account deletes its matches, their rallies and their video files.
+1. Deleting an account deletes its matches, their stored rallies (rows left from before the rally marking was removed) and their video files.
 
 ---
 
@@ -420,8 +405,6 @@ The `file` module keeps no tables: its files are stored on disk. The Database ap
 # 3. Backend
 
 One FastAPI process (`backend/api/main.py`) mounts one router per module. Shared libraries live in `shared/backend/sn_shared`.
-
-
 
 ## 3.1 Shared functions (`shared/backend/sn_shared`)
 
@@ -629,20 +612,17 @@ The routes of each module, as the running app serves them (the full path, includ
 - `POST /spin`
 - `POST /wallet/refill`
 
-## rally (10)
+## rally (7)
 
 Paths below are the module's own; the gateway sends `/api/rally/...` here as `/...`.
 
-- `DELETE /matches/{match_id}/rallies/{rally_id}`
 - `GET /health`
 - `GET /matches`
 - `GET /matches/{match_id}`
-- `GET /matches/{match_id}/export.csv`
 - `GET /matches/{match_id}/people`
 - `GET /matches/{match_id}/video`
 - `POST /matches`
 - `POST /matches/{match_id}/people`
-- `POST /matches/{match_id}/rallies`
 
 ## market (23)
 
@@ -692,7 +672,7 @@ Paths below are the module's own; the gateway sends `/api/rally/...` here as `/.
 - `POST /jobs/{job_id}/apply`
 - `POST /jobs/{object_id}/comments`
 
-Total listed: 223 routes.
+Total listed: 220 routes.
 
 # 4. Backend test (unit test)
 

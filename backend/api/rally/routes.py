@@ -12,12 +12,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from api.rally import stats, store
-from api.rally.stats import rallies_csv
+from api.rally import store
 from api.rally.db import get_db
 from api.rally.job import STATUS_RUNNING, run_analysis, samples_of
 from api.rally.models import Match
-from api.rally.schemas import MatchOut, MatchSummary, PeopleOut, RallyIn, RallyOut, StatsOut
+from api.rally.schemas import MatchSummary, PeopleOut
 from api.rally.video import video_response
 from sn_shared.limits import reader, writer
 from sn_shared.security import TokenPayload
@@ -76,18 +75,6 @@ def start_job(request: Request, db: Session, match: Match) -> None:
         raise
 
 
-def match_out(match: Match, db: Session) -> MatchOut:
-    rallies = store.list_rallies(db, match.id)
-    return MatchOut(
-        id=match.id,
-        name=match.name,
-        video_name=match.video_name,
-        created_at=match.created_at,
-        rallies=[RallyOut.model_validate(rally, from_attributes=True) for rally in rallies],
-        stats=StatsOut(**stats.summary(rallies)),
-    )
-
-
 @router.get("/matches", response_model=list[MatchSummary])
 def list_matches(user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> list[Match]:
     try:
@@ -124,10 +111,10 @@ def upload_match(
         raise
 
 
-@router.get("/matches/{match_id}", response_model=MatchOut)
-def read_match(match_id: int, user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> MatchOut:
+@router.get("/matches/{match_id}", response_model=MatchSummary)
+def read_match(match_id: int, user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> Match:
     try:
-        return match_out(store.owned_match(db, user.user_id, match_id), db)
+        return store.owned_match(db, user.user_id, match_id)
     except Exception as error:
         if getattr(error, "status_code", None) is None:
             logger.exception("read_match failed")
@@ -159,19 +146,6 @@ def read_people(match_id: int, user: TokenPayload = Depends(reader), db: Session
         raise
 
 
-@router.get("/matches/{match_id}/export.csv")
-def export_rallies(match_id: int, user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> Response:
-    try:
-        match = store.owned_match(db, user.user_id, match_id)
-        body = rallies_csv(store.list_rallies(db, match.id))
-        filename = f"rallies-{match.id}.csv"
-        return Response(content=body, media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
-    except Exception as error:
-        if getattr(error, "status_code", None) is None:
-            logger.exception("export_rallies failed")
-        raise
-
-
 @router.get("/matches/{match_id}/video")
 def stream_video(match_id: int, request: Request, user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> Response:
     try:
@@ -183,31 +157,4 @@ def stream_video(match_id: int, request: Request, user: TokenPayload = Depends(r
     except Exception as error:
         if getattr(error, "status_code", None) is None:
             logger.exception("stream_video failed")
-        raise
-
-
-@router.post("/matches/{match_id}/rallies", status_code=201, response_model=RallyOut)
-def add_rally(match_id: int, body: RallyIn, user: TokenPayload = Depends(writer), db: Session = Depends(get_db)) -> RallyOut:
-    try:
-        store.owned_match(db, user.user_id, match_id)
-        rally = store.add_rally(db, match_id, body)
-        db.commit()
-        return RallyOut.model_validate(rally, from_attributes=True)
-    except Exception as error:
-        if getattr(error, "status_code", None) is None:
-            logger.exception("add_rally failed")
-        raise
-
-
-@router.delete("/matches/{match_id}/rallies/{rally_id}", status_code=204)
-def remove_rally(match_id: int, rally_id: int, user: TokenPayload = Depends(writer), db: Session = Depends(get_db)) -> Response:
-    try:
-        store.owned_match(db, user.user_id, match_id)
-        if not store.delete_rally(db, match_id, rally_id):
-            raise HTTPException(status_code=404, detail="Rally not found")
-        db.commit()
-        return Response(status_code=204)
-    except Exception as error:
-        if getattr(error, "status_code", None) is None:
-            logger.exception("remove_rally failed")
         raise
