@@ -23,6 +23,7 @@ GATE = 0.1  # a candidate this far (share of the frame) from a track's predictio
 MAX_MISS_FRAMES = 4  # a track that is not extended for this many frames stops being the shuttle
 EDGE_MARGIN = 0.02  # candidates this close to the frame edge are lights or logos, not the shuttle
 BOX_MARGIN = 0.02  # a player's box is grown by this share before candidates are dropped
+PREDICT_POINTS = 6  # the last points a track is predicted from along its flight path
 MIN_TRACK_POINTS = 4  # a track needs this many points before it can be the shuttle
 FIT_POINTS = 8  # the points a track must follow a flight path through (for the whole-video choice)
 MAX_FIT_RESIDUAL = 0.01  # share of the frame: a shuttle flies a smooth path (a parabola in y, a line in x)
@@ -40,16 +41,23 @@ class Track:
         return self.points[-1]
 
     def predicted(self, frame_index: int) -> tuple[float, float]:
-        """Where the track should be at this frame, moving at its last velocity."""
+        """Where the track should be at this frame: along a flight path (a line in x, a parabola in y) through its last points.
+
+        With fewer than four points there is no curve to fit, so the last velocity is used.
+        """
         frame, x, y = self.last()
-        if len(self.points) < 2:
-            return x, y
-        prev_frame, prev_x, prev_y = self.points[-2]
-        steps = frame - prev_frame
-        vx = (x - prev_x) / steps
-        vy = (y - prev_y) / steps
-        ahead = frame_index - frame
-        return x + vx * ahead, y + vy * ahead
+        if len(self.points) < 4:
+            if len(self.points) < 2:
+                return x, y
+            prev_frame, prev_x, prev_y = self.points[-2]
+            steps = frame - prev_frame
+            ahead = frame_index - frame
+            return x + (x - prev_x) / steps * ahead, y + (y - prev_y) / steps * ahead
+        recent = self.points[-PREDICT_POINTS:]
+        times = np.array([point[0] for point in recent], dtype=float)
+        x_line = np.polyfit(times, [point[1] for point in recent], 1)
+        y_curve = np.polyfit(times, [point[2] for point in recent], 2)
+        return float(np.polyval(x_line, frame_index)), float(np.polyval(y_curve, frame_index))
 
 
 def outside_people(
@@ -136,7 +144,11 @@ def drop_clusters(points: list[tuple[float, float]]) -> list[tuple[float, float]
     return kept
 
 
-def step(tracks: tuple[Track, ...], candidates: list[tuple[float, float]], frame_index: int) -> tuple[Track, ...]:
+def step(
+    tracks: tuple[Track, ...],
+    candidates: list[tuple[float, float]],
+    frame_index: int,
+) -> tuple[Track, ...]:
     """The tracks after one frame: extended where a candidate fits, started where none fits, and old ones dropped."""
     pairs = sorted(
         (distance, track_index, cand_index)
