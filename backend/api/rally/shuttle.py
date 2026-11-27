@@ -13,7 +13,7 @@ from numpy.typing import NDArray
 
 MOTION_THRESHOLD = 25  # grey-level change between two frames that counts as motion
 LOCAL_CONTRAST = 50  # the shuttle is this much brighter than the pixels around it
-MIN_BRIGHTNESS = 170  # grey level of the shuttle's centre: nearly white
+MIN_BRIGHTNESS = 150  # grey level of the shuttle's centre: nearly white
 CLUSTER_RADIUS = 0.04  # share of the frame
 CLUSTER_LIMIT = 3  # this many neighbours close by make a cluster
 TOPHAT_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
