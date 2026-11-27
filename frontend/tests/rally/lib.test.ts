@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_HITS, canSave, formatMs, hitsOf } from "../../app/rally/lib";
+import { MAX_HITS, canSave, formatMs, hitsOf, normalizedPoint } from "../../app/rally/lib";
+
+describe("normalizedPoint", () => {
+  const frame = { left: 100, top: 50, width: 400, height: 200 };
+
+  it("maps a click inside the frame to 0..1 of its size", () => {
+    expect(normalizedPoint(300, 150, frame)).toEqual([0.5, 0.5]);
+    expect(normalizedPoint(100, 250, frame)).toEqual([0, 1]);
+  });
+
+  it("clamps a click outside the frame to its edge", () => {
+    expect(normalizedPoint(50, 10, frame)).toEqual([0, 0]);
+    expect(normalizedPoint(600, 400, frame)).toEqual([1, 1]);
+  });
+});
 
 describe("formatMs", () => {
   it("shows minutes, seconds and tenths", () => {

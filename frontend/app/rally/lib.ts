@@ -33,6 +33,7 @@ export interface Stats {
 export interface MatchDetail extends MatchSummary {
   rallies: Rally[];
   stats: Stats;
+  court: number[][] | null;
 }
 
 /** A rally being marked: the start is set first, then the end at the current time of the video. */
@@ -42,6 +43,18 @@ export interface Marks {
 }
 
 export const NO_MARKS: Marks = { startMs: null, endMs: null };
+
+/** A point on the video frame: x and y in 0..1 of its width and height. */
+export type Point = [number, number];
+
+export const CORNER_NAMES = ["near left", "near right", "far right", "far left"] as const;
+
+/** A click on the frame as a point in 0..1 (clamped, so a click just outside still counts as the edge). */
+export function normalizedPoint(clientX: number, clientY: number, frame: { left: number; top: number; width: number; height: number }): Point {
+  const x = frame.width > 0 ? (clientX - frame.left) / frame.width : 0;
+  const y = frame.height > 0 ? (clientY - frame.top) / frame.height : 0;
+  return [Math.min(Math.max(x, 0), 1), Math.min(Math.max(y, 0), 1)];
+}
 
 /** Milliseconds as m:ss.t (tenths of a second). */
 export function formatMs(milliseconds: number): string {

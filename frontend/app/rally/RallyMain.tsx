@@ -1,15 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiFetch, apiForm } from "@sn/api";
 import Button from "@sn/elements/Button";
+import CourtPicker from "./CourtPicker";
 import {
   API,
   MatchDetail,
   MatchSummary,
   NO_MARKS,
   Marks,
+  Point,
   Side,
   canSave,
   errorText,
@@ -32,6 +34,11 @@ export default function RallyMain() {
   const [winner, setWinner] = useState<Side>("A");
   const [error, setError] = useState("");
   const video = useRef<HTMLVideoElement>(null);
+  // A new array only when the match is loaded again: the court picker resets its corners when this changes.
+  const court = useMemo<Point[] | null>(
+    () => (detail?.court ? detail.court.map(([x, y]) => [x, y] as Point) : null),
+    [detail?.court],
+  );
 
   const loadMatches = useCallback(async (selectId?: number) => {
     try {
@@ -137,12 +144,11 @@ export default function RallyMain() {
 
       {matchId !== null && (
         <>
-          <video
-            ref={video}
-            className="rally-video"
-            controls
-            preload="metadata"
+          <CourtPicker
+            matchId={matchId}
             src={`${API}/matches/${matchId}/video`}
+            initial={court}
+            videoRef={video}
           />
           <div className="rally-marks">
             <Button onClick={() => setMarks({ startMs: currentMs(video.current), endMs: null })}>

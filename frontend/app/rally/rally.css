@@ -19,6 +19,49 @@
   border-radius: 6px;
 }
 
+/* The frame keeps the aspect of the video, so the overlay lines up with the picture. */
+.rally-frame {
+  position: relative;
+  width: 100%;
+}
+
+.rally-frame .rally-video {
+  width: 100%;
+  height: 100%;
+}
+
+.rally-pick {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+}
+
+.rally-court {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.rally-court polygon {
+  fill: rgba(95, 184, 138, 0.2);
+  stroke: #5fb88a;
+  stroke-width: 0.004;
+}
+
+.rally-court circle {
+  fill: #5fb88a;
+}
+
+.rally-court-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
 .rally-stats span {
   display: flex;
   gap: 4px;
