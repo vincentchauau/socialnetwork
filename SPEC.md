@@ -280,6 +280,22 @@ Marks the rallies of a badminton match on its video. This is the MVP: the rallie
 1. Score: one point per rally for the winner's side.
 2. Rallies, average and maximum hits, average and longest duration. A match with no rallies shows zeros.
 
+### Court (found by itself)
+
+1. The court is found on each sampled frame: the green floor is the largest green region, and its outline gives four corners. A frame with no full court in view (the outline covers less than 20% of the frame) is skipped, so a close-up never places players on a wrong court.
+2. A court marked by hand (`PUT /court`) is kept as an override; nothing requires it.
+3. The outline is the floor, not the lines: it is close to the doubles court, not exact.
+
+### Players
+
+1. "Find players" starts a job (`POST /people`, one at a time per match). The job samples the video twice a second, finds the court on each frame, runs a person detector (YOLOv8n, ONNX, OpenCV, model in `backend/data/models`, `RALLY_MODEL_PATH`) and places each person whose feet are on the court by its side: near or far, left or right.
+2. The status is `idle`, `running`, `done` or `failed`; the page polls while it runs. Players are not labelled P1–P4: they change ends during a match.
+3. The video shows the players at the current time: a dot at each foot, with its side.
+
+### Export
+
+1. The rallies of a match download as CSV (number, start, end, duration, hits, winner).
+
 ### Account events
 
 1. Deleting an account deletes its matches, their rallies and their video files.
@@ -592,7 +608,7 @@ The routes of each module, as the running app serves them (the full path, includ
 - `POST /spin`
 - `POST /wallet/refill`
 
-## rally (7)
+## rally (11)
 
 Paths below are the module's own; the gateway sends `/api/rally/...` here as `/...`.
 
@@ -600,9 +616,13 @@ Paths below are the module's own; the gateway sends `/api/rally/...` here as `/.
 - `GET /health`
 - `GET /matches`
 - `GET /matches/{match_id}`
+- `GET /matches/{match_id}/export.csv`
+- `GET /matches/{match_id}/people`
 - `GET /matches/{match_id}/video`
 - `POST /matches`
+- `POST /matches/{match_id}/people`
 - `POST /matches/{match_id}/rallies`
+- `PUT /matches/{match_id}/court`
 
 ## market (23)
 
@@ -652,7 +672,7 @@ Paths below are the module's own; the gateway sends `/api/rally/...` here as `/.
 - `POST /jobs/{job_id}/apply`
 - `POST /jobs/{object_id}/comments`
 
-Total listed: 220 routes.
+Total listed: 224 routes.
 
 # 4. Backend test (unit test)
 

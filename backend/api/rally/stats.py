@@ -1,7 +1,9 @@
 """Match statistics from the rallies of a match (pure functions, no database)."""
 
+import csv
+import io
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class Played(Protocol):
@@ -17,6 +19,19 @@ def score(rallies: Sequence[Played]) -> dict[str, int]:
     for rally in rallies:
         totals[rally.winner] += 1
     return totals
+
+
+CSV_HEADER = ["number", "start_ms", "end_ms", "duration_ms", "hits", "winner"]
+
+
+def rallies_csv(rallies: Sequence[Any]) -> str:
+    """The rallies of a match as CSV: one line per rally, in order, with a header line."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(CSV_HEADER)
+    for rally in rallies:
+        writer.writerow([rally.number, rally.start_ms, rally.end_ms, rally.end_ms - rally.start_ms, rally.hits, rally.winner])
+    return buffer.getvalue()
 
 
 def summary(rallies: Sequence[Played]) -> dict[str, int | float | dict[str, int]]:

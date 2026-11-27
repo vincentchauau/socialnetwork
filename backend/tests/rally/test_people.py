@@ -68,3 +68,5 @@ def test_people_on_the_court_are_placed_and_others_dropped() -> None:
     assert placed[0]["side"] == "near-left"
     assert placed[0]["x_m"] == pytest.approx(0.51, abs=0.01)
     assert placed[0]["y_m"] == pytest.approx(1.12, abs=0.01)
+    assert placed[0]["x"] == pytest.approx(0.25, abs=1e-4)
+    assert placed[0]["y"] == pytest.approx(0.75, abs=1e-4)

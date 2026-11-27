@@ -90,12 +90,17 @@ class FakeThread:
         FakeThread.started.append(self.args)
 
 
-def test_players_need_the_court_first(client) -> None:
+def test_players_job_needs_no_marked_court(client, monkeypatch) -> None:
+    from api.rally import routes
+
+    FakeThread.started = []
+    monkeypatch.setattr(routes.threading, "Thread", FakeThread)
     match_id = upload(client).json()["id"]
 
     response = client.post(f"/matches/{match_id}/people", headers=ALICE)
 
-    assert response.status_code == 409
+    assert response.status_code == 202
+    assert len(FakeThread.started) == 1
 
 
 def test_players_job_starts_once_and_reports_running(client, monkeypatch) -> None:
@@ -128,6 +133,29 @@ def test_court_of_another_person_is_not_changed(client) -> None:
     response = client.put(f"/matches/{match_id}/court", json=SQUARE_COURT, headers=BOB)
 
     assert response.status_code == 404
+
+
+def test_export_gives_the_rallies_as_csv(client) -> None:
+    match_id = upload(client).json()["id"]
+    client.post(f"/matches/{match_id}/rallies", json=rally_body(0, 800, 2, "A"), headers=ALICE)
+    client.post(f"/matches/{match_id}/rallies", json=rally_body(1000, 4000, 6, "B"), headers=ALICE)
+
+    response = client.get(f"/matches/{match_id}/export.csv", headers=ALICE)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment" in response.headers["content-disposition"]
+    assert response.text.splitlines() == [
+        "number,start_ms,end_ms,duration_ms,hits,winner",
+        "1,0,800,800,2,A",
+        "2,1000,4000,3000,6,B",
+    ]
+
+
+def test_export_of_another_person_is_refused(client) -> None:
+    match_id = upload(client).json()["id"]
+
+    assert client.get(f"/matches/{match_id}/export.csv", headers=BOB).status_code == 404
 
 
 def test_other_people_cannot_see_or_change_a_match(client) -> None:

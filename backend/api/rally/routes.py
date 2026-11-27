@@ -14,6 +14,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from api.rally import stats, store
+from api.rally.stats import rallies_csv
 from api.rally.db import get_db
 from api.rally.job import STATUS_RUNNING, run_analysis, samples_of
 from api.rally.models import Match
@@ -144,8 +145,6 @@ def start_people(match_id: int, request: Request, user: TokenPayload = Depends(w
         match = store.owned_match(db, user.user_id, match_id)
         if match.people_status == STATUS_RUNNING:
             raise HTTPException(status_code=409, detail="The players are already being found")
-        if not match.court_corners:
-            raise HTTPException(status_code=409, detail="Mark the court first")
         match.people_status = STATUS_RUNNING
         db.commit()
         threading.Thread(target=run_analysis, args=(request.app.state.session_factory, match_id), daemon=True).start()
@@ -164,6 +163,19 @@ def read_people(match_id: int, user: TokenPayload = Depends(reader), db: Session
     except Exception as error:
         if getattr(error, "status_code", None) is None:
             logger.exception("read_people failed")
+        raise
+
+
+@router.get("/matches/{match_id}/export.csv")
+def export_rallies(match_id: int, user: TokenPayload = Depends(reader), db: Session = Depends(get_db)) -> Response:
+    try:
+        match = store.owned_match(db, user.user_id, match_id)
+        body = rallies_csv(store.list_rallies(db, match.id))
+        filename = f"rallies-{match.id}.csv"
+        return Response(content=body, media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    except Exception as error:
+        if getattr(error, "status_code", None) is None:
+            logger.exception("export_rallies failed")
         raise
 
 

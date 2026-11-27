@@ -44,6 +44,37 @@ export interface Marks {
 
 export const NO_MARKS: Marks = { startMs: null, endMs: null };
 
+/** A person on the court at one sample: the feet on the frame (x, y in 0..1) and on the court (x_m, y_m in metres). */
+export interface PersonOnCourt {
+  side: string;
+  x: number;
+  y: number;
+  x_m: number;
+  y_m: number;
+  score: number;
+}
+
+export interface PeopleSample {
+  t_ms: number;
+  court: Point[] | null; // the four corners found on this frame, or null when no full court is in view
+  people: PersonOnCourt[];
+}
+
+export interface PeopleResult {
+  status: "idle" | "running" | "done" | "failed";
+  samples: PeopleSample[];
+}
+
+/** The last sample at or before `ms` (samples are in time order), or null before the first one. */
+export function sampleAt(samples: PeopleSample[], ms: number): PeopleSample | null {
+  let found: PeopleSample | null = null;
+  for (const sample of samples) {
+    if (sample.t_ms > ms) break;
+    found = sample;
+  }
+  return found;
+}
+
 /** A point on the video frame: x and y in 0..1 of its width and height. */
 export type Point = [number, number];
 

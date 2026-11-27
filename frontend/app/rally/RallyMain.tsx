@@ -5,12 +5,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, apiForm } from "@sn/api";
 import Button from "@sn/elements/Button";
 import CourtPicker from "./CourtPicker";
+import PlayersPanel from "./PlayersPanel";
 import {
   API,
   MatchDetail,
   MatchSummary,
   NO_MARKS,
   Marks,
+  PeopleSample,
   Point,
   Side,
   canSave,
@@ -18,6 +20,7 @@ import {
   formatMs,
   hitsOf,
   MAX_HITS,
+  sampleAt,
 } from "./lib";
 
 /** Milliseconds of the video's current time, rounded. */
@@ -34,6 +37,9 @@ export default function RallyMain() {
   const [winner, setWinner] = useState<Side>("A");
   const [error, setError] = useState("");
   const video = useRef<HTMLVideoElement>(null);
+  const [samples, setSamples] = useState<PeopleSample[]>([]);
+  const [nowMs, setNowMs] = useState(0);
+  const sample = useMemo(() => sampleAt(samples, nowMs), [samples, nowMs]);
   // A new array only when the match is loaded again: the court picker resets its corners when this changes.
   const court = useMemo<Point[] | null>(
     () => (detail?.court ? detail.court.map(([x, y]) => [x, y] as Point) : null),
@@ -69,6 +75,8 @@ export default function RallyMain() {
       return;
     }
     setMarks(NO_MARKS);
+    setSamples([]);
+    setNowMs(0);
     loadDetail(matchId);
   }, [matchId, loadDetail]);
 
@@ -149,7 +157,10 @@ export default function RallyMain() {
             src={`${API}/matches/${matchId}/video`}
             initial={court}
             videoRef={video}
+            sample={sample}
+            onTime={setNowMs}
           />
+          <PlayersPanel matchId={matchId} onSamples={setSamples} />
           <div className="rally-marks">
             <Button onClick={() => setMarks({ startMs: currentMs(video.current), endMs: null })}>
               Mark start ({marks.startMs === null ? "-" : formatMs(marks.startMs)})
@@ -176,6 +187,7 @@ export default function RallyMain() {
       {detail && (
         <>
           <div className="rally-stats">
+            <a href={`${API}/matches/${matchId}/export.csv`} download>Export CSV</a>
             <span>Rallies <b>{detail.stats.rallies}</b></span>
             <span>Score A <b>{detail.stats.score.A}</b></span>
             <span>Score B <b>{detail.stats.score.B}</b></span>

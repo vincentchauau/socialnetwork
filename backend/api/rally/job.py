@@ -10,7 +10,6 @@ from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from api.rally.court import court_matrix
 from api.rally.models import Match
 from api.rally.people import load_detector, track
 
@@ -50,12 +49,11 @@ def run_analysis(factory: sessionmaker[Session], match_id: int) -> None:
     try:
         with factory() as db:
             match = db.get(Match, match_id)
-            if match is None or not match.court_corners:
+            if match is None:
                 set_status(factory, match_id, STATUS_FAILED)
                 return
-            matrix = court_matrix(json.loads(match.court_corners))
             video_path = match.video_path
-        samples = track(video_path, matrix, load_detector(model_path()), SAMPLE_STEP_MS)
+        samples = track(video_path, load_detector(model_path()), SAMPLE_STEP_MS)
         set_status(factory, match_id, STATUS_DONE, json.dumps(samples))
     except Exception as error:
         if getattr(error, "status_code", None) is None:

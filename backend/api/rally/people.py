@@ -11,7 +11,8 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from api.rally.court import COURT_LENGTH_M, COURT_WIDTH_M, on_court, to_court
+from api.rally.court import COURT_LENGTH_M, COURT_WIDTH_M, court_matrix, on_court, to_court
+from api.rally.court_detect import detect_court
 
 INPUT_SIZE = 640
 PERSON_CLASS = 4  # the score of class 0 (person) sits after the four box values
@@ -74,6 +75,8 @@ def on_court_people(people: list[Person], matrix: NDArray[np.float64]) -> list[d
             "side": side_name(point),
             "x_m": round(point[0], 2),
             "y_m": round(point[1], 2),
+            "x": round(person.foot_x, 4),  # the feet on the frame (0..1), to draw them over the video
+            "y": round(person.foot_y, 4),
             "score": round(person.score, 2),
         })
     return placed
@@ -83,8 +86,17 @@ def load_detector(path: str) -> cv2.dnn.Net:
     return cv2.dnn.readNetFromONNX(path)
 
 
-def track(video_path: str, matrix: NDArray[np.float64], net: cv2.dnn.Net, step_ms: int) -> list[dict[str, object]]:
-    """One sample every `step_ms` of the video: the time and the people on the court at that time."""
+def sample_of(frame: NDArray[np.uint8], net: cv2.dnn.Net) -> dict[str, object]:
+    """The court and the people on it in one frame. Without a court found in the frame, nobody is placed."""
+    corners = detect_court(frame)
+    if corners is None:
+        return {"court": None, "people": []}
+    matrix = court_matrix(corners)
+    return {"court": corners, "people": on_court_people(detect(net, frame), matrix)}
+
+
+def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> list[dict[str, object]]:
+    """One sample every `step_ms` of the video: the time, the court found on that frame and the people on it."""
     capture = cv2.VideoCapture(video_path)
     try:
         if not capture.isOpened():
@@ -97,7 +109,7 @@ def track(video_path: str, matrix: NDArray[np.float64], net: cv2.dnn.Net, step_m
             if index % every == 0:
                 ok, frame = capture.retrieve()
                 if ok:
-                    samples.append({"t_ms": round(index * 1000 / fps), "people": on_court_people(detect(net, frame), matrix)})
+                    samples.append({"t_ms": round(index * 1000 / fps), **sample_of(frame, net)})
             index += 1
         return samples
     finally:

@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_HITS, canSave, formatMs, hitsOf, normalizedPoint } from "../../app/rally/lib";
+import { MAX_HITS, canSave, formatMs, hitsOf, normalizedPoint, sampleAt, type PeopleSample } from "../../app/rally/lib";
+
+describe("sampleAt", () => {
+  const samples: PeopleSample[] = [
+    { t_ms: 0, court: null, people: [] },
+    { t_ms: 500, court: null, people: [{ side: "near-left", x: 0.2, y: 0.8, x_m: 0.5, y_m: 1.1, score: 0.9 }] },
+    { t_ms: 1000, court: null, people: [] },
+  ];
+
+  it("returns the last sample at or before the time", () => {
+    expect(sampleAt(samples, 700)?.t_ms).toBe(500);
+    expect(sampleAt(samples, 1000)?.t_ms).toBe(1000);
+  });
+
+  it("returns null before the first sample and for no samples", () => {
+    expect(sampleAt(samples, -1)).toBeNull();
+    expect(sampleAt([], 100)).toBeNull();
+  });
+});
 
 describe("normalizedPoint", () => {
   const frame = { left: 100, top: 50, width: 400, height: 200 };
