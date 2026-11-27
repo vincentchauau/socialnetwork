@@ -19,6 +19,7 @@ CLUSTER_LIMIT = 3  # this many neighbours close by make a cluster
 TOPHAT_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
 MIN_AREA = 2  # pixels, at the frame's own resolution
 MAX_AREA = 30  # the shuttle is a few pixels; a player's white shirt or shoe is bigger
+HIT_GATE = 0.04  # a track that changes direction (a hit) may be extended by a candidate this close to its straight-line prediction
 GATE = 0.1  # a candidate this far (share of the frame) from a track's prediction can extend it
 MAX_MISS_FRAMES = 4  # a track that is not extended for this many frames stops being the shuttle
 EDGE_MARGIN = 0.02  # candidates this close to the frame edge are lights or logos, not the shuttle
@@ -39,6 +40,16 @@ class Track:
 
     def last(self) -> tuple[int, float, float]:
         return self.points[-1]
+
+    def coasted(self, frame_index: int) -> tuple[float, float]:
+        """Where the track goes if it keeps its last velocity: the shuttle changes its path at a hit, the parabola does not."""
+        frame, x, y = self.last()
+        if len(self.points) < 2:
+            return x, y
+        prev_frame, prev_x, prev_y = self.points[-2]
+        steps = frame - prev_frame
+        ahead = frame_index - frame
+        return x + (x - prev_x) / steps * ahead, y + (y - prev_y) / steps * ahead
 
     def predicted(self, frame_index: int) -> tuple[float, float]:
         """Where the track should be at this frame: along a flight path (a line in x, a parabola in y) through its last points.
@@ -157,6 +168,7 @@ def step(
         for track_index, track in enumerate(tracks)
         for cand_index, candidate in enumerate(candidates)
         if (distance := float(np.hypot(*(np.subtract(candidate, track.predicted(frame_index)))))) <= GATE
+        or (distance := float(np.hypot(*(np.subtract(candidate, track.coasted(frame_index)))))) <= HIT_GATE
     )
     extended: dict[int, tuple[float, float]] = {}
     taken: set[int] = set()
