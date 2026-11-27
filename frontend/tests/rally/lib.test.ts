@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_HITS, canSave, formatMs, hitsOf, normalizedPoint, sampleAt, type PeopleSample } from "../../app/rally/lib";
+import { MAX_HITS, canSave, formatMs, hitsOf, sampleAt, type PeopleSample } from "../../app/rally/lib";
 
 describe("sampleAt", () => {
   const samples: PeopleSample[] = [
-    { t_ms: 0, court: null, people: [] },
-    { t_ms: 500, court: null, people: [{ id: 1, side: "near-left", x: 0.2, y: 0.8, x_m: 0.5, y_m: 1.1, score: 0.9 }] },
-    { t_ms: 1000, court: null, people: [] },
+    { t_ms: 0, court: null, shuttle: null, people: [] },
+    { t_ms: 500, court: null, shuttle: null, people: [{ id: 1, side: "near-left", x: 0.2, y: 0.8, box: [0.1, 0.5, 0.3, 0.8], x_m: 0.5, y_m: 1.1, score: 0.9 }] },
+    { t_ms: 1000, court: null, shuttle: null, people: [] },
   ];
 
   it("returns the last sample at or before the time", () => {
@@ -20,19 +20,6 @@ describe("sampleAt", () => {
   });
 });
 
-describe("normalizedPoint", () => {
-  const frame = { left: 100, top: 50, width: 400, height: 200 };
-
-  it("maps a click inside the frame to 0..1 of its size", () => {
-    expect(normalizedPoint(300, 150, frame)).toEqual([0.5, 0.5]);
-    expect(normalizedPoint(100, 250, frame)).toEqual([0, 1]);
-  });
-
-  it("clamps a click outside the frame to its edge", () => {
-    expect(normalizedPoint(50, 10, frame)).toEqual([0, 0]);
-    expect(normalizedPoint(600, 400, frame)).toEqual([1, 1]);
-  });
-});
 
 describe("formatMs", () => {
   it("shows minutes, seconds and tenths", () => {

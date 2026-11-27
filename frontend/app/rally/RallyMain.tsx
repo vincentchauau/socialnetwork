@@ -13,7 +13,6 @@ import {
   NO_MARKS,
   Marks,
   PeopleSample,
-  Point,
   Side,
   canSave,
   errorText,
@@ -40,11 +39,6 @@ export default function RallyMain() {
   const [samples, setSamples] = useState<PeopleSample[]>([]);
   const [nowMs, setNowMs] = useState(0);
   const sample = useMemo(() => sampleAt(samples, nowMs), [samples, nowMs]);
-  // A new array only when the match is loaded again: the court picker resets its corners when this changes.
-  const court = useMemo<Point[] | null>(
-    () => (detail?.court ? detail.court.map(([x, y]) => [x, y] as Point) : null),
-    [detail?.court],
-  );
 
   const loadMatches = useCallback(async (selectId?: number) => {
     try {
@@ -153,9 +147,7 @@ export default function RallyMain() {
       {matchId !== null && (
         <>
           <CourtPicker
-            matchId={matchId}
             src={`${API}/matches/${matchId}/video`}
-            initial={court}
             videoRef={video}
             sample={sample}
             onTime={setNowMs}

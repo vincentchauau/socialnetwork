@@ -11,7 +11,7 @@ vi.mock("@sn/api", () => ({
   errorText: (error: unknown) => String(error),
 }));
 
-const FINISHED: PeopleSample[] = [{ t_ms: 0, court: null, people: [] }];
+const FINISHED: PeopleSample[] = [{ t_ms: 0, court: null, shuttle: null, people: [] }];
 
 beforeEach(() => {
   vi.mocked(apiFetch).mockReset();

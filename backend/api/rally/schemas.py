@@ -3,8 +3,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from api.rally.court import validate_quad
-
 MAX_HITS = 500
 MAX_RALLY_MS = 60 * 60 * 1000  # a rally is at most one hour long
 MAX_VIDEO_MS = 24 * 60 * 60 * 1000
@@ -24,22 +22,6 @@ class RallyIn(BaseModel):
             raise ValueError("end_ms must be after start_ms")
         if self.end_ms - self.start_ms > MAX_RALLY_MS:
             raise ValueError("A rally cannot be longer than one hour")
-        return self
-
-
-class CourtIn(BaseModel):
-    """The four corners of the court on the frame, as [x, y] in 0..1: near left, near right, far right, far left."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    corners: list[list[float]] = Field(min_length=4, max_length=4)
-
-    @model_validator(mode="after")
-    def check_corners(self) -> "CourtIn":
-        for point in self.corners:
-            if len(point) != 2:
-                raise ValueError("Each corner is an [x, y] pair")
-        validate_quad([[float(x), float(y)] for x, y in self.corners])
         return self
 
 
@@ -80,4 +62,3 @@ class PeopleOut(BaseModel):
 class MatchOut(MatchSummary):
     rallies: list[RallyOut]
     stats: StatsOut
-    court: list[list[float]] | None = None  # the corners as marked, None until the court is set

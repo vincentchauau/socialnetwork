@@ -14,6 +14,8 @@ from numpy.typing import NDArray
 from api.rally.court import COURT_LENGTH_M, COURT_WIDTH_M, court_matrix, on_court, to_court
 from api.rally.court_detect import detect_court
 from api.rally.identity import assign_labels
+from api.rally.shuttle import Track, find_candidates, outside_people, shuttle_at
+from api.rally.shuttle import step as shuttle_step
 
 INPUT_SIZE = 640
 PERSON_CLASS = 4  # the score of class 0 (person) sits after the four box values
@@ -27,6 +29,10 @@ class Person:
     foot_x: float  # 0..1 of the frame width
     foot_y: float  # 0..1 of the frame height
     score: float
+    x1: float = 0.0  # the box around the person, 0..1 of the frame
+    y1: float = 0.0
+    x2: float = 0.0
+    y2: float = 0.0
 
 
 def decode(raw: NDArray[np.float32]) -> list[Person]:
@@ -46,6 +52,10 @@ def decode(raw: NDArray[np.float32]) -> list[Person]:
             foot_x=float(cx[i]) / INPUT_SIZE,
             foot_y=float(cy[i] + height[i] / 2) / INPUT_SIZE,
             score=float(scores[i]),
+            x1=float(cx[i] - width[i] / 2) / INPUT_SIZE,
+            y1=float(cy[i] - height[i] / 2) / INPUT_SIZE,
+            x2=float(cx[i] + width[i] / 2) / INPUT_SIZE,
+            y2=float(cy[i] + height[i] / 2) / INPUT_SIZE,
         ))
     return people
 
@@ -78,6 +88,7 @@ def on_court_people(people: list[Person], matrix: NDArray[np.float64]) -> list[d
             "y_m": round(point[1], 2),
             "x": round(person.foot_x, 4),  # the feet on the frame (0..1), to draw them over the video
             "y": round(person.foot_y, 4),
+            "box": [round(person.x1, 4), round(person.y1, 4), round(person.x2, 4), round(person.y2, 4)],
             "score": round(person.score, 2),
         })
     return placed
@@ -97,7 +108,10 @@ def sample_of(frame: NDArray[np.uint8], net: cv2.dnn.Net) -> dict[str, object]:
 
 
 def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> list[dict[str, object]]:
-    """One sample every `step_ms` of the video: the time, the court found on that frame and the people on it."""
+    """One sample every `step_ms` of the video: the time, the court, the people (labelled) and the shuttle.
+
+    Every frame is read: the shuttle is followed frame by frame, while the people and the court are found on the samples.
+    """
     capture = cv2.VideoCapture(video_path)
     try:
         if not capture.isOpened():
@@ -106,14 +120,30 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> list[dict[str, obj
         every = max(1, round(fps * step_ms / 1000))
         samples: list[dict[str, object]] = []
         known: dict[int, tuple[float, float]] = {}
+        tracks: tuple[Track, ...] = ()
+        boxes: list[tuple[float, float, float, float]] = []  # the players of the last sample
+        previous: NDArray[np.uint8] | None = None
         index = 0
         while capture.grab():
+            ok, frame = capture.retrieve()
+            if not ok:
+                index += 1
+                continue
+            grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            if previous is not None:
+                tracks = shuttle_step(tracks, outside_people(find_candidates(previous, grey), boxes), index)
+            previous = grey
             if index % every == 0:
-                ok, frame = capture.retrieve()
-                if ok:
-                    found = sample_of(frame, net)
-                    labeled, known = assign_labels(known, found["people"])  # type: ignore[arg-type]
-                    samples.append({"t_ms": round(index * 1000 / fps), "court": found["court"], "people": labeled})
+                found = sample_of(frame, net)
+                labeled, known = assign_labels(known, found["people"])  # type: ignore[arg-type]
+                boxes = [tuple(person["box"]) for person in labeled]  # type: ignore[misc]
+                shuttle = shuttle_at(tracks, index)
+                samples.append({
+                    "t_ms": round(index * 1000 / fps),
+                    "court": found["court"],
+                    "people": labeled,
+                    "shuttle": None if shuttle is None else [round(shuttle[0], 4), round(shuttle[1], 4)],
+                })
             index += 1
         return samples
     finally:

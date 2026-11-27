@@ -297,16 +297,21 @@ Marks the rallies of a badminton match on its video. This is the MVP: the rallie
 ### Court (found by itself)
 
 1. The court is found on each sampled frame: the green floor is the largest green region, and its outline gives four corners. A frame with no full court in view (the outline covers less than 20% of the frame) is skipped, so a close-up never places players on a wrong court.
-2. A court marked by hand (`PUT /court`) is kept as an override; nothing requires it.
-3. The outline is the floor, not the lines: it is close to the doubles court, not exact.
+2. The outline is the floor, not the lines: it is close to the doubles court, not exact. There is no manual court.
 
 ### Players
 
 1. "Find players" starts a job (`POST /people`, one at a time per match). The job samples the video twice a second, finds the court on each frame, runs a person detector (YOLOv8n, ONNX, OpenCV, model in `backend/data/models`, `RALLY_MODEL_PATH`) and places each person whose feet are on the court by its side: near or far, left or right.
 2. The status is `idle`, `running`, `done` or `failed`; the page polls while it runs.
 3. Labels: each player gets P1 to P4 and keeps it from one sample to the next by where they stand on the court (`identity.py`: the nearest known player within 2.5 m). A new player takes a free label. The labels are not tied to a person's name; two labels can swap when players switch ends mid-rally.
-4. The video shows the players at the current time: a coloured ring at the feet, labelled P1 to P4 (yellow, pink, cyan, green).
-5. Not done yet: rally detection, hits, score per player, shuttle tracking and shuttle speed. They need a shuttle model and ground truth for the hits.
+4. The video shows the players at the current time: a box around each person, labelled P1 to P4 (yellow, pink, cyan, green).
+5. Not done yet: rally detection, hits, score per player and shuttle speed. Hits need ground truth to check them.
+
+### Shuttle
+
+1. The shuttle is found without training (`shuttle.py`): every frame is compared with the one before, and a bright spot that moved is a candidate. Candidates on a player's box, at the frame edge, or larger than 30 pixels are dropped.
+2. Candidates are linked into tracks that move at a steady speed (the next position is predicted from the last two). A track must be straight (at least 0.7 of the walked distance is the straight distance) to be the shuttle, and the longest such track is the shuttle at that time.
+3. The video shows a red ring where the shuttle is found. It is not checked against ground truth yet: the ring was checked by eye on two frames, one of them near the net.
 
 ### Export
 
@@ -624,7 +629,7 @@ The routes of each module, as the running app serves them (the full path, includ
 - `POST /spin`
 - `POST /wallet/refill`
 
-## rally (11)
+## rally (10)
 
 Paths below are the module's own; the gateway sends `/api/rally/...` here as `/...`.
 
@@ -638,7 +643,6 @@ Paths below are the module's own; the gateway sends `/api/rally/...` here as `/.
 - `POST /matches`
 - `POST /matches/{match_id}/people`
 - `POST /matches/{match_id}/rallies`
-- `PUT /matches/{match_id}/court`
 
 ## market (23)
 
@@ -688,7 +692,7 @@ Paths below are the module's own; the gateway sends `/api/rally/...` here as `/.
 - `POST /jobs/{job_id}/apply`
 - `POST /jobs/{object_id}/comments`
 
-Total listed: 224 routes.
+Total listed: 223 routes.
 
 # 4. Backend test (unit test)
 

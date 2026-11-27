@@ -33,7 +33,6 @@ export interface Stats {
 export interface MatchDetail extends MatchSummary {
   rallies: Rally[];
   stats: Stats;
-  court: number[][] | null;
 }
 
 /** A rally being marked: the start is set first, then the end at the current time of the video. */
@@ -51,8 +50,9 @@ export const PLAYER_COLORS: Record<number, string> = { 1: "#f5c518", 2: "#e8559a
 export interface PersonOnCourt {
   id: number; // the label, 1 to 4: P1 to P4 (see backend identity.py)
   side: string;
-  x: number;
+  x: number; // the feet on the frame, 0..1
   y: number;
+  box: [number, number, number, number]; // x1, y1, x2, y2 of the box around the person, 0..1 of the frame
   x_m: number;
   y_m: number;
   score: number;
@@ -62,6 +62,7 @@ export interface PeopleSample {
   t_ms: number;
   court: Point[] | null; // the four corners found on this frame, or null when no full court is in view
   people: PersonOnCourt[];
+  shuttle: [number, number] | null; // the shuttle on this frame (0..1 of the frame), or null when it is not seen
 }
 
 export interface PeopleResult {
@@ -81,15 +82,6 @@ export function sampleAt(samples: PeopleSample[], ms: number): PeopleSample | nu
 
 /** A point on the video frame: x and y in 0..1 of its width and height. */
 export type Point = [number, number];
-
-export const CORNER_NAMES = ["near left", "near right", "far right", "far left"] as const;
-
-/** A click on the frame as a point in 0..1 (clamped, so a click just outside still counts as the edge). */
-export function normalizedPoint(clientX: number, clientY: number, frame: { left: number; top: number; width: number; height: number }): Point {
-  const x = frame.width > 0 ? (clientX - frame.left) / frame.width : 0;
-  const y = frame.height > 0 ? (clientY - frame.top) / frame.height : 0;
-  return [Math.min(Math.max(x, 0), 1), Math.min(Math.max(y, 0), 1)];
-}
 
 /** Milliseconds as m:ss.t (tenths of a second). */
 export function formatMs(milliseconds: number): string {

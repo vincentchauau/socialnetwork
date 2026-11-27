@@ -30,12 +30,6 @@
   height: 100%;
 }
 
-.rally-pick {
-  position: absolute;
-  inset: 0;
-  cursor: crosshair;
-}
-
 .rally-court {
   position: absolute;
   inset: 0;
@@ -54,22 +48,17 @@
   fill: #5fb88a;
 }
 
-/* A player: a ring at the feet, with the label above it. */
-.rally-ring {
+/* A player: the box found by the detector, with the label above it. */
+.rally-box {
   position: absolute;
-  width: 56px;
-  height: 24px;
-  border: 3px solid;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
+  border: 2px solid;
   pointer-events: none;
 }
 
-.rally-ring span {
+.rally-box span {
   position: absolute;
-  top: -20px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: -18px;
+  left: -2px;
   padding: 0 4px;
   border-radius: 4px;
   color: #000;
@@ -78,13 +67,17 @@
   white-space: nowrap;
 }
 
-.rally-court-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-top: 8px;
+/* The shuttle: a small ring on the spot where it was found. */
+.rally-shuttle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
+
 
 .rally-stats span {
   display: flex;
