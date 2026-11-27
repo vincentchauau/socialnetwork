@@ -24,6 +24,9 @@ MAX_MISS_FRAMES = 4  # a track that is not extended for this many frames stops b
 EDGE_MARGIN = 0.02  # candidates this close to the frame edge are lights or logos, not the shuttle
 BOX_MARGIN = 0.02  # a player's box is grown by this share before candidates are dropped
 MIN_TRACK_POINTS = 4  # a track needs this many points before it can be the shuttle
+FIT_POINTS = 8  # the points a track must follow a flight path through (for the whole-video choice)
+MAX_FIT_RESIDUAL = 0.01  # share of the frame: a shuttle flies a smooth path (a parabola in y, a line in x)
+MIN_GLOBAL_SCORE = 6  # a track needs this many smooth points to be the shuttle in the whole-video choice
 FORGET_FRAMES = 16  # a track not extended for this long is dropped
 STRAIGHT_POINTS = 6  # the last points that must lie on a straight line
 MIN_STRAIGHTNESS = 0.7  # the straight distance over the walked distance: a shuttle flies straight, a limb swings back
@@ -63,6 +66,13 @@ def outside_people(
     return kept
 
 
+REFERENCE_WIDTH = 640  # the thresholds above were set for frames this wide; wider frames scale the sizes with it
+
+
+def scaled(value: float, width: int) -> float:
+    return value * width / REFERENCE_WIDTH
+
+
 def find_candidates(previous: NDArray[np.uint8], current: NDArray[np.uint8]) -> list[tuple[float, float]]:
     """Spots that are brighter than their own surroundings and moved since the previous frame, as 0..1 of the frame.
 
@@ -70,15 +80,17 @@ def find_candidates(previous: NDArray[np.uint8], current: NDArray[np.uint8]) -> 
     threshold does not; the motion keeps the spots that are moving, not the lines and the boards.
     """
     height, width = current.shape[:2]
-    local = cv2.morphologyEx(current, cv2.MORPH_TOPHAT, TOPHAT_KERNEL)
+    size = max(3, int(round(scaled(9, width))) | 1)  # an odd kernel about the size of the shuttle
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+    local = cv2.morphologyEx(current, cv2.MORPH_TOPHAT, kernel)
     contrast = cv2.threshold(local, LOCAL_CONTRAST, 255, cv2.THRESH_BINARY)[1]
     moving = cv2.threshold(cv2.absdiff(current, previous), MOTION_THRESHOLD, 255, cv2.THRESH_BINARY)[1]
     spots = cv2.bitwise_and(contrast, moving)
-    count, labels, stats, centres = cv2.connectedComponentsWithStats(spots)
+    count, labels, stats, centres = cv2.connectedComponentsWithStats(spots)  # noqa: F841
     found = []
     for label in range(1, count):
         area = int(stats[label][cv2.CC_STAT_AREA])
-        if not MIN_AREA <= area <= MAX_AREA:
+        if not scaled(MIN_AREA, width) <= area <= scaled(MAX_AREA, width):
             continue
         if int(current[labels == label].max()) < MIN_BRIGHTNESS:  # the shuttle is almost white
             continue
@@ -157,3 +169,66 @@ def shuttle_at(tracks: tuple[Track, ...], frame_index: int) -> tuple[float, floa
     """The shuttle at this frame, without the memory of the track followed before."""
     position, _ = follow(tracks, frame_index, None)
     return position
+
+
+def fit_residual(track: Track, window: int = FIT_POINTS) -> float:
+    """Root-mean-square distance of the last points from a flight path: a line in x and a parabola in y (gravity)."""
+    recent = track.points[-window:]
+    if len(recent) < MIN_TRACK_POINTS:
+        return float("inf")
+    times = np.array([point[0] for point in recent], dtype=float)
+    xs = np.array([point[1] for point in recent])
+    ys = np.array([point[2] for point in recent])
+    x_fit = np.polyval(np.polyfit(times, xs, 1), times)
+    y_fit = np.polyval(np.polyfit(times, ys, 2), times)
+    return float(np.sqrt(np.mean((xs - x_fit) ** 2 + (ys - y_fit) ** 2)))
+
+
+def local_fit_score(track: Track, window: int = FIT_POINTS) -> int:
+    """How many points of the track lie on a flight path with their neighbours: a long, smooth path scores high."""
+    score = 0
+    for index in range(len(track.points)):
+        around = Track(track.points[max(0, index - window // 2): index + window // 2 + 1])
+        if fit_residual(around, len(around.points)) <= MAX_FIT_RESIDUAL:
+            score += 1
+    return score
+
+
+def archive_update(archive: dict[tuple[int, float, float], Track], tracks: tuple[Track, ...]) -> dict[tuple[int, float, float], Track]:
+    """Keeps the longest version of every track seen in the video, keyed by where it starts."""
+    for track in tracks:
+        key = track.points[0]
+        if key not in archive or len(track.points) > len(archive[key].points):
+            archive[key] = track
+    return archive
+
+
+def position_on(track: Track, frame_index: int) -> tuple[float, float] | None:
+    """The track's position at this frame, interpolated between its points; None when it has no point nearby."""
+    for (f1, x1, y1), (f2, x2, y2) in zip(track.points, track.points[1:]):
+        if f1 <= frame_index <= f2:
+            share = 0.0 if f2 == f1 else (frame_index - f1) / (f2 - f1)
+            return x1 + (x2 - x1) * share, y1 + (y2 - y1) * share
+    return None
+
+
+def global_positions(archive: dict[tuple[int, float, float], Track], frame_count: int) -> list[tuple[float, float] | None]:
+    """The shuttle on every frame: the best-scoring tracks of the whole video claim their frames first.
+
+    A track is judged on all its points, not on the frames before one moment, so a limb that moves smoothly for a
+    short while does not beat the shuttle that flies along the whole path.
+    """
+    ranked = sorted(archive.values(), key=lambda track: (local_fit_score(track), len(track.points)), reverse=True)
+    positions: list[tuple[float, float] | None] = [None] * frame_count
+    claimed = [False] * frame_count
+    for track in ranked:
+        if local_fit_score(track) < MIN_GLOBAL_SCORE:
+            continue
+        for frame_index in range(track.points[0][0], min(track.points[-1][0], frame_count - 1) + 1):
+            if claimed[frame_index]:
+                continue
+            position = position_on(track, frame_index)
+            if position is not None:
+                positions[frame_index] = position
+                claimed[frame_index] = True
+    return positions

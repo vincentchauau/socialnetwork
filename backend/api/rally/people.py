@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 from api.rally.court import COURT_LENGTH_M, COURT_WIDTH_M, court_matrix, on_court, to_court
 from api.rally.court_detect import detect_court
 from api.rally.identity import assign_labels
-from api.rally.shuttle import Track, find_candidates, follow, outside_people
+from api.rally.shuttle import Track, archive_update, find_candidates, global_positions, outside_people
 from api.rally.shuttle import step as shuttle_step
 
 INPUT_SIZE = 640
@@ -122,7 +122,7 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> dict[str, list]:
         shuttle_points: list[list[float]] = []
         known: dict[int, tuple[float, float]] = {}
         tracks: tuple[Track, ...] = ()
-        chosen: Track | None = None  # the track the shuttle is followed on
+        archive: dict[tuple[int, float, float], Track] = {}  # every track of the video, the longest version of each
         boxes: list[tuple[float, float, float, float]] = []  # the players of the last sample
         previous: NDArray[np.uint8] | None = None
         index = 0
@@ -135,9 +135,7 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> dict[str, list]:
             if previous is not None:
                 tracks = shuttle_step(tracks, outside_people(find_candidates(previous, grey), boxes), index)
             previous = grey
-            shuttle, chosen = follow(tracks, index, chosen)
-            if shuttle is not None:
-                shuttle_points.append([round(index * 1000 / fps), round(shuttle[0], 4), round(shuttle[1], 4)])
+            archive = archive_update(archive, tracks)
             if index % every == 0:
                 found = sample_of(frame, net)
                 labeled, known = assign_labels(known, found["people"])  # type: ignore[arg-type]
@@ -148,6 +146,10 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> dict[str, list]:
                     "people": labeled,
                 })
             index += 1
+        positions = global_positions(archive, index)
+        for frame_index, position in enumerate(positions):
+            if position is not None:
+                shuttle_points.append([round(frame_index * 1000 / fps), round(position[0], 4), round(position[1], 4)])
         return {"samples": samples, "shuttle": shuttle_points}
     finally:
         capture.release()

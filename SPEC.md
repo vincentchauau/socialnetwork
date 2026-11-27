@@ -298,10 +298,10 @@ Finds the players, the court and the shuttle in a badminton match video, and sho
 
 ### Shuttle
 
-1. Found without training (`shuttle.py`). A candidate is a spot that is brighter than its surroundings (top-hat, contrast 50), nearly white (at least 190), a few pixels in size (at most 30), and moved since the previous frame. Candidates on a player's box, at the frame edge, or in a cluster of three or more neighbours are dropped.
-2. Candidates are linked into tracks that move steadily (the next position is predicted from the last two). A track must be straight (at least 0.7 of the walked distance is the straight distance). The followed track is kept while it lasts; a new track is taken only when it is lost.
-3. The shuttle is stored for every frame it is seen (as `[t_ms, x, y]`), and the video shows a red ring at its position at the current time, interpolated between the frames around it. The ring follows the video frame by frame while it plays.
-4. Measured on a 30-second clip (1:30 to 2:00), with player boxes applied as in the pipeline: a position on 460 of 749 frames, 11 changes of track and 36 jumps longer than 8% of the frame. Not checked against ground truth: on three sampled frames two rings did not sit clearly on a shuttle. Accuracy is unknown.
+1. Found without training (`shuttle.py`). A candidate is a spot brighter than its surroundings (top-hat), nearly white (at least 190), a few pixels across (sizes scale with the frame width, 640 px is the reference), and moved since the previous frame. Candidates on a player's box, at the frame edge, or in a cluster of three or more neighbours are dropped.
+2. Candidates are linked into tracks, each predicted from its last two points. Every track of the video is kept (its longest version), and the whole video decides: a track scores the points where it lies on a flight path (a line in x, a parabola in y); the best-scoring tracks claim their frames first, and a frame without a claimed track shows no shuttle.
+3. The shuttle is stored for every frame it is seen (`[t_ms, x, y]`), and the video shows a red ring at its position at the current time, interpolated between the frames around it. The ring follows the video frame by frame while it plays.
+4. Measured: on a synthetic benchmark (a shuttle on a known flight path over the video's background, with three random moving white spots, five setups), the whole-video choice gives 100% correct within 6 px (745/750 frames shown and correct), against 94% for the per-frame choice. On the 30-second clip (1:30 to 2:00) the jumps longer than 8% of the frame fall from 162 to 19. Widening the player-box exclusion to 6% cut the jumps from 33 to 16 but also dropped the frames with a shuttle from 941 to 377, so it was not adopted. The synthetic benchmark is not a real measure of accuracy: no labelled shuttle positions exist for the real video.
 
 ### Account events
 

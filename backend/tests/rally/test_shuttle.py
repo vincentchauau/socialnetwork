@@ -87,3 +87,17 @@ def test_the_followed_track_is_kept_when_another_track_gets_longer() -> None:
     assert kept is not None and chosen is not None
     assert kept.points[0] == chosen.points[0]
     assert later is not None and later[0] == pytest.approx(0.2 + 0.01 * 13, abs=0.02)
+
+
+def test_the_whole_video_choice_keeps_the_smooth_flight_over_a_wobbling_track() -> None:
+    from api.rally.shuttle import archive_update, global_positions
+
+    flight = tuple((f, 0.1 + 0.01 * f, 0.5 - 0.02 * f + 0.0005 * f * f) for f in range(30))
+    wobble = tuple((f, 0.6 + 0.02 * ((-1) ** f), 0.4) for f in range(30))
+    archive = archive_update({}, (Track(flight[:4]), Track(wobble[:4])))
+    archive = archive_update(archive, (Track(flight), Track(wobble)))
+
+    positions = global_positions(archive, 30)
+
+    assert positions[15] is not None
+    assert positions[15][0] == pytest.approx(0.1 + 0.01 * 15, abs=0.01)
