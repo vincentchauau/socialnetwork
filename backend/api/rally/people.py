@@ -13,6 +13,7 @@ from numpy.typing import NDArray
 
 from api.rally.court import COURT_LENGTH_M, COURT_WIDTH_M, court_matrix, on_court, to_court
 from api.rally.court_detect import detect_court
+from api.rally.identity import assign_labels
 
 INPUT_SIZE = 640
 PERSON_CLASS = 4  # the score of class 0 (person) sits after the four box values
@@ -104,12 +105,15 @@ def track(video_path: str, net: cv2.dnn.Net, step_ms: int) -> list[dict[str, obj
         fps = capture.get(cv2.CAP_PROP_FPS) or 25.0
         every = max(1, round(fps * step_ms / 1000))
         samples: list[dict[str, object]] = []
+        known: dict[int, tuple[float, float]] = {}
         index = 0
         while capture.grab():
             if index % every == 0:
                 ok, frame = capture.retrieve()
                 if ok:
-                    samples.append({"t_ms": round(index * 1000 / fps), **sample_of(frame, net)})
+                    found = sample_of(frame, net)
+                    labeled, known = assign_labels(known, found["people"])  # type: ignore[arg-type]
+                    samples.append({"t_ms": round(index * 1000 / fps), "court": found["court"], "people": labeled})
             index += 1
         return samples
     finally:

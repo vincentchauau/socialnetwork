@@ -5,7 +5,7 @@ import { MAX_HITS, canSave, formatMs, hitsOf, normalizedPoint, sampleAt, type Pe
 describe("sampleAt", () => {
   const samples: PeopleSample[] = [
     { t_ms: 0, court: null, people: [] },
-    { t_ms: 500, court: null, people: [{ side: "near-left", x: 0.2, y: 0.8, x_m: 0.5, y_m: 1.1, score: 0.9 }] },
+    { t_ms: 500, court: null, people: [{ id: 1, side: "near-left", x: 0.2, y: 0.8, x_m: 0.5, y_m: 1.1, score: 0.9 }] },
     { t_ms: 1000, court: null, people: [] },
   ];
 

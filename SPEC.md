@@ -303,8 +303,10 @@ Marks the rallies of a badminton match on its video. This is the MVP: the rallie
 ### Players
 
 1. "Find players" starts a job (`POST /people`, one at a time per match). The job samples the video twice a second, finds the court on each frame, runs a person detector (YOLOv8n, ONNX, OpenCV, model in `backend/data/models`, `RALLY_MODEL_PATH`) and places each person whose feet are on the court by its side: near or far, left or right.
-2. The status is `idle`, `running`, `done` or `failed`; the page polls while it runs. Players are not labelled P1–P4: they change ends during a match.
-3. The video shows the players at the current time: a dot at each foot, with its side.
+2. The status is `idle`, `running`, `done` or `failed`; the page polls while it runs.
+3. Labels: each player gets P1 to P4 and keeps it from one sample to the next by where they stand on the court (`identity.py`: the nearest known player within 2.5 m). A new player takes a free label. The labels are not tied to a person's name; two labels can swap when players switch ends mid-rally.
+4. The video shows the players at the current time: a coloured ring at the feet, labelled P1 to P4 (yellow, pink, cyan, green).
+5. Not done yet: rally detection, hits, score per player, shuttle tracking and shuttle speed. They need a shuttle model and ground truth for the hits.
 
 ### Export
 

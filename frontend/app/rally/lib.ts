@@ -45,7 +45,11 @@ export interface Marks {
 export const NO_MARKS: Marks = { startMs: null, endMs: null };
 
 /** A person on the court at one sample: the feet on the frame (x, y in 0..1) and on the court (x_m, y_m in metres). */
+/** The colour of the ring and the label of each player, P1 to P4. */
+export const PLAYER_COLORS: Record<number, string> = { 1: "#f5c518", 2: "#e8559a", 3: "#2fc4d9", 4: "#3ccf6f" };
+
 export interface PersonOnCourt {
+  id: number; // the label, 1 to 4: P1 to P4 (see backend identity.py)
   side: string;
   x: number;
   y: number;

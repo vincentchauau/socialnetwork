@@ -4,7 +4,7 @@ import { useEffect, useState, type MouseEvent, type RefObject } from "react";
 
 import { apiFetch } from "@sn/api";
 import Button from "@sn/elements/Button";
-import { API, CORNER_NAMES, PeopleSample, Point, errorText, normalizedPoint } from "./lib";
+import { API, CORNER_NAMES, PLAYER_COLORS, PeopleSample, Point, errorText, normalizedPoint } from "./lib";
 
 interface CourtPickerProps {
   matchId: number;
@@ -73,15 +73,17 @@ export default function CourtPicker({ matchId, src, initial, videoRef, sample, o
         onTimeUpdate={(event) => onTime(Math.round(event.currentTarget.currentTime * 1000))}
       />
       {picking && <div className="rally-pick" onClick={pick} role="presentation" />}
-      {sample && (
-        <svg className="rally-players-layer" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
-          {sample.people.map((person, index) => (
-            <circle key={index} data-testid="player-dot" cx={person.x} cy={person.y} r={0.012} className={`player ${person.side}`}>
-              <title>{person.side}</title>
-            </circle>
-          ))}
-        </svg>
-      )}
+      {sample?.people.map((person, index) => (
+        <div
+          key={index}
+          data-testid="player-ring"
+          className="rally-ring"
+          title={person.side}
+          style={{ left: `${person.x * 100}%`, top: `${person.y * 100}%`, borderColor: PLAYER_COLORS[person.id] ?? "#888" }}
+        >
+          <span style={{ background: PLAYER_COLORS[person.id] ?? "#888" }}>P{person.id}</span>
+        </div>
+      ))}
       {outline && (
         <svg className="rally-court" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
           <polygon data-testid="court-outline" points={outline.map(([x, y]) => `${x},${y}`).join(" ")} />

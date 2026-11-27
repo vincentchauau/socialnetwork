@@ -17,8 +17,8 @@ const SAMPLE: PeopleSample = {
   t_ms: 500,
   court: COURT,
   people: [
-    { side: "near-left", x: 0.3, y: 0.8, x_m: 1, y_m: 2, score: 0.9 },
-    { side: "far-right", x: 0.6, y: 0.4, x_m: 4, y_m: 10, score: 0.8 },
+    { id: 1, side: "near-left", x: 0.3, y: 0.8, x_m: 1, y_m: 2, score: 0.9 },
+    { id: 2, side: "far-right", x: 0.6, y: 0.4, x_m: 4, y_m: 10, score: 0.8 },
   ],
 };
 
@@ -44,16 +44,23 @@ describe("CourtPicker: the court and the players are found by themselves", () =>
     expect(screen.queryByRole("button", { name: "Save court" })).not.toBeInTheDocument();
   });
 
-  it("draws one dot for each player on the court at this time", () => {
+  it("draws one ring for each player on the court at this time", () => {
     renderPicker(SAMPLE);
 
-    expect(screen.getAllByTestId("player-dot")).toHaveLength(2);
+    expect(screen.getAllByTestId("player-ring")).toHaveLength(2);
+  });
+
+  it("labels each ring with the player's label, P1 to P4", () => {
+    renderPicker(SAMPLE);
+
+    expect(screen.getByText("P1")).toBeInTheDocument();
+    expect(screen.getByText("P2")).toBeInTheDocument();
   });
 
   it("draws no players when there is no sample for this time", () => {
     renderPicker(null);
 
-    expect(screen.queryAllByTestId("player-dot")).toHaveLength(0);
+    expect(screen.queryAllByTestId("player-ring")).toHaveLength(0);
     expect(screen.queryByTestId("court-outline")).not.toBeInTheDocument();
   });
 
