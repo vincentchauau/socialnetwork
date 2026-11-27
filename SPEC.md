@@ -16,6 +16,20 @@ Order of work: Requirements → Database → Backend → Backend test (unit test
 - **Frontend test:** the results of the UI tests.
 - **Local setup and deploy:** how to run the project locally and how to deploy it.
 
+## Working rules
+
+- **Split and merge:** split a piece of logic that is used two or more times, or that is too long; merge a piece used once, or too short.
+- **Size limits:** a function is at most 100 lines; a file is at most 1000 lines.
+- **Errors:** always use try/except.
+- **Names:** no leading underscore (`_`) in names.
+- **Language:** code and comments in English.
+- **Features:** as few features as possible.
+- **Tables and columns:** as few tables and columns as possible.
+- **APIs:** as few APIs as possible.
+- **Components:** as few components as possible.
+- **Tests before merge:** run the unit tests before merging into `main`.
+- **Tests after merge:** run the UI tests after merging into `main`.
+
 # 1. Requirements
 
 Human needs and the apps that serve them.
