@@ -105,9 +105,11 @@ def find_candidates(previous: NDArray[np.uint8], current: NDArray[np.uint8]) -> 
             streak = STREAK_ENABLED and area <= scaled(MAX_STREAK_AREA, width)
             if not streak:
                 continue
-        pixels = np.argwhere(labels == label)
-        if int(current[labels == label].max()) < MIN_BRIGHTNESS:  # the shuttle is almost white
+        x0, y0, w_box, h_box = (int(v) for v in stats[label][:4])
+        inside = labels[y0:y0 + h_box, x0:x0 + w_box] == label  # only the blob's own box: a full-frame mask is slow
+        if int(current[y0:y0 + h_box, x0:x0 + w_box][inside].max()) < MIN_BRIGHTNESS:  # the shuttle is almost white
             continue
+        pixels = np.argwhere(inside) + np.array([y0, x0])
         point = leading_end(pixels, current) if STREAK_ENABLED and is_streak(pixels) else centres[label]
         x, y = point
         found.append((float(x) / width, float(y) / height))
