@@ -21,7 +21,7 @@ INPUT_SIZE = 640
 PERSON_CLASS = 4  # the score of class 0 (person) sits after the four box values
 CONFIDENCE = 0.35
 NMS_THRESHOLD = 0.45
-COURT_MARGIN_M = 1.0  # feet this far outside the lines still count (the lines are drawn on the floor, not the feet)
+COURT_MARGIN_M = 0.3  # feet this far outside the lines still count (the lines are drawn on the floor, not the feet)
 
 
 @dataclass(frozen=True)

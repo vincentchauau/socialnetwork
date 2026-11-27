@@ -10,7 +10,7 @@ import math
 from collections.abc import Mapping, Sequence
 
 MAX_PLAYERS = 4
-MAX_JUMP_M = 2.5  # a player does not move further than this between two samples (half a second)
+MAX_JUMP_M = 4.0  # a player does not move further than this between two samples (half a second)
 SIDE_ORDER = ("near-left", "near-right", "far-right", "far-left")  # the order in which new players get a label
 
 

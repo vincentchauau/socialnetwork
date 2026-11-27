@@ -290,9 +290,9 @@ Finds the players, the court and the shuttle in a badminton match video, and sho
 
 ### Players
 
-1. Uploading a match starts the players job by itself. "Find players" (`POST /people`) starts it again when it is not running; one job runs per match at a time. The job samples the video twice a second, finds the court on each frame, runs a person detector (YOLOv8n, ONNX, OpenCV, model in `backend/data/models`, `RALLY_MODEL_PATH`) and places each person whose feet are on the court by its side: near or far, left or right.
+1. Uploading a match starts the players job by itself. "Find players" (`POST /people`) starts it again when it is not running; one job runs per match at a time. The job samples the video twice a second, finds the court on each frame, runs a person detector (YOLOv8n, ONNX, OpenCV, model in `backend/data/models`, `RALLY_MODEL_PATH`) and places each person whose feet are within 0.3 m of the court by its side: near or far, left or right.
 2. The status is `idle`, `running`, `done` or `failed`; the page polls while it runs.
-3. Labels: each player gets P1 to P4 and keeps it from one sample to the next by where they stand on the court (`identity.py`: the nearest known player within 2.5 m). A new player takes a free label. The labels are not tied to a person's name; two labels can swap when players switch ends mid-rally.
+3. Labels: each player gets P1 to P4 and keeps it from one sample to the next by where they stand on the court (`identity.py`: the nearest known player within 4 m). A new player takes a free label. The labels are not tied to a person's name; two labels can swap when players switch ends mid-rally.
 4. The video shows the players at the current time: a box around each person, labelled P1 to P4 (yellow, pink, cyan, green).
 5. Not done yet: rally detection, hits, score per player and shuttle speed. Hits need ground truth to check them.
 
