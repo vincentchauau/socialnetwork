@@ -26,7 +26,7 @@ Human needs and the apps that serve them.
 | Sleeping | None |
 | Learning | Market (books, materials), Chat (group rooms and calls), File (documents) |
 | Working | Jobs (search, apply, post jobs), Market (Sell), Chat |
-| Social | Chat (rooms, messages, friends, calls), Werewolf, Roulette, Users (profile) |
+| Social | Chat (rooms, messages, friends, calls), Werewolf, Roulette, Rally (match videos), Users (profile) |
 | Self-awareness | Users (profile), Face (symmetry score and history) |
 
 ## Users (center)
@@ -259,6 +259,33 @@ The tabs, in order: CRUD descriptions (the employer's job descriptions), Create 
 
 ---
 
+## Rally
+
+Marks the rallies of a badminton match on its video. This is the MVP: the rallies are marked by hand; detecting the players, the shuttle and the court comes later.
+
+### Matches
+
+1. A person uploads a match: a name (1–100 characters) and a video (mp4, webm or mov, at most 2 GB). The video is kept on disk in `RALLY_UPLOAD_DIR`, the file name is made safe and unique.
+2. Only the owner sees a match. Another person gets 404 (the match is not revealed), for the video too.
+3. The video streams with HTTP Range, so the player can seek.
+
+### Rallies
+
+1. The player shows the video. "Mark start" takes the current time; "Mark end" takes the current time again and must be after the start.
+2. Saving a rally stores its start and end (milliseconds), its hits (0–500, whole number) and the side that won the point (`A` or `B`). A rally lasts at most one hour.
+3. A rally takes the next number of its match (1, 2, 3 …). A rally can be deleted; the numbers are not renumbered.
+
+### Statistics
+
+1. Score: one point per rally for the winner's side.
+2. Rallies, average and maximum hits, average and longest duration. A match with no rallies shows zeros.
+
+### Account events
+
+1. Deleting an account deletes its matches, their rallies and their video files.
+
+---
+
 ## Files
 
 ### Folders
@@ -310,7 +337,7 @@ The tabs, in order: CRUD descriptions (the employer's job descriptions), Create 
 
 Every table, with its columns. Taken from the models in `backend/api/*/models.py`; update it when a model changes. `id*` marks the primary key; `->` marks a foreign key.
 
-Tables of the modules (26 tables, generated from the models):
+Tables of the modules (28 tables, generated from the models):
 
 - `users`: `id*`, `username`, `password_hash`, `created_at`, `email`, `google_sub`, `group`, `kind`, `token_version`, `audio_embedding`, `face_embedding`, `voice_login`, `webcam_login`, `biometric_2fa`, `email_verified`, `email_from_google`, `phone`, `phone_verified`, `totp_enabled`, `totp_secret`, `totp_pending_secret`, `totp_last_step`, `username_changed_at`, `name`, `address`, `headline`, `summary`, `birth_date`, `city`, `region`, `country`, `avatar_url`, `links`, `experience`, `education`, `skills`, `languages`, `certifications`, `projects`, `interests`, `persona_role`, `speaking_style`, `visibility`
 - `passkeys`: `id*`, `user_id`, `credential_id`, `public_key`, `sign_count`, `user_handle`, `transports`, `name`, `backed_up`, `created_at`, `last_used_at`
@@ -337,6 +364,8 @@ Tables of the modules (26 tables, generated from the models):
 - `showcases`: `id*`, `seller_id`, `title`, `brand_id`, `cover`, `audio`, `video`
 - `roulette_wallets`: `user_id*`, `chips`
 - `roulette_spins`: `id*`, `user_id`, `number`, `bets`, `stake`, `payout`, `balance_after`, `created_at`
+- `rally_matches`: `id*`, `user_id`, `name`, `video_name`, `video_path`, `created_at`
+- `rally_rallies`: `id*`, `match_id` (deleted with the match), `number`, `start_ms`, `end_ms`, `hits`, `winner`
 - `games`: `id*`, `room_code`, `status`, `state`, `winner`, `days`, `size`, `finished_at`, `players`, `player_ids`
 - `comments`: `id*`, `object_type`, `object_id`, `user_id`, `content`, `rating`, `once`, `created_at`, `edited_at`
 - `skills`: `key*`, `name`
@@ -563,6 +592,18 @@ The routes of each module, as the running app serves them (the full path, includ
 - `POST /spin`
 - `POST /wallet/refill`
 
+## rally (7)
+
+Paths below are the module's own; the gateway sends `/api/rally/...` here as `/...`.
+
+- `DELETE /matches/{match_id}/rallies/{rally_id}`
+- `GET /health`
+- `GET /matches`
+- `GET /matches/{match_id}`
+- `GET /matches/{match_id}/video`
+- `POST /matches`
+- `POST /matches/{match_id}/rallies`
+
 ## market (23)
 
 - `DELETE /cart`
@@ -611,7 +652,7 @@ The routes of each module, as the running app serves them (the full path, includ
 - `POST /jobs/{job_id}/apply`
 - `POST /jobs/{object_id}/comments`
 
-Total listed: 213 routes.
+Total listed: 220 routes.
 
 # 4. Backend test (unit test)
 

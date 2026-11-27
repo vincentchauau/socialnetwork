@@ -196,12 +196,14 @@ ALL_APPS: tuple[App, ...] = (
     App("database", "Database", "Cơ sở dữ liệu thử và cơ sở dữ liệu của các ứng dụng", backend=False),
     # api: the backend of every app in ONE process (see backend/api/main.py). All modules share one database (see `database_url`).
     App("api", "API", "Backend: mọi mô-đun trong một tiến trình", frontend=False,
-        hosts=("center", "chat", "werewolf", "file", "face", "roulette", "job", "market"),
+        hosts=("center", "chat", "werewolf", "file", "face", "roulette", "job", "market", "rally"),
         backend_env=(*_BROKERS, ("RECORDS_DATA_DIR", "/data/records")), services=(*_MESSAGING_SERVICES, _LIVEKIT, _CALLEAR)),
     App("face", "Face", "Đo cân đối khuôn mặt", backend_in="api"),
     App("roulette", "Roulette", "Chơi Roulette bằng chip ảo", backend_in="api"),
     App("job", "Jobs", "Tìm việc và tuyển dụng", backend_in="api"),
     App("market", "Market", "Mua bán sản phẩm", backend_in="api"),
+    # rally: the videos of the matches (RALLY_UPLOAD_DIR under /data, a folder of its own); the rallies are marked by hand for now.
+    App("rally", "Rally", "Đánh dấu các rally trong video cầu lông", backend_in="api", volume=True),
 )
 
 # The apps that are generated into compose/nginx/apps.ts; narrowed by --apps in main().
@@ -762,6 +764,7 @@ MENU: tuple[tuple[str, str, str, str], ...] = (
     ("personal", "Market", "/market", "market"),
     ("personal", "Jobs", "/job", "job"),
     ("personal", "File", "/file", "file"),
+    ("fun", "Rally", "/rally", "rally"),
     ("personal", "Database", "/", "database"),
 )
 

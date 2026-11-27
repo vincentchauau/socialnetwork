@@ -14,6 +14,7 @@ export const APPS: readonly AppLink[] = [
   { name: "Roulette", href: "/roulette", description: "Chơi Roulette bằng chip ảo" },
   { name: "Jobs", href: "/job", description: "Tìm việc và tuyển dụng" },
   { name: "Market", href: "/market", description: "Mua bán sản phẩm" },
+  { name: "Rally", href: "/rally", description: "Đánh dấu các rally trong video cầu lông" },
 ];
 
 export interface MenuEntry {
@@ -32,5 +33,6 @@ export const MENU: readonly MenuEntry[] = [
   { group: "personal", name: "Market", href: "/market" },
   { group: "personal", name: "Jobs", href: "/job" },
   { group: "personal", name: "File", href: "/file" },
+  { group: "fun", name: "Rally", href: "/rally" },
   { group: "personal", name: "Database", href: "/" },
 ];

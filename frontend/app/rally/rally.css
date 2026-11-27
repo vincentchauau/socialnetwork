@@ -1,0 +1,42 @@
+.rally {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.rally-upload,
+.rally-marks,
+.rally-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.rally-video {
+  width: 100%;
+  background: #000;
+  border-radius: 6px;
+}
+
+.rally-stats span {
+  display: flex;
+  gap: 4px;
+}
+
+.rally-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rally-table th,
+.rally-table td {
+  text-align: left;
+  padding: 6px;
+  border-bottom: 1px solid currentColor;
+}
+
+.rally-error {
+  color: #c0392b;
+  margin: 0;
+}

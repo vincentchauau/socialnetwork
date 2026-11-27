@@ -20,6 +20,7 @@ from api.market.main import create_app as create_market
 from api.job.main import create_app as create_job
 from api.werewolf.main import create_app as create_werewolf
 from api.file.main import create_app as create_file
+from api.rally.main import create_app as create_rally
 
 import logging
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ MODULES: dict[str, Callable[..., FastAPI]] = {
     "roulette": create_roulette,
     "market": create_market,
     "job": create_job,
+    "rally": create_rally,
 }
 
 

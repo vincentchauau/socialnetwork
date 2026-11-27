@@ -7,6 +7,7 @@ import { useSession } from "@sn/lib/useSession";
 
 import "../chatwork.css";
 import "../../roulette/roulette.css";
+import "../../rally/rally.css";
 import "../../face/face.css";
 import "../../job/jobs.css";
 import "../../werewolf/werewolf.css";
@@ -31,6 +32,7 @@ export interface AppMain {
 }
 
 const RouletteMain = dynamic(() => import("../../roulette/RouletteGame"));
+const RallyMain = dynamic(() => import("../../rally/RallyMain"));
 const FaceMain = dynamic(() => import("../../face/components/FaceApp"));
 const JobMain = dynamic(() => import("../../job/JobLibrary"));
 const MarketMain = dynamic(() => import("../../market/MarketLibrary"));
@@ -62,6 +64,7 @@ function WerewolfMain() {
 
 const MAINS: Record<string, AppMain> = {
   roulette: { component: RouletteMain, className: "app-roulette" },
+  rally: { component: RallyMain, className: "app-rally" },
   face: { component: FaceMain, className: "app-face" },
   job: { component: JobMain, className: "app-jobs" },
   market: { component: MarketMain, className: "app-market" },
