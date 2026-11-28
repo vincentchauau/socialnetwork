@@ -13,7 +13,7 @@ from numpy.typing import NDArray
 
 MOTION_THRESHOLD = 25  # grey-level change between two frames that counts as motion
 LOCAL_CONTRAST = 50  # the shuttle is this much brighter than the pixels around it
-MIN_BRIGHTNESS = 150  # grey level of the shuttle's centre: nearly white
+MIN_BRIGHTNESS = 120  # grey level of the shuttle's centre: nearly white
 CLUSTER_RADIUS = 0.04  # share of the frame
 CLUSTER_LIMIT = 3  # this many neighbours close by make a cluster
 TOPHAT_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
@@ -28,6 +28,7 @@ PREDICT_POINTS = 6  # the last points a track is predicted from along its flight
 MIN_TRACK_POINTS = 4  # a track needs this many points before it can be the shuttle
 FIT_POINTS = 8  # the points a track must follow a flight path through (for the whole-video choice)
 MAX_FIT_RESIDUAL = 0.01  # share of the frame: a shuttle flies a smooth path (a parabola in y, a line in x)
+MIN_SHOWN_POINTS = 15  # a shuttle is shown only on a track this long
 MIN_GLOBAL_SCORE = 6  # a track needs this many smooth points to be the shuttle in the whole-video choice
 FORGET_FRAMES = 16  # a track not extended for this long is dropped
 STRAIGHT_POINTS = 6  # the last points that must lie on a straight line
@@ -167,13 +168,19 @@ def step(
     frame_index: int,
 ) -> tuple[Track, ...]:
     """The tracks after one frame: extended where a candidate fits, started where none fits, and old ones dropped."""
-    pairs = sorted(
-        (distance, track_index, cand_index)
-        for track_index, track in enumerate(tracks)
-        for cand_index, candidate in enumerate(candidates)
-        if (distance := float(np.hypot(*(np.subtract(candidate, track.predicted(frame_index)))))) <= GATE
-        or (distance := float(np.hypot(*(np.subtract(candidate, track.coasted(frame_index)))))) <= HIT_GATE
-    )
+    predictions = [track.predicted(frame_index) for track in tracks]  # once per track, not once per candidate
+    coasts = [track.coasted(frame_index) for track in tracks]
+    cand = np.asarray(candidates, dtype=float).reshape(-1, 2)
+    pairs = []
+    for track_index, (predicted, coasted) in enumerate(zip(predictions, coasts)):
+        if cand.shape[0] == 0:
+            break
+        near = np.hypot(*(cand - predicted).T)
+        coast = np.hypot(*(cand - coasted).T)
+        for cand_index in np.flatnonzero((near <= GATE) | (coast <= HIT_GATE)):
+            distance = near[cand_index] if near[cand_index] <= GATE else coast[cand_index]
+            pairs.append((float(distance), track_index, int(cand_index)))
+    pairs.sort()
     extended: dict[int, tuple[float, float]] = {}
     taken: set[int] = set()
     for _, track_index, cand_index in pairs:
@@ -279,7 +286,7 @@ def global_positions(archive: dict[tuple[int, float, float], Track], frame_count
     positions: list[tuple[float, float] | None] = [None] * frame_count
     claimed = [False] * frame_count
     for track in ranked:
-        if local_fit_score(track) < MIN_GLOBAL_SCORE:
+        if local_fit_score(track) < MIN_GLOBAL_SCORE or len(track.points) < MIN_SHOWN_POINTS:  # short tracks are not shown
             continue
         for frame_index in range(track.points[0][0], min(track.points[-1][0], frame_count - 1) + 1):
             if claimed[frame_index]:
