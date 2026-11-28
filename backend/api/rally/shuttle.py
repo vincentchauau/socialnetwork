@@ -276,6 +276,24 @@ def position_on(track: Track, frame_index: int) -> tuple[float, float] | None:
     return None
 
 
+MIN_DISPLACEMENT = 0.047  # share of the frame width (60 px at 1280): a flight travels across the court
+MIN_SPEED = 0.0023  # share of the frame width per frame (3 px at 1280): a shuttle moves faster than a limb
+MIN_FIT_RATIO = 0.9  # share of the points that lie on a flight path
+
+
+def is_shuttle_track(track: Track) -> bool:
+    """A track that can be the shuttle: long enough, smooth, travels far and fast (fitted on two checked tracks)."""
+    if len(track.points) < MIN_SHOWN_POINTS:
+        return False
+    if local_fit_score(track) / len(track.points) < MIN_FIT_RATIO:
+        return False
+    (_, x1, y1), (_, x2, y2) = track.points[0], track.points[-1]
+    if float(np.hypot(x2 - x1, y2 - y1)) < MIN_DISPLACEMENT:
+        return False
+    steps = [float(np.hypot(b[1] - a[1], b[2] - a[2])) / max(b[0] - a[0], 1) for a, b in zip(track.points, track.points[1:])]
+    return float(np.median(steps)) >= MIN_SPEED
+
+
 def global_positions(archive: dict[tuple[int, float, float], Track], frame_count: int) -> list[tuple[float, float] | None]:
     """The shuttle on every frame: the best-scoring tracks of the whole video claim their frames first.
 
@@ -287,7 +305,7 @@ def global_positions(archive: dict[tuple[int, float, float], Track], frame_count
     positions: list[tuple[float, float] | None] = [None] * frame_count
     claimed = [False] * frame_count
     for track in ranked:
-        if local_fit_score(track) < MIN_GLOBAL_SCORE or len(track.points) < MIN_SHOWN_POINTS:  # short tracks are not shown
+        if local_fit_score(track) < MIN_GLOBAL_SCORE or not is_shuttle_track(track):
             continue
         for frame_index in range(track.points[0][0], min(track.points[-1][0], frame_count - 1) + 1):
             if claimed[frame_index]:
