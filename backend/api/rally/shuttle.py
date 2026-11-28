@@ -282,7 +282,8 @@ def global_positions(archive: dict[tuple[int, float, float], Track], frame_count
     A track is judged on all its points, not on the frames before one moment, so a limb that moves smoothly for a
     short while does not beat the shuttle that flies along the whole path.
     """
-    ranked = sorted(archive.values(), key=lambda track: (local_fit_score(track), len(track.points)), reverse=True)
+    # ranked by fit ratio times the square root of length: a long track with some bends does not beat a clean shorter flight
+    ranked = sorted(archive.values(), key=lambda track: (local_fit_score(track) / len(track.points)) * len(track.points) ** 0.5, reverse=True)
     positions: list[tuple[float, float] | None] = [None] * frame_count
     claimed = [False] * frame_count
     for track in ranked:
